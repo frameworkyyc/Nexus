@@ -87,7 +87,8 @@ export function createModuleStore<S>(module: ModuleName, local: PersistedStore<S
   const emit = () => listeners.forEach((l) => l())
   const subscribe = (l: () => void) => { listeners.add(l); const off = subscribeBackend(l); return () => { listeners.delete(l); off() } }
   const isServer = () => backend.mode === 'server'
-  const snapshot = (): S => (isServer() ? remote ?? emptyRemote() : local.get())
+  // Only demonstration mode ever shows the browser copy. While checking or signed out, show saved records (or nothing), never the demo seed.
+  const snapshot = (): S => (backend.mode === 'demo' ? local.get() : remote ?? emptyRemote())
 
   // Commands run one at a time so each is checked against the records the previous one produced.
   let tail: Promise<unknown> = Promise.resolve()
