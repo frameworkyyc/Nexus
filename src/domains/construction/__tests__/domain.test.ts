@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as A from '../actions'
 import { deriveExceptions } from '../exceptions'
 import { companyIssues } from '../portfolio'
+import { packageProgress } from '../packageProgress'
 import { buildPortfolio, buildSeed } from '../seed'
 import { migrateConstruction } from '../store'
 import {
@@ -536,5 +537,38 @@ describe('storage migration', () => {
     expect(migrated.projects[0]).toMatchObject({ id: 'reef', name: 'REEF', tracking: 'detailed', status: 'at-risk' })
     expect(migrated.activities.find((a) => a.id === 'f-21-05:postSurvey')!.status).toBe('complete')
     expect(Array.isArray(migrated.projectIssues)).toBe(true)
+  })
+})
+
+describe('package progress', () => {
+  const s = seed()
+  const idx = getIndex(s)
+  const mole = s.areas.find((a) => a.name === 'Mole Sieve')!
+  const ind = (k: string, i = idx) => packageProgress(i, mole.id).find((x) => x.key === k)!
+
+  it('derives every indicator from records, in range', () => {
+    for (const p of packageProgress(idx, mole.id)) {
+      if (p.percent === null) continue
+      expect(p.percent).toBeGreaterThanOrEqual(0)
+      expect(p.percent).toBeLessThanOrEqual(100)
+    }
+  })
+  it('reports Not tracked for unrecorded items and null for an empty area', () => {
+    expect(ind('survey').rows.at(-1)!.value).toBe('Not tracked')
+    expect(ind('qaqc').rows.at(-1)!.value).toBe('Not tracked')
+    const empty = { ...s, foundations: s.foundations.filter((f) => f.areaId !== mole.id), plinths: [] }
+    expect(ind('installation', getIndex(empty)).percent).toBeNull()
+  })
+  it('counts only approved inspections as accepted; submitted does not raise the figure', () => {
+    const acts = foundationsOf(idx, mole.id).flatMap((f) => foundationActivities(idx, f)).filter((a) => a.key.endsWith('Inspection'))
+    const approved = acts.filter((a) => a.status === 'approved').length
+    expect(ind('qaqc').percent).toBe(Math.round((approved / acts.length) * 100))
+    const bumped = { ...s, activities: s.activities.map((a) => (a.key === 'preInspection' && a.status === 'not-started' ? { ...a, status: 'pending-review' as const } : a)) }
+    expect(ind('qaqc', getIndex(bumped)).percent).toBe(ind('qaqc').percent)
+  })
+  it('materials ignore ordered quantities and follow received stock', () => {
+    const before = ind('materials').percent
+    const withPo = { ...s, purchaseOrders: s.purchaseOrders.map((po) => ({ ...po, lines: po.lines.map((l) => ({ ...l, qtyOrdered: l.qtyOrdered + 1000 })) })) }
+    expect(ind('materials', getIndex(withPo)).percent).toBe(before)
   })
 })

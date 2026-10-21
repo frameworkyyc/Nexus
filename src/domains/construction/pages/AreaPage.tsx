@@ -15,6 +15,7 @@ import { computeStats, foundationActivities, foundationState, foundationsOf, tal
 import { useConstruction } from '../store'
 import { ExceptionList, fraction, TextLink } from '../ui'
 import type { Activity, Foundation } from '../types'
+import { PackageDashboard } from './PackageDashboard'
 import { AreaHandover } from './HandoverPage'
 import { FoundationRegister } from './FoundationRegister'
 import { BoltTable, BulkTable } from './materials/Tables'
@@ -64,6 +65,7 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
   ]
   return (
     <>
+      <PackageDashboard idx={idx} projectId={projectId} areaId={areaId} />
       <dl className="grid grid-cols-2 gap-x-6 gap-y-6 border-y border-line py-6 lg:grid-cols-4 lg:gap-x-0 lg:divide-x lg:divide-line [&>div]:lg:px-6 [&>div:first-child]:lg:pl-0">
         <div>
           <Stat label="Construction progress" value={<>{stats.progress}<span className="text-2xl text-muted">%</span></>} />
