@@ -63,7 +63,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           </ul>
         </nav>
-        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">Demo build · fictional data</div>
+        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">Demonstration data · fictional records</div>
       </aside>
     </>
   )

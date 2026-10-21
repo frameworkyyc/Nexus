@@ -1,45 +1,38 @@
 import { Menu } from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
-import { useProject } from '@/features/projects/store'
+import { Link, useMatches } from 'react-router-dom'
+import { tenant } from '@/app/tenant'
+import type { ComponentType } from 'react'
 
-function useCrumbs() {
-  const { pathname } = useLocation()
-  const parts = pathname.split('/').filter(Boolean)
-  const project = useProject(parts[0] === 'projects' ? parts[1] : undefined)
-  if (parts.length === 0) return [{ label: 'Dashboard' }]
-  if (parts[0] === 'projects') {
-    const crumbs: { label: string; to?: string }[] = [{ label: 'Projects', to: parts[1] ? '/projects' : undefined }]
-    if (parts[1]) crumbs.push({ label: project?.number ?? 'Not found' })
-    return crumbs
-  }
-  return [{ label: 'Nexus' }]
+/** Routes declare `handle: { crumb: Component }`; the top bar renders the chain. */
+export interface CrumbHandle {
+  crumb?: ComponentType
 }
 
 export function TopBar({ onMenu }: { onMenu: () => void }) {
-  const crumbs = useCrumbs()
+  const crumbs = useMatches().filter((m) => (m.handle as CrumbHandle | undefined)?.crumb)
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 sm:px-8">
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <button onClick={onMenu} aria-label="Open navigation" className="text-muted hover:text-ink lg:hidden">
           <Menu size={20} strokeWidth={1.5} />
         </button>
-        <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-[13px]">
-          {crumbs.map((c, i) => (
-            <span key={i} className="flex items-center gap-2">
-              {i > 0 && <span className="text-neutral-300">/</span>}
-              {c.to ? (
-                <Link to={c.to} className="text-muted transition-colors hover:text-ink">{c.label}</Link>
-              ) : (
-                <span className={i === crumbs.length - 1 ? 'font-medium' : 'text-muted'}>{c.label}</span>
-              )}
-            </span>
-          ))}
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-[13px]">
+          {crumbs.map((m, i) => {
+            const Crumb = (m.handle as CrumbHandle).crumb!
+            const last = i === crumbs.length - 1
+            return (
+              <span key={m.id} className="flex items-center gap-2">
+                {i > 0 && <span className="text-neutral-300">/</span>}
+                {last ? <span className="font-medium"><Crumb /></span> : <Link to={m.pathname} className="text-muted transition-colors hover:text-ink"><Crumb /></Link>}
+              </span>
+            )
+          })}
         </nav>
       </div>
       <div className="flex items-center gap-4">
-        <span className="hidden text-[13px] text-muted sm:inline">Framework Demo Organization</span>
+        <span className="hidden text-[13px] text-muted sm:inline">{tenant.organization}</span>
         <div aria-label="User avatar placeholder" className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-micro font-medium text-white">
-          FW
+          {tenant.userInitials}
         </div>
       </div>
     </header>

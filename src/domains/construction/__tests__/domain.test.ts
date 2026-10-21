@@ -1,0 +1,309 @@
+import { describe, expect, it } from 'vitest'
+import * as A from '../actions'
+import { buildSeed } from '../seed'
+import {
+  boltRows, bulkRows, computeStats, crewsOnSite, deriveIssues, effectiveStatus, evaluateHandover, foundationState, getIndex, plinthBoltStage, qty,
+} from '../selectors'
+import type { ConstructionState } from '../types'
+
+const TODAY = '2026-10-21'
+const seed = () => buildSeed(TODAY)
+
+function apply(s: ConstructionState, r: A.Reducer): ConstructionState {
+  const out = r(s)
+  if (out.error !== undefined) throw new Error(out.error)
+  return out.state
+}
+const error = (s: ConstructionState, r: A.Reducer) => r(s).error
+
+describe('seed integrity', () => {
+  const s = seed()
+  const idx = getIndex(s)
+
+  it('has the five areas and the specified Mole Sieve / OP1-02 relationships', () => {
+    expect(s.areas.map((a) => a.name)).toEqual(['Mole Sieve', 'Propane BOG', 'Piperack', 'Locomotive Shelter', 'E-House'])
+    for (const n of ['21-01', '21-03', '21-05']) {
+      const plinth = s.plinths.find((p) => p.id === `p-${n}-1`)
+      expect(plinth?.anchorageTypeId).toBe('OP1-02')
+    }
+    expect(s.anchorageTypes.map((t) => t.code)).toContain('OP1-01')
+    expect(s.company.name).toBe('Progressive')
+    expect(s.projects[0]).toMatchObject({ name: 'REEF', jobNumber: '928', location: 'Ridley Island, British Columbia', scope: 'Concrete Foundations' })
+  })
+
+  it('does not assume one plinth per foundation or one anchorage type per plinth', () => {
+    const counts = new Set(s.foundations.map((f) => idx.plinthsByFoundation.get(f.id)!.length))
+    expect(counts.size).toBeGreaterThan(1)
+    expect(new Set(s.plinths.map((p) => p.anchorageTypeId)).size).toBeGreaterThan(3)
+  })
+
+  it('references only existing records', () => {
+    for (const p of s.plinths) {
+      expect(idx.foundation.has(p.foundationId)).toBe(true)
+      expect(idx.anchorage.has(p.anchorageTypeId!)).toBe(true)
+    }
+    for (const a of s.activities) expect(idx.foundation.has(a.foundationId)).toBe(true)
+    for (const l of idx.poLine.values()) expect(l.line.kind === 'bolt' ? idx.spec.has(l.line.itemId) : idx.bulk.has(l.line.itemId)).toBe(true)
+  })
+
+  it('never allocates more than was received, or more than a plinth needs', () => {
+    for (const [key, allocated] of idx.allocated) expect(allocated).toBeLessThanOrEqual(qty(idx.received, key))
+    for (const r of boltRows(idx)) for (const l of r.lines) expect(l.allocated).toBeLessThanOrEqual(l.qty)
+  })
+
+  it('only marks plinths ready when every bolt is allocated', () => {
+    for (const r of s.plinthReady) expect(plinthBoltStage(idx, idx.plinth.get(r.plinthId)!)).toBe('ready')
+    for (const r of boltRows(idx)) for (const l of r.lines.filter((x) => x.ready)) expect(l.allocated).toBe(l.qty)
+  })
+
+  it('keeps physical progress consistent with materials (plinths forming have bolts ready)', () => {
+    for (const a of s.activities.filter((x) => x.scope === 'plinth' && x.key === 'formed' && (x.status === 'complete' || x.status === 'in-progress'))) {
+      expect(idx.ready.has(a.plinthId!)).toBe(true)
+    }
+  })
+
+  it('contains the 700 sample nut requirement flagged as a sample', () => {
+    const nuts = s.bulkMaterials.find((b) => b.areaId === 'mole-sieve' && b.kind === 'nut' && b.size === '3/4"')
+    expect(nuts).toMatchObject({ requiredQty: 700, sample: true })
+  })
+
+  it('has no pour recorded without an approved pre-pour inspection', () => {
+    expect(deriveIssues(idx, TODAY).filter((i) => i.category === 'sequence')).toEqual([])
+  })
+})
+
+describe('rollups', () => {
+  const s = seed()
+  const idx = getIndex(s)
+
+  it('derives project progress from the activity records, not stored percentages', () => {
+    const stats = computeStats(idx, s.foundations)
+    const constructionActs = s.activities.filter((a) => ['formed', 'poured', 'rebarBuilt', 'rebarInstalled'].includes(a.key))
+    expect(stats.construction.total).toBe(constructionActs.length)
+    expect(stats.construction.done).toBe(constructionActs.filter((a) => a.status === 'complete').length)
+    expect(stats.footingPoured.total).toBe(s.foundations.length)
+    expect(stats.plinthPoured.total).toBe(s.plinths.length)
+  })
+
+  it('keeps construction completion separate from survey and QA/QC completion', () => {
+    const stats = computeStats(idx, s.foundations)
+    expect(stats.constructed).toBeGreaterThanOrEqual(stats.closedOut)
+    expect(stats.closedOut).toBeLessThan(stats.constructed + 1)
+    // a foundation can be constructed while inspection is still pending
+    const f = s.foundations.find((x) => x.number === '21-03')!
+    expect(foundationState(idx, f).state).toBe('constructed')
+  })
+
+  it('updates area and project rollups when a foundation activity changes', () => {
+    const before = computeStats(idx, idx.foundationsByArea.get('mole-sieve')!)
+    const next = apply(s, A.updateActivity('f-21-05:postSurvey', { status: 'complete' }, TODAY))
+    const nextIdx = getIndex(next)
+    const after = computeStats(nextIdx, nextIdx.foundationsByArea.get('mole-sieve')!)
+    expect(after.survey.done).toBe(before.survey.done + 1)
+    expect(computeStats(nextIdx, next.foundations).survey.done).toBe(computeStats(idx, s.foundations).survey.done + 1)
+    expect(next.activities.find((a) => a.id === 'f-21-05:postSurvey')?.actualDate).toBe(TODAY)
+  })
+
+  it('tracks plinths independently within one foundation', () => {
+    const next = apply(s, A.updateActivity('p-21-02-2:postSurvey', { status: 'complete' }, TODAY))
+    const i = getIndex(next)
+    expect(effectiveStatus(i, i.activitiesByOwner.get('p-21-02-2')!.find((a) => a.key === 'postSurvey')!)).toBe('complete')
+    expect(effectiveStatus(i, i.activitiesByOwner.get('p-21-02-1')!.find((a) => a.key === 'postSurvey')!)).toBe('complete')
+    const p3 = i.activitiesByOwner.get('p-21-04-2')!.find((a) => a.key === 'postSurvey')!
+    expect(effectiveStatus(i, p3)).toBe('not-started')
+  })
+
+  it('does not let derived material statuses be edited directly', () => {
+    expect(error(s, A.updateActivity('p-21-05-1:anchorBolts', { status: 'complete' }, TODAY))).toMatch(/derived/)
+  })
+})
+
+describe('receiving and allocation', () => {
+  it('keeps receiving separate from allocation: arrival does not make a plinth ready', () => {
+    const s = seed()
+    const idx = getIndex(s)
+    const plinth = idx.plinth.get('p-21-05-1')!
+    const before = plinthBoltStage(idx, plinth)
+    const po = s.purchaseOrders.find((p) => p.status === 'issued' && p.lines.some((l) => l.itemId === 'BS-02'))!
+    const line = po.lines.find((l) => l.itemId === 'BS-02')!
+    const next = apply(s, A.receiveDelivery(po.id, { date: TODAY, reference: 'SKID-T1', receivedBy: 'x', notes: '', lines: [{ poLineId: line.id, qtyShipped: 10, qtyReceived: 10, note: '' }] }))
+    const i = getIndex(next)
+    expect(qty(i.received, 'bolt:BS-02')).toBe(qty(idx.received, 'bolt:BS-02') + 10)
+    expect(plinthBoltStage(i, i.plinth.get('p-21-05-1')!)).toBe(before)
+    expect(i.ready.has('p-21-05-1')).toBe(false)
+  })
+
+  it('supports partial receipts and flags shortages and discrepancies', () => {
+    const s = seed()
+    const po = s.purchaseOrders.find((p) => p.id === 'po-0102')!
+    const f = A.receiveDelivery
+    const line = po.lines[0]
+    const next = apply(s, f(po.id, { date: TODAY, reference: 'SKID-T2', receivedBy: 'x', notes: '', lines: [{ poLineId: line.id, qtyShipped: 20, qtyReceived: 18, note: 'Two bolts damaged' }] }))
+    const last = next.deliveries[next.deliveries.length - 1]
+    expect(last.lines[0].resolved).toBe(false)
+    expect(deriveIssues(getIndex(next), TODAY).some((x) => x.category === 'delivery' && x.detail.includes('counted 18'))).toBe(true)
+  })
+
+  it('requires a note to over-receive', () => {
+    const s = seed()
+    const po = s.purchaseOrders.find((p) => p.id === 'po-0102')!
+    expect(error(s, A.receiveDelivery(po.id, { date: TODAY, reference: '', receivedBy: '', notes: '', lines: [{ poLineId: po.lines[0].id, qtyShipped: 9999, qtyReceived: 9999, note: '' }] }))).toMatch(/over-receipt/)
+  })
+
+  it('cannot receive against a draft purchase order', () => {
+    const s = seed()
+    expect(error(s, A.receiveDelivery('po-0103', { date: TODAY, reference: '', receivedBy: '', notes: '', lines: [{ poLineId: 'po-0103-LBS-03', qtyShipped: 1, qtyReceived: 1, note: '' }] }))).toMatch(/issued/)
+  })
+
+  it('never allows the same received inventory to be allocated twice', () => {
+    const s = seed()
+    const idx = getIndex(s)
+    const row = boltRows(idx).find((r) => r.spec.id === 'BS-02')!
+    expect(row.available).toBeGreaterThan(0)
+    const target = row.lines.find((l) => l.allocated < l.qty)!
+    const take = Math.min(row.available, target.qty - target.allocated)
+    const once = apply(s, A.allocate([{ itemType: 'bolt', itemId: 'BS-02', plinthId: target.plinth.id, qty: take }], TODAY))
+    expect(boltRows(getIndex(once)).find((r) => r.spec.id === 'BS-02')!.available).toBe(row.available - take)
+    // Drain the pool, then any further allocation must fail.
+    const other = row.lines.filter((l) => l.plinth.id !== target.plinth.id && l.allocated < l.qty)
+    let drained = once
+    for (const l of other) {
+      const avail = boltRows(getIndex(drained)).find((r) => r.spec.id === 'BS-02')!.available
+      const q = Math.min(avail, l.qty - l.allocated)
+      if (q > 0) drained = apply(drained, A.allocate([{ itemType: 'bolt', itemId: 'BS-02', plinthId: l.plinth.id, qty: q }], TODAY))
+    }
+    const left = boltRows(getIndex(drained)).find((r) => r.spec.id === 'BS-02')!
+    const stillOpen = left.lines.find((l) => l.allocated < l.qty)
+    if (stillOpen) expect(left.available).toBe(0)
+    if (stillOpen) expect(error(drained, A.allocate([{ itemType: 'bolt', itemId: 'BS-02', plinthId: stillOpen.plinth.id, qty: 1 }], TODAY))).toMatch(/available/)
+  })
+
+  it('rejects an allocation that exceeds what a plinth requires', () => {
+    const s = seed()
+    const plinth = 'p-21-01-1'
+    expect(error(s, A.allocate([{ itemType: 'bolt', itemId: 'BS-02', plinthId: plinth, qty: 1 }], TODAY))).toMatch(/exceed|available/)
+  })
+
+  it('requires full allocation before a plinth can be marked ready, and blocks returning ready stock', () => {
+    const s = seed()
+    const idx = getIndex(s)
+    const partial = boltRows(idx).flatMap((r) => r.lines).find((l) => l.allocated > 0 && l.allocated < l.qty)
+    if (partial) expect(error(s, A.setBoltsReady(partial.plinth.id, true, TODAY))).toMatch(/allocated/)
+    const ready = s.plinthReady[0]
+    const alloc = s.allocations.find((a) => a.plinthId === ready.plinthId && a.itemType === 'bolt')!
+    expect(error(s, A.returnAllocation(alloc.id))).toMatch(/ready/)
+    const unready = apply(s, A.setBoltsReady(ready.plinthId, false, TODAY))
+    const returned = apply(unready, A.returnAllocation(alloc.id))
+    expect(boltRows(getIndex(returned)).find((r) => r.spec.id === alloc.itemId)!.available).toBeGreaterThan(0)
+  })
+
+  it('consolidates identical bolt specs across anchorage types while preserving foundation requirements', () => {
+    const idx = getIndex(seed())
+    const bs03 = boltRows(idx).find((r) => r.spec.id === 'BS-03')!
+    expect(new Set(bs03.lines.map((l) => l.anchorageTypeId)).size).toBeGreaterThan(1)
+    expect(bs03.required).toBe(bs03.lines.reduce((t, l) => t + l.qty, 0))
+    expect(bs03.lines.every((l) => l.foundation && l.plinth)).toBe(true)
+  })
+
+  it('allocates bulk hardware within an area only', () => {
+    const s = seed()
+    const idx = getIndex(s)
+    const row = bulkRows(idx, 'mole-sieve').find((r) => r.item.kind === 'nut' && r.item.size === '3/4"')!
+    expect(row.available).toBeGreaterThan(0)
+    expect(error(s, A.allocate([{ itemType: 'bulk', itemId: row.item.id, plinthId: 'p-22-01-1', qty: 1 }], TODAY))).toBeTruthy()
+  })
+
+  it('creates, issues and receives a new purchase order for a shortfall', () => {
+    let s = seed()
+    let poId = ''
+    s = apply(s, A.createPurchaseOrder('sup-steel', null, 'test', (id) => (poId = id)))
+    s = apply(s, A.addPOLine(poId, 'bolt', 'BS-05', 60))
+    expect(boltRows(getIndex(s)).find((r) => r.spec.id === 'BS-05')!.draft).toBe(60)
+    s = apply(s, A.issuePurchaseOrder(poId, TODAY))
+    expect(boltRows(getIndex(s)).find((r) => r.spec.id === 'BS-05')!.ordered).toBe(60)
+    s = apply(s, A.receiveDelivery(poId, { date: TODAY, reference: 'T', receivedBy: 'x', notes: '', lines: [{ poLineId: `${poId}-LBS-05`, qtyShipped: 30, qtyReceived: 30, note: '' }] }))
+    expect(boltRows(getIndex(s)).find((r) => r.spec.id === 'BS-05')!.available).toBe(30)
+  })
+})
+
+describe('fabrication workflow', () => {
+  it('enforces approval and authorization before fabrication, and collection before site receipt', () => {
+    let s = seed()
+    const req = s.fabrication.find((r) => r.approval === 'quote-requested')!
+    expect(error(s, A.updateFabrication(req.id, { fabrication: 'cutting' }, TODAY))).toMatch(/approved/)
+    expect(error(s, A.updateFabrication(req.id, { approval: 'approved' }, TODAY))).toMatch(/drawing/)
+    s = apply(s, A.updateFabrication(req.id, { supplierDrawingDocId: s.documents[0].id }, TODAY))
+    s = apply(s, A.updateFabrication(req.id, { approval: 'approved', authorization: 'authorized' }, TODAY))
+    s = apply(s, A.updateFabrication(req.id, { fabrication: 'complete' }, TODAY))
+    expect(error(s, A.updateFabrication(req.id, { siteReceipt: 'received' }, TODAY))).toMatch(/collected/)
+    s = apply(s, A.updateFabrication(req.id, { pickup: 'ready' }, TODAY))
+    s = apply(s, A.updateFabrication(req.id, { pickup: 'collected' }, TODAY))
+    s = apply(s, A.updateFabrication(req.id, { siteReceipt: 'received' }, TODAY))
+    const done = s.fabrication.find((r) => r.id === req.id)!
+    expect(done.history.length).toBeGreaterThan(req.history.length)
+    expect(done.receivedDate).toBe(TODAY)
+  })
+
+  it('drives the plywood template activity from site receipt', () => {
+    let s = seed()
+    const req = s.fabrication.find((r) => r.siteReceipt === 'pending' && r.plinthIds.length)!
+    const plinthId = req.plinthIds[0]
+    const status = (st: ConstructionState) => { const i = getIndex(st); return effectiveStatus(i, i.activitiesByOwner.get(plinthId)!.find((a) => a.key === 'templates')!) }
+    expect(status(s)).not.toBe('complete')
+    s = apply(s, A.updateFabrication(req.id, { supplierDrawingDocId: s.documents[0].id }, TODAY))
+    s = apply(s, A.updateFabrication(req.id, { approval: 'approved', authorization: 'paid', fabrication: 'complete', pickup: 'collected', siteReceipt: 'received' }, TODAY))
+    expect(status(s)).toBe('complete')
+  })
+
+  it('configures quantity independently of assignments', () => {
+    let s = seed()
+    const req = s.fabrication[0]
+    s = apply(s, A.updateFabrication(req.id, { quantity: 1, reuse: 'reusable' }, TODAY))
+    s = apply(s, A.setFabricationPlinths(req.id, req.plinthIds.slice(0, 2), TODAY))
+    const next = s.fabrication[0]
+    expect(next.quantity).toBe(1)
+    expect(next.plinthIds).toHaveLength(Math.min(2, req.plinthIds.length))
+  })
+})
+
+describe('handover', () => {
+  it('never marks an area handed over automatically', () => {
+    let s = seed()
+    const areaId = 'e-house'
+    // Force every activity to complete/approved and every manual requirement done.
+    s = { ...s, activities: s.activities.map((a) => (s.foundations.find((f) => f.id === a.foundationId)!.areaId === areaId ? { ...a, status: a.key.includes('Inspection') ? 'approved' as const : 'complete' as const } : a)) }
+    for (const r of s.handover.find((h) => h.areaId === areaId)!.requirements.filter((r) => !r.metric)) s = apply(s, A.setRequirementDone(areaId, r.id, true, TODAY))
+    const ev = evaluateHandover(getIndex(s), areaId)
+    expect(ev.constructionComplete).toBe(true)
+    expect(ev.record.acceptance).toBe('not-submitted')
+    expect(ev.label).toBe('Ready to submit')
+    expect(error(s, A.recordAcceptance(areaId, true, 'Owner rep', TODAY))).toMatch(/submitted/)
+    s = apply(s, A.submitHandover(areaId, TODAY, ev.allMet))
+    s = apply(s, A.recordAcceptance(areaId, true, 'Owner rep', TODAY))
+    expect(evaluateHandover(getIndex(s), areaId).label).toBe('Accepted')
+  })
+
+  it('blocks submission while requirements are outstanding and supports configurable requirements', () => {
+    let s = seed()
+    const ev = evaluateHandover(getIndex(s), 'mole-sieve')
+    expect(ev.allMet).toBe(false)
+    expect(error(s, A.submitHandover('mole-sieve', TODAY, ev.allMet))).toMatch(/must be met/)
+    s = apply(s, A.addRequirement('mole-sieve', 'Owner walkdown completed', null))
+    expect(evaluateHandover(getIndex(s), 'mole-sieve').items.at(-1)?.label).toBe('Owner walkdown completed')
+  })
+})
+
+describe('workforce context', () => {
+  it('has two crews and one or two superintendents on site at any time', () => {
+    const idx = getIndex(seed())
+    for (let d = 0; d < 42; d++) {
+      const date = new Date(2026, 9, 1 + d).toISOString().slice(0, 10)
+      const on = crewsOnSite(idx, date)
+      expect(on.crews).toHaveLength(2)
+      expect(on.superintendents.length).toBeGreaterThanOrEqual(1)
+    }
+    const people = idx.state.people
+    expect(people.filter((p) => p.role === 'foreman')).toHaveLength(3)
+    expect(people.filter((p) => p.role === 'carpenter')).toHaveLength(12)
+  })
+})

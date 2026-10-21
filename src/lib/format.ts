@@ -1,12 +1,19 @@
-export function formatDate(iso: string): string {
+import { parseISO } from './date'
+
+export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
-  const [y, m, d] = iso.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
+  return parseISO(iso).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-/** Milestone proxy for the demo: active/planning projects targeting completion within the next 90 days. */
-export function isWithinDays(iso: string, days: number, now = new Date()): boolean {
-  const [y, m, d] = iso.split('-').map(Number)
-  const diff = (new Date(y, m - 1, d).getTime() - now.getTime()) / 86_400_000
-  return diff >= 0 && diff <= days
+export function formatShortDate(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  return parseISO(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
+}
+
+export function formatNumber(n: number): string {
+  return n.toLocaleString('en-CA')
+}
+
+export function pct(done: number, total: number): number {
+  return total === 0 ? 0 : Math.round((done / total) * 100)
 }
