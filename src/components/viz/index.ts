@@ -1,4 +1,5 @@
 export * from './status'
+export { Ring, RingValue, RING_SIZE, ringStroke, type RingProps } from './Ring'
 export { RadialGauge, type RadialGaugeProps } from './RadialGauge'
 export { StatusMark } from './StatusMark'
 export { MetricSummary } from './MetricSummary'

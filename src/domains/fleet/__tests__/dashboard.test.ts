@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { constructionRoutes } from '@/domains/construction/routes'
 import { fleetRoutes } from '../routes'
 import * as A from '../actions'
+import { oilIndicator } from '../indicators'
 import { buildFleetSeed, applyVerifiedT6010, T6010_ID } from '../seed'
 import { fleetPaths } from '../paths'
 import {
@@ -11,7 +12,8 @@ import {
 import type { FleetState } from '../types'
 
 const TODAY = '2026-10-21'
-const seed = () => buildFleetSeed()
+// Most tests exercise genuine records, so they start without the demonstration inspections (covered in demo.test).
+const seed = () => { const s = buildFleetSeed(); return { ...s, inspections: s.inspections.filter((i) => !i.demo) } }
 const apply = (s: FleetState, r: A.Reducer): FleetState => { const o = r(s); if (o.error !== undefined) throw new Error(o.error); return o.state }
 const err = (s: FleetState, r: A.Reducer) => r(s).error
 const T6005 = 'veh-T6005'
@@ -26,14 +28,15 @@ describe('T6010 verified information', () => {
     expect(t).toMatchObject({ unitNumber: 'T6010', year: 2026, make: 'Ford', model: 'F-350', vin: null, licencePlate: null })
     expect(vehiclesForProject(s, 'reef').map((v) => v.unitNumber)).toContain('T6010')
     expect(latestOdometer(s, T6010_ID)).toMatchObject({ reading: 11_856, unit: 'km', review: 'valid', date: null })
-    expect(serviceStatus(s, T6010_ID)).toMatchObject({ kmRemaining: 1_695, overdue: false, state: 'ok' })
-    expect(serviceStatus(s, T6010_ID).target).toMatchObject({ odometer: 13_551 })
+    expect(s.vehicles.find((v) => v.id === T6010_ID)).toMatchObject({ expectedLifeKm: 180_000, inspectionIntervalDays: null })
+    expect(oilIndicator(s, T6010_ID)).toMatchObject({ remaining: 1_695, dueAt: 13_551, status: 'warn' })
+    expect(currentOilTarget(s, T6010_ID)).toMatchObject({ odometer: 13_551, serviceType: 'Oil change', intervalKm: 5_000, warnWithinKm: 2_000 })
   })
 
-  it('does not assume the next service is an oil change, or invent a last service', () => {
-    expect(serviceStatus(s, T6010_ID).target?.serviceType).toBeNull()
-    expect(serviceStatus(s, T6010_ID).target?.warnWithinKm).toBeNull()
-    expect(maintenanceOf(s, T6010_ID)).toEqual([])
+  it('has one oil-change schedule and no duplicate scheduled service, and invents no completed oil change', () => {
+    expect(s.serviceTargets.filter((t) => t.vehicleId === T6010_ID)).toHaveLength(1)
+    expect(serviceStatus(s, T6010_ID).target).toBeUndefined() // not a second, generic schedule
+    expect(maintenanceOf(s, T6010_ID)).toEqual([]) // the 8,551 km baseline is calculated, never a record
     expect(lastService(s, T6010_ID, 'Oil change')).toBeUndefined()
   })
 
@@ -149,7 +152,7 @@ describe('tire-set replacement and history', () => {
 
 describe('maintenance thresholds', () => {
   it('highlights overdue, and due soon only when a warning window was recorded', () => {
-    let s = seed()
+    let s = apply(seed(), A.setServiceTarget(T6010_ID, 13_551, '', TODAY))
     expect(serviceStatus(s, T6010_ID).state).toBe('ok') // 1,695 km left, no window recorded → no invented warning
     s = apply(s, A.setServiceTarget(T6010_ID, 13_551, '', TODAY, { warnWithinKm: 2_000 }))
     expect(serviceStatus(s, T6010_ID)).toMatchObject({ state: 'due-soon', kmRemaining: 1_695 })
@@ -170,7 +173,7 @@ describe('maintenance thresholds', () => {
   it('a recorded threshold is not a completed service; only maintenance records are', () => {
     let s = apply(seed(), A.setServiceTarget(T6010_ID, 13_551, 'oil', TODAY, { serviceType: 'Oil change' }))
     expect(currentOilTarget(s, T6010_ID)?.serviceType).toBe('Oil change') // only because someone recorded it
-    expect(serviceStatus(s, T6010_ID).target?.serviceType).toBeNull() // the untyped scheduled service is unchanged
+    expect(serviceStatus(s, T6010_ID).target).toBeUndefined() // an oil change is not also a generic scheduled service
     expect(lastService(s, T6010_ID)).toBeUndefined()
     s = apply(s, A.recordMaintenance(T6010_ID, { date: '2026-10-10', serviceType: 'Oil change', odometer: 11_000, description: '', notes: '' }, TODAY))
     expect(lastService(s, T6010_ID, 'oil change')).toMatchObject({ odometer: 11_000 })

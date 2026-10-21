@@ -15,6 +15,10 @@ export interface Vehicle {
   vin: string | null // null = not recorded
   licencePlate: string | null // null = not recorded
   notes: string
+  /** Planning estimate of the vehicle's total service life in km. null = not set. Reaching it never marks the vehicle unsafe. */
+  expectedLifeKm: number | null
+  /** Days between inspections. null = the weekly default (7). */
+  inspectionIntervalDays: number | null
 }
 
 /** A period during which a vehicle is assigned to a project. The current assignment has no end date. */
@@ -57,6 +61,8 @@ export interface ServiceTarget {
   serviceType: string | null
   /** Highlight as "due soon" once this many km or fewer remain. null = no warning window recorded. */
   warnWithinKm: number | null
+  /** Distance between services of this kind, when known. With it, the interval start is the target minus this, as a calculated baseline (not a completed record). */
+  intervalKm: number | null
 }
 
 export type DefectStatus = 'outstanding' | 'resolved'
@@ -79,6 +85,8 @@ export interface InspectionRecord {
   reviewedDate: ISODate | null
   reviewNote: string
   condition: RatedCondition | null
+  /** Demonstration / unverified sample. Never counts toward inspection status, compliance, defects or condition. */
+  demo: boolean
 }
 
 export interface MaintenanceRecord {

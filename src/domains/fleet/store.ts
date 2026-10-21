@@ -20,7 +20,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
   else s = {
     vehicles: d.vehicles ?? [], assignments: d.assignments ?? [], maintenance: d.maintenance ?? [], serviceTargets: [], tireSets: [], accessories: [],
     odometer: (d.odometer ?? []).map((r) => ({ id: r.id!, vehicleId: r.vehicleId!, date: r.date!, reading: r.reading!, unit: r.unit ?? 'km', review: 'valid', flag: null, correctsId: null, note: '', reviewNote: '', reviewedDate: null })),
-    inspections: (d.inspections ?? []).map((i) => ({ id: i.id!, vehicleId: i.vehicleId!, date: i.date!, submittedBy: '', notes: i.notes ?? '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: i.date ?? null, reviewNote: '', condition: i.condition ?? null })),
+    inspections: (d.inspections ?? []).map((i) => ({ id: i.id!, vehicleId: i.vehicleId!, date: i.date!, submittedBy: '', notes: i.notes ?? '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: i.date ?? null, reviewNote: '', condition: i.condition ?? null, demo: false })),
   }
   if (from < 3) {
     s = {
@@ -31,6 +31,16 @@ export function migrateFleet(data: unknown, from: number): FleetState {
     s = applyVerifiedT6010(s)
   }
   if (from < 4) s = { ...s, tireSets: s.tireSets.map((t) => ({ ...t, expectedLifeKm: t.expectedLifeKm ?? null, replaceAtMm: t.replaceAtMm ?? null })) }
+  if (from < 5) {
+    // New optional fields start empty; T6010's configured values are then filled in only where nothing has been entered.
+    s = {
+      ...s,
+      vehicles: s.vehicles.map((v) => ({ ...v, expectedLifeKm: v.expectedLifeKm ?? null, inspectionIntervalDays: v.inspectionIntervalDays ?? null })),
+      serviceTargets: s.serviceTargets.map((t) => ({ ...t, intervalKm: t.intervalKm ?? null })),
+      inspections: s.inspections.map((i) => ({ ...i, demo: i.demo ?? false })),
+    }
+    s = applyVerifiedT6010(s)
+  }
   return s
 }
 
@@ -40,7 +50,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
  */
 const fleetLocal = createPersistedStore({
   key: 'nexus.demo.fleet',
-  version: 4,
+  version: 5,
   seed: buildFleetSeed,
   migrate: migrateFleet,
 })

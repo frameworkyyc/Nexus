@@ -1,17 +1,56 @@
-import { intervalConsumed, remainingStatus, worstStatus, type Status } from '@/components/viz/status'
+import { remainingStatus, worstStatus, type Status } from '@/components/viz/status'
 import type { ISODate } from '@/lib/date'
-import { activeTireSet, currentOilTarget, inspectionStatus, isOilChange, lastService, latestOdometer, latestTread, maintenanceOf, outstandingDefects, tireKm, currentServiceTarget } from './selectors'
+import { activeTireSet, currentOilTarget, currentServiceTarget, inspectionStatus, isOilChange, lastService, latestOdometer, latestTread, maintenanceOf, outstandingDefects, tireKm } from './selectors'
 import type { FleetState, MaintenanceRecord, ServiceTarget, TireSet } from './types'
 
 /**
- * Pure view-models for the vehicle dashboard gauges. Every figure comes from recorded data; when a figure cannot be computed
- * it is null and the status is `unknown` (or `info` where the data is present but nothing says whether it is good or bad).
- * Nothing here defaults a lifespan, a threshold, a completion or a condition.
+ * Pure view-models for the vehicle dashboard gauges. Every figure comes from recorded or configured data; when a figure cannot be
+ * computed it is null and the status is `unknown` (or `info` where the data is present but nothing says whether it is good or bad).
+ * Nothing here defaults a lifespan, an interval, a threshold, a completion or a condition.
  */
+
+/** One decimal, the precision every percentage in the dashboard is shown at. */
+export const pct1 = (n: number) => Math.round(n * 10) / 10
+const fmtKm = (n: number) => `${n.toLocaleString('en-CA')} km`
+
+/** Remaining and consumed shares of a total, clamped to 0–100 so a gauge never over- or under-fills when the estimate is exceeded. */
+export function lifeShares(used: number | null, total: number | null): { remainingPercent: number | null; consumedPercent: number | null; remaining: number | null } {
+  if (used === null || total === null || !(total > 0) || used < 0) return { remainingPercent: null, consumedPercent: null, remaining: null }
+  const consumed = Math.min(100, Math.max(0, (used / total) * 100))
+  return { remainingPercent: 100 - consumed, consumedPercent: consumed, remaining: total - used }
+}
+
+/* ── Vehicle lifespan ──────────────────────────────────────────────────── */
+
+export interface LifeIndicator {
+  status: Status
+  label: string
+  current: number | null
+  expectedKm: number | null
+  remainingKm: number | null
+  /** Share of the estimated lifespan left / used, clamped to 0–100. null = cannot be computed. */
+  remainingPercent: number | null
+  consumedPercent: number | null
+}
+
+/**
+ * Vehicle lifespan is a planning estimate, not a statement of mechanical condition. It is green while inside the estimate; going past
+ * it is flagged for planning (orange) and never marks the vehicle unsafe, unserviceable or in poor condition.
+ */
+export function lifespanIndicator(state: FleetState, vehicleId: string): LifeIndicator {
+  const expectedKm = state.vehicles.find((v) => v.id === vehicleId)?.expectedLifeKm ?? null
+  const current = latestOdometer(state, vehicleId)?.reading ?? null
+  const { remainingPercent, consumedPercent, remaining } = lifeShares(current, expectedKm)
+  if (expectedKm === null) return { status: 'unknown', label: 'No lifespan estimate set', current, expectedKm, remainingKm: null, remainingPercent: null, consumedPercent: null }
+  if (remaining === null) return { status: 'unknown', label: 'No valid odometer reading', current, expectedKm, remainingKm: null, remainingPercent: null, consumedPercent: null }
+  const within = remaining >= 0
+  return { status: within ? 'ok' : 'warn', label: within ? 'Within estimated lifespan' : `Beyond estimate by ${fmtKm(-remaining)}`, current, expectedKm, remainingKm: remaining, remainingPercent, consumedPercent }
+}
+
+/* ── Scheduled maintenance (oil change and other services) ─────────────── */
 
 export interface DistanceIndicator {
   status: Status
-  /** Why the status is what it is, in plain words. */
   label: string
   current: number | null
   /** Odometer at which the work falls due; null = no schedule recorded. */
@@ -20,37 +59,47 @@ export interface DistanceIndicator {
   /** Odometer of the last completed work of the same kind, when recorded. */
   lastAt: number | null
   lastDate: ISODate | null
-  /** Interval start/end used for the percentage; both must be known. */
+  /** Start of the current interval, and whether it was calculated (due − interval) rather than taken from a completed record. */
   intervalStart: number | null
-  /** Share of the interval consumed (can exceed 100 when overdue). null = not computable. */
-  percent: number | null
+  baselineCalculated: boolean
+  intervalKm: number | null
+  /** Share of the interval left / used (left is clamped to 0–100). null unless both ends of the interval are known. */
+  remainingPercent: number | null
+  consumedPercent: number | null
   warnWithinKm: number | null
   schedule: ServiceTarget | undefined
   last: MaintenanceRecord | undefined
 }
 
-const fmtKm = (n: number) => `${n.toLocaleString('en-CA')} km`
-
 function distance(label: string, current: number | null, schedule: ServiceTarget | undefined, last: MaintenanceRecord | undefined): DistanceIndicator {
   const dueAt = schedule?.odometer ?? null
   const remaining = dueAt !== null && current !== null ? dueAt - current : null
   const lastAt = last?.odometer ?? null
-  const percent = intervalConsumed(lastAt, dueAt, current)
+  // Interval start: the last completed work when its odometer is known and sits below the due mileage; otherwise, if an interval is
+  // configured, due − interval as a calculated baseline. A baseline is never turned into a completed record.
+  let intervalStart: number | null = null
+  let baselineCalculated = false
+  if (dueAt !== null && lastAt !== null && lastAt < dueAt) intervalStart = lastAt
+  else if (dueAt !== null && schedule?.intervalKm) { intervalStart = dueAt - schedule.intervalKm; baselineCalculated = true }
+  let remainingPercent: number | null = null
+  let consumedPercent: number | null = null
+  if (intervalStart !== null && dueAt !== null && current !== null && dueAt > intervalStart && current >= intervalStart) {
+    const s = lifeShares(current - intervalStart, dueAt - intervalStart)
+    remainingPercent = s.remainingPercent
+    consumedPercent = ((current - intervalStart) / (dueAt - intervalStart)) * 100 // may exceed 100 when overdue
+  }
   const status = remainingStatus(remaining, schedule?.warnWithinKm ?? null)
   let text: string
   if (!schedule) text = `No ${label} recorded`
   else if (current === null) text = 'No valid odometer reading'
   else if (remaining! < 0) text = `Overdue by ${fmtKm(-remaining!)}`
-  else if (status === 'warn') text = `Due soon · ${fmtKm(remaining!)} left`
-  else if (status === 'ok') text = `On schedule · ${fmtKm(remaining!)} left`
-  else text = `Not yet due · ${fmtKm(remaining!)} left`
-  return { status, label: text, current, dueAt, remaining, lastAt, lastDate: last?.date ?? null, intervalStart: lastAt, percent, warnWithinKm: schedule?.warnWithinKm ?? null, schedule, last }
+  else if (status === 'warn') text = 'Due soon'
+  else if (status === 'ok') text = 'On schedule'
+  else text = 'Not yet due'
+  return { status, label: text, current, dueAt, remaining, lastAt, lastDate: last?.date ?? null, intervalStart, baselineCalculated, intervalKm: schedule?.intervalKm ?? null, remainingPercent, consumedPercent, warnWithinKm: schedule?.warnWithinKm ?? null, schedule, last }
 }
 
-/**
- * Scheduled service (anything that is not an oil change). The interval start is the odometer of the last completed service of the
- * same recorded type; with no type on the target, or no such record, the start is unknown and no percentage is produced.
- */
+/** Scheduled service that is not an oil change. Percentage only when an interval start is known (last service of the same recorded type, or a configured interval). */
 export function serviceIndicator(state: FleetState, vehicleId: string): DistanceIndicator {
   const schedule = currentServiceTarget(state, vehicleId)
   const type = schedule?.serviceType ?? null
@@ -59,16 +108,17 @@ export function serviceIndicator(state: FleetState, vehicleId: string): Distance
 }
 
 /**
- * Oil change. Separate from scheduled service: only a target recorded as an oil change counts, so an untyped "next service" is
- * never read as one. A target at or below the odometer of the last completed oil change is already done, so the next change is
- * then "not set" rather than overdue.
+ * Oil change, one indicator: the target recorded as an oil change. An untyped target is never read as one. A target at or below the
+ * odometer of the last completed oil change (or completed within the current interval) is already done, so the next change is then "not set" rather than overdue; recording the
+ * next mileage updates the gauge.
  */
 export function oilIndicator(state: FleetState, vehicleId: string): DistanceIndicator {
   const last = maintenanceOf(state, vehicleId).find((m) => isOilChange(m.serviceType))
   let schedule = currentOilTarget(state, vehicleId)
-  if (schedule && last?.odometer != null && last.odometer >= schedule.odometer) schedule = undefined
-  const out = distance('oil-change schedule', latestOdometer(state, vehicleId)?.reading ?? null, schedule, last)
-  return out
+  // Already done: an oil change completed at/after the due mileage, or (with an interval) later than the interval's calculated start,
+  // meaning it was performed for this cycle. A change at exactly the start is the cycle's own baseline, so the schedule stays.
+  if (schedule && last?.odometer != null && last.odometer > schedule.odometer - (schedule.intervalKm ?? 0) - (schedule.intervalKm ? 0 : 1)) schedule = undefined
+  return distance('oil-change schedule', latestOdometer(state, vehicleId)?.reading ?? null, schedule, last)
 }
 
 /* ── Tires ─────────────────────────────────────────────────────────────── */
@@ -79,39 +129,38 @@ export interface TireIndicator {
   set: TireSet | undefined
   km: number | null
   expectedLifeKm: number | null
-  /** Share of the configured expected lifespan used; null unless both distance and a configured lifespan exist. */
-  percent: number | null
+  /** Estimated, mileage-based life left / used, clamped to 0–100. This is an estimate, separate from recorded condition. */
+  remainingPercent: number | null
+  consumedPercent: number | null
   remainingKm: number | null
   treadMm: number | null
   replaceAtMm: number | null
-  /** What the status rests on, so the UI can explain it. */
+  /** What the status rests on. */
   basis: 'condition' | 'tread' | 'lifespan' | 'none'
 }
 
 /**
- * Tire status rests on a recorded condition, a measured tread against a recorded replacement threshold, or a configured expected
- * lifespan, in that order of authority. Distance alone, or age, never makes a set "healthy": with none of those the status is
- * unknown, and with only a lifespan it is informational until the lifespan is reached.
+ * Estimated tire life is mileage-based and kept separate from actual condition (which stays "Not assessed" until recorded). Status:
+ * a recorded "replace" or a tread at/below the recorded limit is red; worn, fair, or a mileage estimate that has been passed is orange;
+ * a recorded good condition, a measured tread above the limit, or mileage still inside the estimate is green; with none of these, unknown.
  */
 export function tireIndicator(state: FleetState, vehicleId: string): TireIndicator {
   const set = activeTireSet(state, vehicleId)
-  if (!set) return { status: 'unknown', label: 'No tire set fitted', set, km: null, expectedLifeKm: null, percent: null, remainingKm: null, treadMm: null, replaceAtMm: null, basis: 'none' }
+  if (!set) return { status: 'unknown', label: 'No tire set fitted', set, km: null, expectedLifeKm: null, remainingPercent: null, consumedPercent: null, remainingKm: null, treadMm: null, replaceAtMm: null, basis: 'none' }
   const km = tireKm(state, set)
   const life = set.expectedLifeKm
-  const percent = km !== null && life !== null ? (km / life) * 100 : null
-  const remainingKm = km !== null && life !== null ? life - km : null
-  const tread = latestTread(set)
-  const treadMm = tread?.depthMm ?? null
-  const base = { set, km, expectedLifeKm: life, percent, remainingKm, treadMm, replaceAtMm: set.replaceAtMm }
-  if (set.condition === 'replace') return { ...base, status: 'bad', label: 'Replace — recorded condition', basis: 'condition' }
-  if (treadMm !== null && set.replaceAtMm !== null && treadMm <= set.replaceAtMm) return { ...base, status: 'bad', label: `Tread ${treadMm} mm at/below ${set.replaceAtMm} mm limit`, basis: 'tread' }
-  if (set.condition === 'worn') return { ...base, status: 'warn', label: 'Worn — recorded condition', basis: 'condition' }
-  if (remainingKm !== null && remainingKm < 0) return { ...base, status: 'bad', label: `Past expected lifespan by ${fmtKm(-remainingKm)}`, basis: 'lifespan' }
-  if (set.condition === 'fair') return { ...base, status: 'warn', label: 'Fair — recorded condition', basis: 'condition' }
-  if (set.condition === 'good') return { ...base, status: 'ok', label: 'Good — recorded condition', basis: 'condition' }
+  const { remainingPercent, consumedPercent, remaining } = lifeShares(km, life)
+  const treadMm = latestTread(set)?.depthMm ?? null
+  const base = { set, km, expectedLifeKm: life, remainingPercent, consumedPercent, remainingKm: remaining, treadMm, replaceAtMm: set.replaceAtMm }
+  if (set.condition === 'replace') return { ...base, status: 'bad', label: 'Replace (recorded condition)', basis: 'condition' }
+  if (treadMm !== null && set.replaceAtMm !== null && treadMm <= set.replaceAtMm) return { ...base, status: 'bad', label: `Tread ${treadMm} mm at or below ${set.replaceAtMm} mm limit`, basis: 'tread' }
+  if (set.condition === 'worn') return { ...base, status: 'warn', label: 'Worn (recorded condition)', basis: 'condition' }
+  if (remaining !== null && remaining < 0) return { ...base, status: 'warn', label: `Beyond estimated life by ${fmtKm(-remaining)}`, basis: 'lifespan' }
+  if (set.condition === 'fair') return { ...base, status: 'warn', label: 'Fair (recorded condition)', basis: 'condition' }
+  if (set.condition === 'good') return { ...base, status: 'ok', label: 'Good (recorded condition)', basis: 'condition' }
   if (treadMm !== null && set.replaceAtMm !== null) return { ...base, status: 'ok', label: `Tread ${treadMm} mm, above ${set.replaceAtMm} mm limit`, basis: 'tread' }
-  if (remainingKm !== null) return { ...base, status: 'info', label: `${fmtKm(remainingKm)} of expected lifespan left`, basis: 'lifespan' }
-  return { ...base, status: 'unknown', label: 'Condition not assessed', basis: 'none' }
+  if (remaining !== null) return { ...base, status: 'ok', label: 'Within estimated life', basis: 'lifespan' }
+  return { ...base, status: 'unknown', label: 'No lifespan estimate set', basis: 'none' }
 }
 
 /* ── Inspections ───────────────────────────────────────────────────────── */
@@ -122,33 +171,33 @@ export interface InspectionIndicator {
   status: Status
   label: string
   daysSince: number | null
-  /** Days since the last inspection as a share of the weekly interval; null when none is recorded. */
-  percent: number | null
   daysUntilDue: number | null
+  intervalDays: number
   awaitingReview: boolean
   defects: number
   unreviewedDefects: number
+  /** Demonstration records present for this vehicle. They never affect the status. */
+  demoCount: number
 }
 
-const INTERVAL = 7
-
 /**
- * Whether the weekly inspection is on time. This is a cadence measure, not a health measure: a submitted inspection makes the
- * cadence "current" but never marks the vehicle healthy, and an inspection nobody has reviewed is shown as awaiting review.
+ * Whether the inspection is on time, from GENUINE inspections only: demonstration records are ignored, so samples can neither
+ * satisfy nor hide a missing or overdue inspection. A status-only measure (no percentage): a submitted inspection makes the cadence
+ * "current" but never marks the vehicle healthy, and an unreviewed one is shown as awaiting review.
  */
 export function inspectionIndicator(state: FleetState, vehicleId: string, today: ISODate): InspectionIndicator {
   const i = inspectionStatus(state, vehicleId, today)
   const open = outstandingDefects(state, vehicleId)
-  const common = { defects: open.length, unreviewedDefects: open.filter((x) => x.inspection.review === 'submitted').length }
-  if (i.daysSince === null) return { ...common, cadence: 'unknown', status: 'unknown', label: 'No inspection recorded', daysSince: null, percent: null, daysUntilDue: null, awaitingReview: false }
+  const common = { defects: open.length, unreviewedDefects: open.filter((x) => x.inspection.review === 'submitted').length, intervalDays: i.interval, demoCount: i.demoCount }
+  if (i.daysSince === null) return { ...common, cadence: 'unknown', status: 'unknown', label: 'No verified inspection recorded', daysSince: null, daysUntilDue: null, awaitingReview: false }
   const awaitingReview = i.state === 'submitted'
-  const daysUntilDue = INTERVAL - i.daysSince
-  const percent = (i.daysSince / INTERVAL) * 100
-  const cadence: InspectionCadence = i.daysSince > INTERVAL ? 'overdue' : i.daysSince === INTERVAL ? 'due' : 'current'
+  const daysUntilDue = i.interval - i.daysSince
+  const cadence: InspectionCadence = i.daysSince > i.interval ? 'overdue' : i.daysSince === i.interval ? 'due' : 'current'
   const status: Status = cadence === 'overdue' ? 'bad' : cadence === 'due' ? 'warn' : awaitingReview ? 'info' : 'ok'
-  const when = cadence === 'overdue' ? `Overdue by ${i.daysSince - INTERVAL} day${i.daysSince - INTERVAL === 1 ? '' : 's'}` : cadence === 'due' ? 'Due today' : `Current · next due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`
-  return { ...common, cadence, status, label: awaitingReview && cadence === 'current' ? `${when} · awaiting review` : when, daysSince: i.daysSince, percent, daysUntilDue, awaitingReview }
+  const late = i.daysSince - i.interval
+  const when = cadence === 'overdue' ? `Overdue by ${late} day${late === 1 ? '' : 's'}` : cadence === 'due' ? 'Due today' : `Current · due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'}`
+  return { ...common, cadence, status, label: awaitingReview && cadence === 'current' ? `${when} · awaiting review` : when, daysSince: i.daysSince, daysUntilDue, awaitingReview }
 }
 
-/** The single worst status across the gauges, for a vehicle-level summary. Unknown gauges keep a vehicle from reading as fully healthy. */
+/** The single worst status across the gauges. Unknown gauges keep a vehicle from reading as fully healthy. */
 export const rollUp = (...statuses: Status[]): Status => worstStatus(statuses)

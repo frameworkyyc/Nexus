@@ -10,14 +10,14 @@ import { Sparkline } from '@/components/viz'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
 import { canReassign, canReview, canUpdate } from '../access'
-import { addDefect, reassignVehicle, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
+import { addDefect, reassignVehicle, removeDemoInspections, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
 import { ServiceCell } from '../FleetTable'
 import {
-  AccessoryModal, AccessoryMoveModal, InspectionModal, MaintenanceModal, OdometerModal, RemoveTireModal, ReviewModal, ServiceModal, TireModal, TreadModal, VehicleEditModal,
+  AccessoryModal, AccessoryMoveModal, InspectionModal, MaintenanceModal, OdometerModal, PlanningModal, RemoveTireModal, ReviewModal, ServiceModal, TireModal, TreadModal, VehicleEditModal,
   type MoveMode, type TireMode,
 } from '../forms'
 import { fleetPaths } from '../paths'
-import { oilIndicator } from '../indicators'
+import { oilIndicator, pct1 } from '../indicators'
 import { VehicleGauges } from '../VehicleGauges'
 import {
   accessoriesOf, ACCESSORY_CATEGORY_LABEL, currentAssignment, fleetRow, historyOf, inspectionsOf, lastService, latestTread, maintenanceOf, odometerHistory, tireKm, tireSetsOf, TIRE_CLASS_LABEL,
@@ -39,7 +39,7 @@ const km = (n: number) => `${n.toLocaleString('en-CA')} km`
 const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
 
 type Modal =
-  | { kind: 'edit' | 'odometer' | 'inspection' | 'service' | 'oil-target' | 'oil-record' | 'maintenance' | 'accessory-add' }
+  | { kind: 'edit' | 'odometer' | 'inspection' | 'service' | 'oil-target' | 'oil-record' | 'planning' | 'maintenance' | 'accessory-add' }
   | { kind: 'review'; inspection: InspectionRecord }
   | { kind: 'tire'; mode: TireMode }
   | { kind: 'tread' | 'tire-remove'; tire: TireSet }
@@ -84,6 +84,7 @@ export function VehicleDashboard() {
   const unchanged = selected === (current?.projectId ?? '')
   const readings = odometerHistory(state, vehicle.id).slice().reverse()
   const inspections = inspectionsOf(state, vehicle.id)
+  const demoCount = inspections.filter((i) => i.demo).length
   const maintenance = maintenanceOf(state, vehicle.id)
   const targets = state.serviceTargets.filter((t) => t.vehicleId === vehicle.id).slice().reverse()
   const tires = tireSetsOf(state, vehicle.id)
@@ -105,9 +106,9 @@ export function VehicleDashboard() {
       </Link>
       <PageHeader title={vehicle.unitNumber} description={`${vehicleTitle(vehicle)}${project ? ` · ${project.name}` : ' · Unassigned'}`} actions={<><ConditionBadge condition={row.condition} />{editable && <Btn onClick={() => setModal({ kind: 'edit' })}>Edit vehicle</Btn>}</>} />
 
-      <VehicleGauges state={state} vehicle={vehicle} today={today} handlers={{
+      <VehicleGauges state={state} vehicle={vehicle} today={today} projectName={project?.name} handlers={{
         jump,
-        edit: editable ? { service: () => setModal({ kind: 'service' }), oilTarget: () => setModal({ kind: 'oil-target' }), oilRecord: () => setModal({ kind: 'oil-record' }), tire: () => setModal({ kind: 'tire', mode: { kind: 'edit', tire: row.tires! } }), tread: () => setModal({ kind: 'tread', tire: row.tires! }), inspection: () => setModal({ kind: 'inspection' }) } : undefined,
+        edit: editable ? { lifespan: () => setModal({ kind: 'planning' }), service: () => setModal({ kind: 'service' }), oilTarget: () => setModal({ kind: 'oil-target' }), oilRecord: () => setModal({ kind: 'oil-record' }), tire: () => setModal({ kind: 'tire', mode: { kind: 'edit', tire: row.tires! } }), tread: () => setModal({ kind: 'tread', tire: row.tires! }), inspection: () => setModal({ kind: 'inspection' }) } : undefined,
       }} />
       {!editable && <p className="mt-3 text-xs text-muted">View only.</p>}
       <nav aria-label="Dashboard sections" className="mt-4 flex gap-5 overflow-x-auto pb-1 text-[13px]">
@@ -124,6 +125,8 @@ export function VehicleDashboard() {
           <Row label="Licence plate">{vehicle.licencePlate ?? NOT_RECORDED}</Row>
           <Row label="Assigned project">{project ? <Link to={`/projects/${project.id}`} className="underline-offset-4 hover:underline">{project.name} · Job {project.jobNumber}</Link> : current ? registry.name(current.projectId) : <span className="text-muted">Unassigned</span>}</Row>
           <Row label="Assigned since">{current?.startDate ? formatDate(current.startDate) : NOT_RECORDED}</Row>
+          <Row label="Estimated lifespan">{vehicle.expectedLifeKm !== null ? <>{km(vehicle.expectedLifeKm)}<span className="text-muted"> · planning estimate, not a condition rating</span></> : <span className="text-muted">Not set</span>}</Row>
+          <Row label="Inspection interval">{vehicle.inspectionIntervalDays !== null ? `Every ${vehicle.inspectionIntervalDays} days` : <span className="text-muted">Weekly (default)</span>}</Row>
           <Row label="Notes">{vehicle.notes || NOT_RECORDED}</Row>
         </dl>
         {!projectId && canReassign(actor) && (
@@ -169,7 +172,7 @@ export function VehicleDashboard() {
           <Row label="KM remaining">{s.kmRemaining === null ? <ServiceCell row={row} /> : <StatusBadge tone={serviceTone} label={s.overdue ? `Overdue by ${km(-s.kmRemaining)}` : s.state === 'due-soon' ? `${km(s.kmRemaining)} · due soon` : km(s.kmRemaining)} />}</Row>
           <Row label="Warning window">{s.target?.warnWithinKm ? `Due soon within ${km(s.target.warnWithinKm)}` : <span className="text-muted">Not recorded — only overdue is highlighted</span>}</Row>
           <Row label="Last completed service">{lastAny ? <>{lastAny.serviceType}{lastAny.odometer !== null && ` at ${km(lastAny.odometer)}`}<span className="text-muted"> · {formatDate(lastAny.date)}</span></> : NOT_RECORDED}</Row>
-          <Row label="Next oil change at">{oilInd.schedule ? <>{km(oilInd.schedule.odometer)}{oilInd.remaining !== null && <span className="text-muted"> · {oilInd.remaining < 0 ? `overdue by ${km(-oilInd.remaining)}` : `${km(oilInd.remaining)} remaining`}</span>}{oilInd.percent !== null && <span className="text-muted"> · {Math.round(oilInd.percent)}% of interval used</span>}</> : <span className="text-muted">Unknown — no oil-change schedule recorded</span>}</Row>
+          <Row label="Next oil change at">{oilInd.schedule ? <>{km(oilInd.schedule.odometer)}{oilInd.remaining !== null && <span className="text-muted"> · {oilInd.remaining < 0 ? `overdue by ${km(-oilInd.remaining)}` : `${km(oilInd.remaining)} remaining`}</span>}{oilInd.consumedPercent !== null && <span className="text-muted"> · {pct1(oilInd.consumedPercent)}% of interval used{oilInd.intervalKm ? ` (${km(oilInd.intervalKm)} interval${oilInd.baselineCalculated ? `, start ${km(oilInd.intervalStart!)} calculated` : ''})` : ''}</span>}</> : <span className="text-muted">Unknown — no oil-change schedule recorded</span>}</Row>
           <Row label="Last oil change">{oil ? <>{oil.odometer !== null ? km(oil.odometer) : 'Odometer not recorded'}<span className="text-muted"> · {formatDate(oil.date)}</span></> : NOT_RECORDED}</Row>
         </dl>
         {targets.length > 1 && <p className="mt-2 text-xs text-muted">Earlier targets: {targets.slice(1).map((t) => `${km(t.odometer)}${t.setDate ? ` (set ${formatDate(t.setDate)})` : ''}`).join(', ')}</p>}
@@ -267,6 +270,12 @@ export function VehicleDashboard() {
           <Row label="Condition">{row.condition === 'not-assessed' ? <span className="text-muted">Not assessed — no reviewed inspection has stated a condition</span> : <ConditionBadge condition={row.condition} />}</Row>
           <Row label="Outstanding defects">{row.defects}{row.unreviewedDefects > 0 && <span className="text-muted"> · {row.unreviewedDefects} on unreviewed inspections</span>}</Row>
         </dl>
+        {demoCount > 0 && (
+          <p className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+            {demoCount} demonstration record{demoCount === 1 ? '' : 's'} (Demo / Unverified) are listed for testing. They do not count toward inspection status, condition or defects.
+            {editable && <button className={link} onClick={() => run(removeDemoInspections(vehicle.id))}>Remove demonstration records</button>}
+          </p>
+        )}
         {inspections.length ? (
           <ul className="border-t border-line">
             {inspections.map((i) => (
@@ -274,8 +283,10 @@ export function VehicleDashboard() {
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <span>{formatDate(i.date)}{i.submittedBy && <span className="text-muted"> · {i.submittedBy}</span>}{i.notes && <span className="text-muted"> · {i.notes}</span>}</span>
                   <span className="flex items-center gap-3">
-                    <StatusBadge tone={i.review === 'reviewed' ? 'ok' : 'info'} label={i.review === 'reviewed' ? `Reviewed${i.reviewedBy ? ` by ${i.reviewedBy}` : ''}` : 'Submitted, not reviewed'} />
-                    {i.review === 'submitted' && reviewer && <button className={link} onClick={() => setModal({ kind: 'review', inspection: i })}>Review</button>}
+                    {i.demo
+                      ? <span className="rounded-full border border-dashed border-line px-2.5 py-0.5 text-xs font-medium text-muted">Demo / Unverified</span>
+                      : <StatusBadge tone={i.review === 'reviewed' ? 'ok' : 'info'} label={i.review === 'reviewed' ? `Reviewed${i.reviewedBy ? ` by ${i.reviewedBy}` : ''}` : 'Submitted, not reviewed'} />}
+                    {!i.demo && i.review === 'submitted' && reviewer && <button className={link} onClick={() => setModal({ kind: 'review', inspection: i })}>Review</button>}
                   </span>
                 </div>
                 {i.review === 'reviewed' && (i.reviewNote || i.condition) && <p className="mt-1 text-xs text-muted">{i.condition ? `Reviewer stated condition: ${i.condition}. ` : ''}{i.reviewNote}</p>}
@@ -291,7 +302,7 @@ export function VehicleDashboard() {
                     ))}
                   </ul>
                 )}
-                {editable && <button className={`${link} mt-2`} onClick={() => { const text = window.prompt('Describe the defect'); if (text) run(addDefect(i.id, text)) }}>Add defect</button>}
+                {editable && !i.demo && <button className={`${link} mt-2`} onClick={() => { const text = window.prompt('Describe the defect'); if (text) run(addDefect(i.id, text)) }}>Add defect</button>}
               </li>
             ))}
           </ul>
@@ -317,9 +328,10 @@ export function VehicleDashboard() {
       {modal?.kind === 'edit' && <VehicleEditModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'odometer' && <OdometerModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'inspection' && <InspectionModal vehicle={vehicle} onClose={() => setModal(null)} />}
+      {modal?.kind === 'planning' && <PlanningModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'service' && <ServiceModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'oil-target' && <ServiceModal vehicle={vehicle} oil onClose={() => setModal(null)} />}
-      {modal?.kind === 'oil-record' && <MaintenanceModal vehicle={vehicle} presetType="Oil change" onClose={() => setModal(null)} />}
+      {modal?.kind === 'oil-record' && <MaintenanceModal vehicle={vehicle} presetType="Oil change" onSaved={() => setModal({ kind: 'oil-target' })} onClose={() => setModal(null)} />}
       {modal?.kind === 'maintenance' && <MaintenanceModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'review' && <ReviewModal inspection={modal.inspection} onClose={() => setModal(null)} />}
       {modal?.kind === 'tire' && <TireModal vehicle={vehicle} mode={modal.mode} onClose={() => setModal(null)} />}

@@ -34,7 +34,7 @@ describe('fleet seed', () => {
     for (const v of s.vehicles) expect(v).toMatchObject({ vin: null, licencePlate: null, notes: '' })
     // Only T6010 carries supplied values; every other vehicle has no mileage, service, tire or accessory records.
     expect(s.odometer.map((r) => r.vehicleId)).toEqual(['veh-T6010'])
-    expect(s.inspections).toEqual([])
+    expect(s.inspections.every((i) => i.demo && i.submittedBy === '' && i.condition === null && i.defects.length === 0)).toBe(true) // only the labelled demonstration samples
     expect(s.maintenance).toEqual([])
     for (const a of s.assignments) expect(a.startDate).toBeNull()
     expect(JSON.stringify(s)).not.toMatch(/driver/i)
@@ -68,7 +68,7 @@ describe('condition derivation', () => {
     const id = s.vehicles[0].id
     const next: FleetState = {
       ...s,
-      inspections: [{ id: 'i1', vehicleId: id, date: '2026-09-01', submittedBy: '', notes: '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: '2026-09-02', reviewNote: '', condition: 'good' }],
+      inspections: [{ id: 'i1', vehicleId: id, date: '2026-09-01', submittedBy: '', notes: '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: '2026-09-02', reviewNote: '', condition: 'good', demo: false }],
       maintenance: [{ id: 'm1', vehicleId: id, date: '2026-10-01', serviceType: 'Brake service', odometer: null, description: 'Brake service', condition: 'fair', notes: '' }, { id: 'm2', vehicleId: id, date: '2026-10-10', serviceType: 'Oil change', odometer: null, description: 'Oil change', notes: '' }],
     }
     expect(conditionOf(next, id)).toBe('fair') // latest dated record that states a condition
@@ -112,7 +112,8 @@ describe('reassignment', () => {
 })
 
 /** The REEF vehicles without T6010's verified entries, so generic workflow tests start from empty records. */
-const reef: FleetState = { ...buildFleetSeed(), odometer: [], serviceTargets: [], tireSets: [], accessories: [] }
+// Demonstration inspections are covered in demo.test; these inspection-flow tests start from a vehicle set with only genuine records.
+const reef: FleetState = { ...buildFleetSeed(), odometer: [], serviceTargets: [], tireSets: [], accessories: [], inspections: [] }
 const T6010 = reef.vehicles[0].id
 const T6005 = reef.vehicles[1].id
 const err = (s: FleetState, r: Reducer) => r(s).error

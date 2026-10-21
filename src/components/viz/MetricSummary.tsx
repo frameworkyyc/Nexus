@@ -17,7 +17,10 @@ export function MetricSummary({ label, value, sub, status, statusLabel, visual, 
     </>
   )
   const cls = 'block min-w-0 text-left'
-  if (to) return <Link to={to} className={`${cls} hover:opacity-80`}>{body}</Link>
-  if (onSelect) return <button type="button" onClick={onSelect} className={`${cls} hover:opacity-80`}>{body}</button>
-  return <div className={cls}>{body}</div>
+  // The grid cell is a plain div so every summary aligns to the top, whether or not its content is interactive.
+  return (
+    <div className="self-start">
+      {to ? <Link to={to} className={`${cls} hover:opacity-80`}>{body}</Link> : onSelect ? <button type="button" onClick={onSelect} className={`${cls} hover:opacity-80`}>{body}</button> : <div className={cls}>{body}</div>}
+    </div>
+  )
 }

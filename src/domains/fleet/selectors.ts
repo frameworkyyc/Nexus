@@ -21,7 +21,7 @@ export function currentAssignment(state: FleetState, vehicleId: string): Vehicle
  */
 export function conditionOf(state: FleetState, vehicleId: string): ConditionStatus {
   const rated: { date: ISODate; condition: ConditionStatus }[] = [
-    ...state.inspections.filter((i) => i.vehicleId === vehicleId && i.review === 'reviewed' && i.condition).map((i) => ({ date: i.date, condition: i.condition as ConditionStatus })),
+    ...state.inspections.filter((i) => i.vehicleId === vehicleId && !i.demo && i.review === 'reviewed' && i.condition).map((i) => ({ date: i.date, condition: i.condition as ConditionStatus })),
     ...state.maintenance.filter((m) => m.vehicleId === vehicleId && m.condition).map((m) => ({ date: m.date, condition: m.condition as ConditionStatus })),
   ].sort((a, b) => b.date.localeCompare(a.date))
   return rated[0]?.condition ?? 'not-assessed'
@@ -80,6 +80,22 @@ export function serviceStatus(state: FleetState, vehicleId: string): ServiceStat
   const overdue = kmRemaining !== null && kmRemaining < 0
   const st: ServiceState = !target ? 'not-set' : kmRemaining === null ? 'no-reading' : overdue ? 'overdue' : target.warnWithinKm !== null && kmRemaining <= target.warnWithinKm ? 'due-soon' : 'ok'
   return { target, odometer, kmRemaining, overdue, state: st }
+}
+
+/**
+ * The next maintenance of any kind that falls due: whichever of the scheduled service and the oil-change schedule has fewer km
+ * remaining (a schedule with no valid reading ranks last). Used by the fleet tables so one column covers both.
+ */
+export function nextDueStatus(state: FleetState, vehicleId: string): ServiceStatus {
+  const odometer = latestOdometer(state, vehicleId)
+  const mk = (target: ServiceTarget | undefined): ServiceStatus => {
+    const kmRemaining = target && odometer ? target.odometer - odometer.reading : null
+    const overdue = kmRemaining !== null && kmRemaining < 0
+    const st: ServiceState = !target ? 'not-set' : kmRemaining === null ? 'no-reading' : overdue ? 'overdue' : target.warnWithinKm !== null && kmRemaining <= target.warnWithinKm ? 'due-soon' : 'ok'
+    return { target, odometer, kmRemaining, overdue, state: st }
+  }
+  const candidates = [mk(currentServiceTarget(state, vehicleId)), mk(currentOilTarget(state, vehicleId))].filter((x) => x.target)
+  return candidates.sort((a, b) => (a.kmRemaining ?? Infinity) - (b.kmRemaining ?? Infinity))[0] ?? mk(undefined)
 }
 
 /* ── Maintenance records ───────────────────────────────────────────────── */
@@ -142,21 +158,30 @@ export const currentVehicleOf = (a: Accessory): string | null => a.placements.fi
 
 export const INSPECTION_INTERVAL_DAYS = 7
 
+/** Every inspection record for the vehicle, newest first, including demonstration records (they are labelled in the history). */
 export const inspectionsOf = (state: FleetState, vehicleId: string): InspectionRecord[] =>
   state.inspections.map((i, n) => ({ i, n })).filter((x) => x.i.vehicleId === vehicleId).sort((a, b) => byDate(b.i, a.i) || b.n - a.n).map((x) => x.i)
 
-export interface InspectionStatus { last: InspectionRecord | undefined; state: 'none' | 'submitted' | 'reviewed'; daysSince: number | null; overdue: boolean }
+/** Genuine inspections only: demonstration records never count toward status, compliance, defects or condition. */
+export const genuineInspectionsOf = (state: FleetState, vehicleId: string): InspectionRecord[] => inspectionsOf(state, vehicleId).filter((i) => !i.demo)
 
-/** Latest weekly submission, and whether the next one is overdue. A submission alone never implies a sound vehicle. */
+/** Days between inspections for this vehicle: its own setting, else the weekly default. */
+export const inspectionIntervalOf = (state: FleetState, vehicleId: string): number => state.vehicles.find((v) => v.id === vehicleId)?.inspectionIntervalDays ?? INSPECTION_INTERVAL_DAYS
+
+export interface InspectionStatus { last: InspectionRecord | undefined; state: 'none' | 'submitted' | 'reviewed'; daysSince: number | null; overdue: boolean; interval: number; demoCount: number }
+
+/** Latest genuine inspection, and whether the next one is overdue. A submission alone never implies a sound vehicle; samples are ignored. */
 export function inspectionStatus(state: FleetState, vehicleId: string, today: ISODate): InspectionStatus {
-  const last = inspectionsOf(state, vehicleId)[0]
-  if (!last) return { last, state: 'none', daysSince: null, overdue: false }
+  const interval = inspectionIntervalOf(state, vehicleId)
+  const demoCount = inspectionsOf(state, vehicleId).filter((i) => i.demo).length
+  const last = genuineInspectionsOf(state, vehicleId)[0]
+  if (!last) return { last, state: 'none', daysSince: null, overdue: false, interval, demoCount }
   const daysSince = daysBetween(last.date, today)
-  return { last, state: last.review, daysSince, overdue: daysSince > INSPECTION_INTERVAL_DAYS }
+  return { last, state: last.review, daysSince, overdue: daysSince > interval, interval, demoCount }
 }
 
 export const outstandingDefects = (state: FleetState, vehicleId: string) =>
-  inspectionsOf(state, vehicleId).flatMap((i) => i.defects.filter((d) => d.status === 'outstanding').map((d) => ({ inspection: i, defect: d })))
+  genuineInspectionsOf(state, vehicleId).flatMap((i) => i.defects.filter((d) => d.status === 'outstanding').map((d) => ({ inspection: i, defect: d })))
 
 /* ── One row of fleet information, shared by the organization and project views ── */
 
@@ -178,7 +203,7 @@ export interface FleetRow {
 export function fleetRow(state: FleetState, vehicle: Vehicle, today: ISODate): FleetRow {
   const open = outstandingDefects(state, vehicle.id)
   return {
-    vehicle, assignment: currentAssignment(state, vehicle.id), odometer: latestOdometer(state, vehicle.id), service: serviceStatus(state, vehicle.id),
+    vehicle, assignment: currentAssignment(state, vehicle.id), odometer: latestOdometer(state, vehicle.id), service: nextDueStatus(state, vehicle.id),
     inspection: inspectionStatus(state, vehicle.id, today), defects: open.length, unreviewedDefects: open.filter((x) => x.inspection.review === 'submitted').length,
     flaggedReadings: readingsNeedingReview(state, vehicle.id).length, condition: conditionOf(state, vehicle.id),
     tires: activeTireSet(state, vehicle.id), tireKm: (() => { const t = activeTireSet(state, vehicle.id); return t ? tireKm(state, t) : null })(),
@@ -215,7 +240,9 @@ export function historyOf(state: FleetState, vehicleId: string, projectName: (id
     events.push({ id: `${a.id}:start`, date: a.startDate, text: `Assigned to ${projectName(a.projectId)}` })
     if (a.endDate) events.push({ id: `${a.id}:end`, date: a.endDate, text: `Removed from ${projectName(a.projectId)}` })
   }
-  for (const i of state.inspections.filter((x) => x.vehicleId === vehicleId)) events.push({ id: i.id, date: i.date, text: `Inspection submitted${i.defects.length ? ` (${i.defects.length} defect${i.defects.length === 1 ? '' : 's'} noted)` : ''}${i.review === 'reviewed' ? ', reviewed' : ', awaiting review'}` })
+  for (const i of state.inspections.filter((x) => x.vehicleId === vehicleId)) {
+    events.push({ id: i.id, date: i.date, text: i.demo ? 'Demo / unverified inspection record' : `Inspection submitted${i.defects.length ? ` (${i.defects.length} defect${i.defects.length === 1 ? '' : 's'} noted)` : ''}${i.review === 'reviewed' ? ', reviewed' : ', awaiting review'}` })
+  }
   for (const r of state.odometer.filter((x) => x.vehicleId === vehicleId)) events.push({ id: r.id, date: r.date, text: `Odometer ${r.reading.toLocaleString('en-CA')} ${r.unit}${r.review === 'needs-review' ? ' (held for review)' : r.review === 'rejected' ? ' (rejected)' : ''}` })
   for (const m of state.maintenance.filter((x) => x.vehicleId === vehicleId)) events.push({ id: m.id, date: m.date, text: `${m.serviceType}${m.description ? `: ${m.description}` : ''}${m.odometer !== null ? ` at ${m.odometer.toLocaleString('en-CA')} km` : ''}` })
   for (const t of state.serviceTargets.filter((x) => x.vehicleId === vehicleId)) events.push({ id: t.id, date: t.setDate, text: `Next ${t.serviceType ? t.serviceType.toLowerCase() : 'service'} set for ${t.odometer.toLocaleString('en-CA')} km` })

@@ -6,6 +6,7 @@ import * as A from './commands'
 import type { AccessoryInput, TireInput } from './actions'
 import { recordOdometer, reviewInspection, setServiceTarget, submitInspection } from './commands'
 import { activeTireSet, ACCESSORY_CATEGORY_LABEL, currentOilTarget, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
+import { oilIndicator } from './indicators'
 import { useFleet, useFleetCommand } from './store'
 import type { Accessory, AccessoryCategory, InspectionRecord, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
 
@@ -70,12 +71,17 @@ const SERVICE_TYPES = ['Oil change', 'Tire rotation', 'Brake service', 'Schedule
 export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehicle; oil?: boolean; onClose: () => void }) {
   const { state, today } = useFleet()
   const { run, saving } = useFleetCommand()
-  const s = oil ? { target: currentOilTarget(state, vehicle.id) } : serviceStatus(state, vehicle.id)
-  const [value, setValue] = useState(s.target ? String(s.target.odometer) : '')
+  const oilInd = oilIndicator(state, vehicle.id)
+  const s = oil ? { target: oilInd.schedule } : serviceStatus(state, vehicle.id)
+  // After an oil change is recorded the old target is done; offer the next one as last change + the previous interval (editable, never saved unseen).
+  const prevOil = oil ? currentOilTarget(state, vehicle.id) : undefined
+  const suggested = oil && !s.target && oilInd.lastAt !== null && prevOil?.intervalKm ? String(oilInd.lastAt + prevOil.intervalKm) : ''
+  const [value, setValue] = useState(s.target ? String(s.target.odometer) : suggested)
   const [type, setType] = useState(oil ? 'Oil change' : s.target?.serviceType ?? '')
-  const [warn, setWarn] = useState(s.target?.warnWithinKm ? String(s.target.warnWithinKm) : '')
+  const [warn, setWarn] = useState((s.target ?? prevOil)?.warnWithinKm ? String((s.target ?? prevOil)!.warnWithinKm) : '')
+  const [interval, setInterval_] = useState((s.target ?? prevOil)?.intervalKm ? String((s.target ?? prevOil)!.intervalKm) : '')
   const [note, setNote] = useState('')
-  const save = () => { run(setServiceTarget(vehicle.id, Number(value), note, today, { serviceType: type, warnWithinKm: numOrNull(warn) }), onClose)}
+  const save = () => { run(setServiceTarget(vehicle.id, Number(value), note, today, { serviceType: type, warnWithinKm: numOrNull(warn), intervalKm: numOrNull(interval) }), onClose)}
   return (
     <Modal title={`${oil ? 'Next oil change' : 'Next service'} · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
@@ -83,6 +89,7 @@ export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehic
         <Field label={oil ? 'Next oil change at (km)' : 'Next service at (km)'}><Input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} /></Field>
         {!oil && <Field label="Service type (optional)"><Input list="service-types" value={type} onChange={(e) => setType(e.target.value)} placeholder="Not specified" /></Field>}
         {!oil && <datalist id="service-types">{SERVICE_TYPES.filter((t) => t !== 'Oil change').map((t) => <option key={t} value={t} />)}</datalist>}
+        <Field label="Interval between services (km, optional)"><Input inputMode="numeric" value={interval} onChange={(e) => setInterval_(e.target.value)} placeholder="Not set" /></Field>
         <Field label="Highlight as due soon within (km, optional)"><Input inputMode="numeric" value={warn} onChange={(e) => setWarn(e.target.value)} placeholder="No warning window" /></Field>
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <Button variant="primary" disabled={saving || !value} onClick={save}>Save</Button>
@@ -91,7 +98,8 @@ export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehic
   )
 }
 
-export function MaintenanceModal({ vehicle, presetType = '', onClose }: { vehicle: Vehicle; presetType?: string; onClose: () => void }) {
+/** `onSaved`, when given, runs after a successful save instead of just closing (e.g. to prompt for the next oil-change mileage). */
+export function MaintenanceModal({ vehicle, presetType = '', onSaved, onClose }: { vehicle: Vehicle; presetType?: string; onSaved?: () => void; onClose: () => void }) {
   const { today } = useFleet()
   const { run, saving } = useFleetCommand()
   const [date, setDate] = useState(today)
@@ -99,7 +107,7 @@ export function MaintenanceModal({ vehicle, presetType = '', onClose }: { vehicl
   const [odo, setOdo] = useState('')
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
-  const save = () => { run(A.recordMaintenance(vehicle.id, { date, serviceType: type, odometer: numOrNull(odo), description, notes }, today), onClose)}
+  const save = () => { run(A.recordMaintenance(vehicle.id, { date, serviceType: type, odometer: numOrNull(odo), description, notes }, today), onSaved ?? onClose)}
   return (
     <Modal title={`Record maintenance · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
@@ -113,6 +121,24 @@ export function MaintenanceModal({ vehicle, presetType = '', onClose }: { vehicl
         <Field label="Work done"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         <Button variant="primary" disabled={saving || !type.trim()} onClick={save}>Save record</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+/** Planning figures for the vehicle: its estimated lifespan and how often it is inspected. Both are optional and have no hidden defaults. */
+export function PlanningModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
+  const { run, saving } = useFleetCommand()
+  const [life, setLife] = useState(vehicle.expectedLifeKm === null ? '' : String(vehicle.expectedLifeKm))
+  const [days, setDays] = useState(vehicle.inspectionIntervalDays === null ? '' : String(vehicle.inspectionIntervalDays))
+  const save = () => { run(A.setVehiclePlanning(vehicle.id, { expectedLifeKm: numOrNull(life), inspectionIntervalDays: numOrNull(days) }), onClose) }
+  return (
+    <Modal title={`Planning estimates · ${vehicle.unitNumber}`} onClose={onClose}>
+      <Body>
+        <p className="text-muted">The estimated lifespan is a planning figure only. Reaching it does not mark the vehicle unsafe, unserviceable or in any condition: condition comes from inspections.</p>
+        <Field label="Estimated vehicle lifespan (km)"><Input inputMode="numeric" autoFocus value={life} onChange={(e) => setLife(e.target.value)} placeholder="Not set" /></Field>
+        <Field label="Inspection interval (days)"><Input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} placeholder="Weekly (7)" /></Field>
+        <Button variant="primary" disabled={saving} onClick={save}>Save</Button>
       </Body>
     </Modal>
   )

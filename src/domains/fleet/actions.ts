@@ -72,15 +72,18 @@ export const reviewOdometer = (readingId: string, decision: 'accepted' | 'reject
  * Sets the next scheduled service mileage. Earlier targets stay in the history. The service type and a "due soon" warning
  * window are optional and are only stored when given: nothing is assumed (a target is not taken to be an oil change).
  */
-export const setServiceTarget = (vehicleId: string, odometer: number, note: string, today: ISODate, opts: { serviceType?: string; warnWithinKm?: number | null } = {}): Reducer => (s) => {
+export const setServiceTarget = (vehicleId: string, odometer: number, note: string, today: ISODate, opts: { serviceType?: string; warnWithinKm?: number | null; intervalKm?: number | null } = {}): Reducer => (s) => {
   if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
   if (!Number.isFinite(odometer) || !Number.isInteger(odometer) || odometer <= 0) return { error: 'Enter the next service mileage as a whole number of kilometres greater than zero.' }
   const warn = opts.warnWithinKm ?? null
   if (warn !== null && (!Number.isInteger(warn) || warn <= 0)) return { error: 'The warning window must be a whole number of kilometres greater than zero.' }
+  const interval = opts.intervalKm ?? null
+  if (interval !== null && (!Number.isInteger(interval) || interval <= 0)) return { error: 'The service interval must be a whole number of kilometres greater than zero.' }
+  if (interval !== null && interval > odometer) return { error: 'The interval is longer than the mileage the next service is set at, so it would start below zero.' }
   const serviceType = opts.serviceType?.trim() || null
   const current = isOilChange(serviceType) ? currentOilTarget(s, vehicleId) : currentServiceTarget(s, vehicleId)
-  if (current && current.odometer === odometer && current.serviceType === serviceType && current.warnWithinKm === warn) return { error: 'That is already the next service.' }
-  return { state: { ...s, serviceTargets: [...s.serviceTargets, { id: nextId('svc'), vehicleId, odometer, setDate: today, note: note.trim(), serviceType, warnWithinKm: warn }] } }
+  if (current && current.odometer === odometer && current.serviceType === serviceType && current.warnWithinKm === warn && current.intervalKm === interval) return { error: 'That is already the next service.' }
+  return { state: { ...s, serviceTargets: [...s.serviceTargets, { id: nextId('svc'), vehicleId, odometer, setDate: today, note: note.trim(), serviceType, warnWithinKm: warn, intervalKm: interval }] } }
 }
 
 /**
@@ -114,6 +117,19 @@ export const updateVehicle = (vehicleId: string, patch: { unitNumber: string; ye
   if (!patch.make.trim() || !patch.model.trim()) return { error: 'Enter the make and model.' }
   const next: Vehicle = { ...v, unitNumber: unit, year: patch.year, make: patch.make.trim(), model: patch.model.trim(), vin: patch.vin.trim() || null, licencePlate: patch.licencePlate.trim() || null, notes: patch.notes.trim() }
   return { state: { ...s, vehicles: s.vehicles.map((x) => (x === v ? next : x)) } }
+}
+
+/**
+ * Planning figures for one vehicle. The estimated lifespan is a planning estimate only: reaching it never changes condition or
+ * serviceability. null clears a figure. The inspection interval defaults to weekly when not set.
+ */
+export const setVehiclePlanning = (vehicleId: string, input: { expectedLifeKm: number | null; inspectionIntervalDays: number | null }): Reducer => (s) => {
+  const v = s.vehicles.find((x) => x.id === vehicleId)
+  if (!v) return { error: 'Vehicle not found.' }
+  const { expectedLifeKm: life, inspectionIntervalDays: days } = input
+  if (life !== null && (!Number.isInteger(life) || life <= 0)) return { error: 'Enter the estimated vehicle lifespan as a whole number of kilometres greater than zero, or leave it blank.' }
+  if (days !== null && (!Number.isInteger(days) || days <= 0 || days > 366)) return { error: 'Enter the inspection interval as a whole number of days (1 to 366), or leave it blank.' }
+  return { state: { ...s, vehicles: s.vehicles.map((x) => (x === v ? { ...v, expectedLifeKm: life, inspectionIntervalDays: days } : x)) } }
 }
 
 /* ── Tires ─────────────────────────────────────────────────────────────── */
@@ -299,18 +315,25 @@ export const submitInspection = (vehicleId: string, input: { date: ISODate; subm
   if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
   if (!validDate(input.date)) return { error: 'Enter a valid date.' }
   if (input.date > today) return { error: 'An inspection cannot be dated in the future.' }
-  if (s.inspections.some((i) => i.vehicleId === vehicleId && i.date === input.date)) return { error: 'An inspection is already recorded for that date.' }
+  const clash = s.inspections.find((i) => i.vehicleId === vehicleId && i.date === input.date)
+  if (clash) return { error: clash.demo ? 'A demonstration record exists on that date. Remove the demonstration records first, then record the real inspection.' : 'An inspection is already recorded for that date.' }
   const defects = input.defects.map((d) => d.trim()).filter(Boolean).map((description): Defect => ({ id: nextId('def'), description, status: 'outstanding', resolvedDate: null, resolutionNote: '' }))
-  const rec: InspectionRecord = { id: nextId('insp'), vehicleId, date: input.date, submittedBy: input.submittedBy.trim(), notes: input.notes.trim(), defects, review: 'submitted', reviewedBy: '', reviewedDate: null, reviewNote: '', condition: null }
+  const rec: InspectionRecord = { id: nextId('insp'), vehicleId, date: input.date, submittedBy: input.submittedBy.trim(), notes: input.notes.trim(), defects, review: 'submitted', reviewedBy: '', reviewedDate: null, reviewNote: '', condition: null, demo: false }
   return { state: { ...s, inspections: [...s.inspections, rec] } }
 }
 
 /** A reviewer marks the submission as reviewed and may state a condition. Defects are unaffected: they are resolved separately. */
 export const reviewInspection = (inspectionId: string, input: { reviewedBy: string; note: string; condition: RatedCondition | null }, today: ISODate): Reducer => (s) =>
-  patchInspection(s, inspectionId, (i) => (i.review === 'reviewed' ? 'This inspection has already been reviewed.' : { ...i, review: 'reviewed', reviewedBy: input.reviewedBy.trim(), reviewedDate: today, reviewNote: input.note.trim(), condition: input.condition }))
+  patchInspection(s, inspectionId, (i) => (i.demo ? 'Demonstration records cannot be reviewed: they are not genuine inspections.' : i.review === 'reviewed' ? 'This inspection has already been reviewed.' : { ...i, review: 'reviewed', reviewedBy: input.reviewedBy.trim(), reviewedDate: today, reviewNote: input.note.trim(), condition: input.condition }))
 
 export const addDefect = (inspectionId: string, description: string): Reducer => (s) =>
-  patchInspection(s, inspectionId, (i) => (description.trim() ? { ...i, defects: [...i.defects, { id: nextId('def'), description: description.trim(), status: 'outstanding', resolvedDate: null, resolutionNote: '' }] } : 'Describe the defect.'))
+  patchInspection(s, inspectionId, (i) => (i.demo ? 'Demonstration records cannot carry defects.' : description.trim() ? { ...i, defects: [...i.defects, { id: nextId('def'), description: description.trim(), status: 'outstanding', resolvedDate: null, resolutionNote: '' }] } : 'Describe the defect.'))
+
+/** Removes the demonstration inspections for a vehicle. Genuine inspections are never touched. */
+export const removeDemoInspections = (vehicleId: string): Reducer => (s) => {
+  if (!s.inspections.some((i) => i.vehicleId === vehicleId && i.demo)) return { error: 'There are no demonstration records to remove.' }
+  return { state: { ...s, inspections: s.inspections.filter((i) => !(i.vehicleId === vehicleId && i.demo)) } }
+}
 
 export const resolveDefect = (inspectionId: string, defectId: string, resolutionNote: string, today: ISODate): Reducer => (s) =>
   patchInspection(s, inspectionId, (i) => {

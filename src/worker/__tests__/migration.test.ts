@@ -63,7 +63,7 @@ describe('browser-data migration', () => {
     expect(f.odometer.map((o) => o.reading)).toEqual([11_856, 12_000, 12_400])
     expect(f.tireSets.filter((t) => t.vehicleId === 'veh-T6010').map((t) => [t.manufacturer, t.active])).toEqual([['Bridgestone', false], ['Nokian', true]])
     expect(f.accessories.map((a) => a.name)).toEqual(['750 L Tidy Tank', 'Light bar'])
-    expect(f.inspections[0].defects[0].description).toBe('light')
+    expect(f.inspections.find((i) => !i.demo)!.defects[0].description).toBe('light')
     const t = (await s.call('GET', '/api/state/materials')).body.state as TrackerState
     expect(t.lines).toHaveLength(14)
     expect(t.lines[3].receipts).toHaveLength(1)
@@ -128,7 +128,7 @@ describe('browser-data migration', () => {
   it('does not import a vehicle that would duplicate an existing unit number', async () => {
     const s = session()
     const b = await bundle()
-    b.fleet!.vehicles.push({ id: 'veh-other', companyId: 'progressive', unitNumber: 't6010', year: 2020, make: 'X', model: 'Y', vin: null, licencePlate: null, notes: '' })
+    b.fleet!.vehicles.push({ id: 'veh-other', companyId: 'progressive', unitNumber: 't6010', year: 2020, make: 'X', model: 'Y', vin: null, licencePlate: null, notes: '', expectedLifeKm: null, inspectionIntervalDays: null })
     const r = await apply(s, b)
     expect(rowsOf(r, 'fleet', 'vehicles').blocked).toEqual([{ table: 'vehicles', id: 'veh-other', reason: expect.stringMatching(/unit_number/) }])
     expect(((await s.call('GET', '/api/state/fleet')).body.state as FleetState).vehicles).toHaveLength(4)
