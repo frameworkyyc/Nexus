@@ -1,14 +1,12 @@
 {
   // Static single-page app served by Cloudflare Workers assets.
-  // Production is intentionally not configured yet; deploy only via the staging env.
+  // `name` must match the Worker connected to GitHub in the Cloudflare dashboard.
+  // The Worker currently builds from the `staging` branch; `main` stays the stable branch.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nexus-staging",
+  "name": "nexus",
   "compatibility_date": "2025-09-01",
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
-  },
-  "env": {
-    "staging": { "name": "nexus-staging" }
   }
 }

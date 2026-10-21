@@ -10,7 +10,7 @@ Active development happens on `staging`. `main` is the stable production branch.
 npm install
 npm run dev         # local dev server
 npm run typecheck && npm run lint && npm run build
-npm run deploy:staging   # requires Cloudflare credentials; never deploy production without approval
+npm run deploy   # manual deploy to the "nexus" Worker; needs Cloudflare credentials
 ```
 
 Stack: React, TypeScript, Vite, Tailwind CSS v4, React Router, Lucide, Cloudflare Workers (static assets).
