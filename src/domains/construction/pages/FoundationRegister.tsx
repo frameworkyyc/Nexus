@@ -11,6 +11,7 @@ import {
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
+import { AddFoundationButton } from './AddFoundation'
 import { FoundationStateBadge, fraction } from '../ui'
 import type { Area, Foundation, Plinth } from '../types'
 
@@ -100,11 +101,12 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
             </Select>
           )}
         </div>
-        <div className="flex gap-1 text-[13px] lg:ml-auto" role="group" aria-label="Register view">
+        <div className="flex items-center gap-3 lg:ml-auto"><AddFoundationButton projectId={projectId} areaId={areaId} />
+        <div className="flex gap-1 text-[13px]" role="group" aria-label="Register view">
           {(['foundations', 'plinths'] as const).map((v) => (
             <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-nx px-3 py-1.5 capitalize transition-colors ${view === v ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{v}</button>
           ))}
-        </div>
+        </div></div>
       </div>
       <p className="mb-1 text-xs text-muted">
         {view === 'foundations' ? `${visible.length} of ${rows.length} foundations` : `${plinthRows.length} plinths`} · expand a foundation to see its plinths

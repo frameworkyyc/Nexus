@@ -1,0 +1,12 @@
+{
+  // Local full-stack development only (never deployed): the Worker, the static app and a local SQLite-backed D1.
+  //   npm run dev:full        build, apply migrations to the local database, and serve at http://localhost:8787
+  // The auth bypass is honoured only for requests to localhost, and only when this file's var is set.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nexus-local",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "vars": { "NEXUS_ENV": "local", "DEV_BYPASS_AUTH": "true" },
+  "d1_databases": [{ "binding": "DB", "database_name": "nexus-local", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }]
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { ToastProvider } from '@/components/ui/Toast'
+import { DataGate } from './DataGate'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
@@ -14,7 +15,7 @@ export function AppShell() {
           <TopBar onMenu={() => setNavOpen(true)} />
           <main className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
-              <Outlet />
+              <DataGate><Outlet /></DataGate>
             </div>
           </main>
         </div>

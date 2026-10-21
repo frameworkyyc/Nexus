@@ -46,8 +46,21 @@ src/
 ```
 
 The platform never imports from `domains/*` except through the router. A different industry pack can supply its own
-types, catalogue, seed and pages. There is no backend, authentication or external integration yet; swap `store.ts`
-for an API client later.
+types, catalogue, seed and pages.
+
+### Saved data (Cloudflare D1)
+
+Fleet, Materials and Construction records are saved in a Cloudflare D1 database through the Worker in `src/worker/`, so they
+persist across refreshes and devices. The browser sends each change as a tagged call of the same reducer the server re-runs
+(`lib/commandTag.ts`, `shared/registry.ts`); the UI shows "saved" only once the server confirms. Cloudflare Access gates the site and
+the Worker verifies its token itself, failing closed. Schema is in `migrations/`; backups, restore and the one-off browser-data
+migration are in **Data & backups**. Without a configured server the app falls back to browser-local demonstration data and says so.
+
+* Architecture, schema and the migration sequence: [docs/PERSISTENCE.md](docs/PERSISTENCE.md)
+* Cloudflare setup (database, Access), backups, recovery, migrations: [docs/OPERATIONS.md](docs/OPERATIONS.md)
+* Local full stack: `npm run dev:full`; tests run the real migrations on SQLite: `npm test`
+
+There are still no user roles: whoever Cloudflare Access admits can change everything.
 
 ### Deployment notes
 
@@ -106,16 +119,17 @@ specifications (editable), odometer, maintenance, tires, modifications and acces
 - Saved data upgrades from v1/v2 to v3 without losing records; T6010's verified entries are added only where that part is empty.
 
 Access rules (`domains/fleet/access.ts`) model fleet managers (all vehicles), project supervisors (update vehicles assigned
-to their projects) and project users (view only, configurable later). **They are not enforced**: there is no sign-in, every
-visitor acts as the demo fleet manager, and data lives in this browser only, so other users and devices never see it. Do not
-treat these pages as secure until server-side authentication, authorization and a shared store exist.
+to their projects) and project users (view only, configurable later). **They are not enforced**: every
+signed-in visitor acts as the fleet manager. With saved data, Cloudflare Access limits who can reach the site and the Worker
+verifies its token, but nothing distinguishes one admitted person from another. Without a server (demonstration mode) there is no
+sign-in at all and the data lives in this browser only. Do not describe these roles as secure until per-user authorization exists.
 
 ### Material tracker import
 
 The REEF material tracker workbook (Material List + Anchorage Type sheets) is imported **in the browser** from
-Projects → REEF → Materials (and each area's Materials tab). The file is read locally by `src/lib/xlsx.ts`, stored only in
-this browser (`nexus.reef.materialTracker`, separate from the demonstration data and untouched by "Reset demo data"), and is
-never uploaded or bundled into the app. Workbooks are git-ignored (`*.xlsx`); keep project files out of the repository and
+Projects → REEF → Materials (and each area's Materials tab). The file is read locally by `src/lib/xlsx.ts` and only the parsed
+records are sent to the saved-data API (the workbook file itself is never uploaded). Without a server they stay in this browser
+(`nexus.reef.materialTracker`, separate from the demonstration data and untouched by "Reset demo data"). The file is never bundled into the app. Workbooks are git-ignored (`*.xlsx`); keep project files out of the repository and
 out of public deployments until sign-in exists.
 
 - **Detailed requirements** (Material List A:I) become material lines, each keeping its sheet and row, verbatim component

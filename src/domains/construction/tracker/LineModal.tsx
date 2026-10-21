@@ -3,9 +3,9 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
-import { addReceipt, confirmNoReceipts, removeReceipt, setNotes, setOrdered } from './actions'
+import { addReceipt, confirmNoReceipts, removeReceipt, setNotes, setOrdered } from './commands'
 import { CATEGORY_LABEL, DELIVERY_LABEL, deliveryState, isVerified, receivedOf, remainingOf } from './selectors'
-import { useTracker, useTrackerRun } from './store'
+import { useTracker, useTrackerCommand } from './store'
 import type { ImportFlag } from './types'
 
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
@@ -15,7 +15,7 @@ const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
 /** Inspect one imported line and maintain its Nexus-side records: receipts, ordered quantity, notes. */
 export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => void }) {
   const { state, today } = useTracker()
-  const run = useTrackerRun()
+  const { run, saving } = useTrackerCommand()
   const line = state.lines.find((l) => l.id === lineId)
   const [qty, setQty] = useState('')
   const [date, setDate] = useState(today)
@@ -27,7 +27,7 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   const remaining = remainingOf(line)
   const ds = deliveryState(line)
   const save = () => {
-    if (run(addReceipt(line.id, { date, qty: Number(qty), reference: ref, note }, today)) === null) { setQty(''); setRef(''); setNote('') }
+    run(addReceipt(line.id, { date, qty: Number(qty), reference: ref, note }, today), () => { setQty(''); setRef(''); setNote('') })
   }
   return (
     <Modal title={line.component} onClose={onClose} wide>
@@ -73,7 +73,7 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
             <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Button variant="primary" disabled={!qty} onClick={save}>Record receipt</Button>
+            <Button variant="primary" disabled={saving || !qty} onClick={save}>{saving ? 'Saving…' : 'Record receipt'}</Button>
             {!line.receipts.length && (
               <label className="flex items-center gap-2 text-muted"><input type="checkbox" checked={line.confirmedNoReceipts} onChange={(e) => run(confirmNoReceipts(line.id, e.target.checked))} />Confirm nothing has been received</label>
             )}
@@ -83,7 +83,7 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
         <section className="grid gap-3 sm:grid-cols-2">
           <Field label="Ordered quantity (optional)">
             <Input inputMode="numeric" placeholder="Not recorded" value={ordered ?? (line.orderedQty === null ? '' : String(line.orderedQty))} onChange={(e) => setOrderedText(e.target.value)}
-              onBlur={() => { if (ordered !== null) { run(setOrdered(line.id, ordered.trim() === '' ? null : Number(ordered))); setOrderedText(null) } }} />
+              onBlur={() => { if (ordered !== null) run(setOrdered(line.id, ordered.trim() === '' ? null : Number(ordered)), () => setOrderedText(null)) }} />
           </Field>
           <div className="sm:col-span-2"><Field label="Notes"><Textarea rows={3} defaultValue={line.notes} onBlur={(e) => e.target.value !== line.notes && run(setNotes(line.id, e.target.value))} /></Field></div>
         </section>

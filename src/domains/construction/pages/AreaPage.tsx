@@ -7,6 +7,7 @@ import { Section } from '@/components/ui/Section'
 import { Stat } from '@/components/ui/Stat'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { Tabs } from '@/components/ui/Tabs'
+import { useIsServer } from '@/lib/dataSource'
 import { formatShortDate, pct } from '@/lib/format'
 import { FOUNDATION_COMPLETE_DEFINITION } from '../config'
 import { deriveExceptions } from '../exceptions'
@@ -33,14 +34,17 @@ export function AreaPage() {
   const { projectId = '', areaId = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const { idx } = useConstruction()
+  const server = useIsServer()
   const area = idx.area.get(areaId)
   if (!area) return <EmptyState title="Area not found" />
-  const tab = (TABS.find((t) => t.id === params.get('tab'))?.id ?? 'overview') as Tab
+  // Handover has no saved records yet, so saved-data mode leaves the tab out.
+  const tabs = server ? TABS.filter((t) => t.id !== 'handover') : TABS
+  const tab = (tabs.find((t) => t.id === params.get('tab'))?.id ?? 'overview') as Tab
   const foundations = foundationsOf(idx, areaId)
   return (
     <>
       <PageHeader title={area.name} description={`${foundations.length} foundations · ${foundations.reduce((s, f) => s + (idx.plinthsByFoundation.get(f.id)?.length ?? 0), 0)} plinths`} />
-      <Tabs<Tab> items={TABS} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
+      <Tabs<Tab> items={tabs} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
       <div className="pt-6">
         {tab === 'overview' && <Overview projectId={projectId} areaId={areaId} />}
         {tab === 'register' && <FoundationRegister projectId={projectId} areaId={areaId} />}
@@ -173,6 +177,7 @@ function Construction({ projectId, areaId }: { projectId: string; areaId: string
 
 function AreaMaterials({ projectId, areaId }: { projectId: string; areaId: string }) {
   const { state, idx } = useConstruction()
+  if (useIsServer()) return <MaterialTracker areaId={areaId} />
   const plinths = state.plinths.filter((p) => idx.foundation.get(p.foundationId)!.areaId === areaId)
   const types = state.anchorageTypes.map((t) => ({ t, used: plinths.filter((p) => p.anchorageTypeId === t.id) })).filter((x) => x.used.length)
   return (

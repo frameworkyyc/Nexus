@@ -1,10 +1,10 @@
-import { useCallback, useMemo } from 'react'
-import { useToast } from '@/components/ui/Toast'
+import { useMemo } from 'react'
 import { createPersistedStore } from '@/lib/createPersistedStore'
+import { createModuleStore, useSaver } from '@/lib/dataSource'
+import { notify } from '@/lib/notify'
 import { todayISO } from '@/lib/date'
 import { useConstruction } from '@/domains/construction/store'
 import { DEMO_ACTOR } from './access'
-import type { Reducer } from './actions'
 import { applyVerifiedT6010, buildFleetSeed } from './seed'
 import type { FleetState, InspectionRecord, OdometerReading, RatedCondition } from './types'
 
@@ -33,35 +33,31 @@ export function migrateFleet(data: unknown, from: number): FleetState {
   return s
 }
 
-/** Demonstration persistence: browser-local only, like the construction pack. Swap for an API later. */
-export const fleetStore = createPersistedStore({
+/**
+ * Fleet records. With a server (saved-data mode) they live in the database and every change is confirmed by the server before
+ * it is shown as saved. Without one (demonstration mode, local development) they stay in this browser, as before.
+ */
+const fleetLocal = createPersistedStore({
   key: 'nexus.demo.fleet',
   version: 3,
   seed: buildFleetSeed,
   migrate: migrateFleet,
 })
 
+const emptyFleet = (): FleetState => ({ vehicles: [], assignments: [], odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [] })
+
+export const fleetStore = createModuleStore<FleetState>('fleet', fleetLocal, emptyFleet, notify)
+/** The browser-held copy: read for backups and migration, never written in saved-data mode. */
+export const fleetLocalStore = fleetLocal
+
 export function useFleet() {
   return { state: fleetStore.use(), today: todayISO() }
 }
 
-export function useFleetRun() {
-  const toast = useToast()
-  return useCallback(
-    (reducer: Reducer): string | null => {
-      const result = reducer(fleetStore.get())
-      if (result.error !== undefined) {
-        toast(result.error)
-        return result.error
-      }
-      fleetStore.set(result.state)
-      return null
-    },
-    [toast],
-  )
-}
+/** For forms and buttons: `run(reducer, onDone)` with a `saving` flag; `onDone` fires only once the change is confirmed. */
+export const useFleetCommand = () => useSaver(fleetStore)
 
-export const resetFleetDemoData = () => fleetStore.reset()
+export const resetFleetDemoData = () => fleetLocal.reset()
 
 /**
  * The single place Fleet reads the organization's project registry. Fleet stores only project ids;

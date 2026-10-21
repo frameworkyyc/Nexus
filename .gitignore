@@ -9,3 +9,5 @@ dist
 *.xlsx
 *.xls
 *.xlsm
+wrangler.preview-migrations.jsonc
+.wrangler

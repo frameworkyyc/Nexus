@@ -1,4 +1,4 @@
-import { BarChart3, Boxes, ClipboardCheck, FileText, FolderKanban, HardHat, LayoutGrid, Settings2, ShoppingCart, Truck, type LucideIcon } from 'lucide-react'
+import { BarChart3, Boxes, ClipboardCheck, Database, FileText, FolderKanban, HardHat, LayoutGrid, Settings2, ShoppingCart, Truck, type LucideIcon } from 'lucide-react'
 
 export interface NexusModule {
   id: string
@@ -20,4 +20,5 @@ export const MODULES: NexusModule[] = [
   { id: 'operations', label: 'Operations', icon: Settings2 },
   { id: 'quality', label: 'Quality', icon: ClipboardCheck },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'data', label: 'Data & backups', icon: Database, path: '/data' },
 ]

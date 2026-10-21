@@ -9,7 +9,7 @@ import { Section } from '@/components/ui/Section'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
 import { canReassign, canReview, canUpdate } from '../access'
-import { addDefect, reassignVehicle, reopenDefect, resolveDefect, reviewOdometer } from '../actions'
+import { addDefect, reassignVehicle, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
 import { InspectionCell, ServiceCell } from '../FleetTable'
 import {
   AccessoryModal, AccessoryMoveModal, InspectionModal, MaintenanceModal, OdometerModal, RemoveTireModal, ReviewModal, ServiceModal, TireModal, TreadModal, VehicleEditModal,
@@ -20,7 +20,7 @@ import {
   accessoriesOf, ACCESSORY_CATEGORY_LABEL, currentAssignment, fleetRow, historyOf, inspectionsOf, lastService, latestTread, maintenanceOf, odometerHistory, tireKm, tireSetsOf, TIRE_CLASS_LABEL,
   TIRE_CONDITION_LABEL, vehicleTitle,
 } from '../selectors'
-import { useFleet, useFleetActor, useFleetRun, useProjectRegistry } from '../store'
+import { useFleet, useFleetActor, useFleetCommand, useProjectRegistry } from '../store'
 import { AccessNotice, ConditionBadge, FleetFooter, NOT_RECORDED } from '../ui'
 import type { Accessory, InspectionRecord, TireSet } from '../types'
 
@@ -61,7 +61,7 @@ export function VehicleDashboard() {
   const { state, today } = useFleet()
   const registry = useProjectRegistry()
   const actor = useFleetActor()
-  const run = useFleetRun()
+  const { run } = useFleetCommand()
   const [target, setTarget] = useState<string | null>(null)
   const [modal, setModal] = useState<Modal>(null)
   const vehicle = state.vehicles.find((v) => v.id === vehicleId)
@@ -133,7 +133,7 @@ export function VehicleDashboard() {
               <option value="">Unassigned</option>
               {registry.projects.map((p) => <option key={p.id} value={p.id}>{p.name} · Job {p.jobNumber}</option>)}
             </Select>
-            <Button disabled={unchanged} onClick={() => run(reassignVehicle(vehicle.id, selected || null, registry.projects.map((p) => p.id), today)) === null && setTarget(null)}>Save assignment</Button>
+            <Button disabled={unchanged} onClick={() => run(reassignVehicle(vehicle.id, selected || null, registry.projects.map((p) => p.id), today), () => setTarget(null))}>Save assignment</Button>
           </div>
         )}
         {projectId && <p className="mt-3 text-xs text-muted">Moving a vehicle to another project is done from the organization fleet.</p>}

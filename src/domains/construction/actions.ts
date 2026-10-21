@@ -1,4 +1,5 @@
 import { addDays, type ISODate } from '@/lib/date'
+import { blankActivitiesFor } from './blankActivities'
 import { getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
 import type {
@@ -13,7 +14,7 @@ const ok = (state: ConstructionState): Result => ({ state })
 const fail = (error: string): Result => ({ error })
 
 let seq = 0
-const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(seq++).toString(36)}`
+const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
 /* ── Activities ─────────────────────────────────────────────────────────── */
 
@@ -356,3 +357,21 @@ export const addProjectIssue = (projectId: string, title: string, severity: Proj
 
 export const setProjectIssueStatus = (id: string, status: ProjectIssue['status']): Reducer => (s) =>
   ok({ ...s, projectIssues: s.projectIssues.map((i) => (i.id === id ? { ...i, status } : i)) })
+
+/* ── Foundation register (saved project data) ───────────────────────────── */
+
+/**
+ * Adds a foundation, with its plinths, to an area. Every applicable activity starts as "not started"; nothing is recorded as
+ * done. Ids are derived from the area and foundation number so adding the same foundation twice is refused, not duplicated.
+ */
+export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number): Reducer => (s) => {
+  const area = s.areas.find((a) => a.id === areaId)
+  if (!area) return fail('Area not found.')
+  const num = number.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(num)) return fail('Use letters, digits, dots, dashes or underscores for the foundation number (for example 21-03).')
+  if (s.foundations.some((f) => f.areaId === areaId && f.number.toLowerCase() === num.toLowerCase())) return fail(`Foundation ${num} already exists in ${area.name}.`)
+  if (!Number.isInteger(plinthCount) || plinthCount < 0 || plinthCount > 100) return fail('Enter the number of plinths as a whole number from 0 to 100.')
+  const foundation = { id: `f-${areaId}-${num}`, areaId, number: num, description: description.trim(), notes: '', docIds: [] as string[] }
+  const plinths = Array.from({ length: plinthCount }, (_, i) => ({ id: `${foundation.id}-p${i + 1}`, foundationId: foundation.id, index: i + 1, anchorageTypeId: null, notes: '' }))
+  return ok({ ...s, foundations: [...s.foundations, foundation], plinths: [...s.plinths, ...plinths], activities: [...s.activities, ...blankActivitiesFor(foundation, plinths)] })
+}

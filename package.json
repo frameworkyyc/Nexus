@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "deploy": "node scripts/guard-production.mjs && wrangler deploy",
     "preview:staging": "npm run build && wrangler preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.dev.jsonc",
+    "dev:full": "npm run build && npm run db:migrate:local && wrangler dev --config wrangler.dev.jsonc"
   },
   "dependencies": {
     "lucide-react": "^1.60.0",

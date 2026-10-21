@@ -1,6 +1,7 @@
 import { Lock, X } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { MODULES } from '@/app/modules'
+import { useBackend } from '@/lib/dataSource'
 
 function DisabledItem({ label, Icon }: { label: string; Icon: (typeof MODULES)[number]['icon'] }) {
   return (
@@ -25,6 +26,7 @@ function DisabledItem({ label, Icon }: { label: string; Icon: (typeof MODULES)[n
 }
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { mode, environment } = useBackend()
   return (
     <>
       {open && <div className="fixed inset-0 z-30 bg-ink/50 xl:hidden" onClick={onClose} />}
@@ -63,7 +65,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           </ul>
         </nav>
-        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">Demonstration data · fictional records</div>
+        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : 'Demonstration data · fictional records'}</div>
       </aside>
     </>
   )

@@ -6,7 +6,7 @@ export type Result = { state: FleetState; error?: undefined } | { error: string;
 export type Reducer = (s: FleetState) => Result
 
 let seq = 0
-const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(seq++).toString(36)}`
+const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
 /**
  * Moves a vehicle to another project (or unassigns it with projectId = null). The earlier assignment is closed, not

@@ -8,14 +8,14 @@ import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { Tabs } from '@/components/ui/Tabs'
 import { formatDate } from '@/lib/format'
 import { useConstruction } from '../store'
-import { acknowledgeFlag, clearTracker } from './actions'
+import { acknowledgeFlag, clearTracker } from './commands'
 import { ImportButton } from './ImportModal'
 import { LineModal } from './LineModal'
 import {
   areaSummary, CATEGORY_LABEL, CATEGORY_ORDER, DELIVERY_LABEL, deliveryState, distinct, filterLines, isVerified, linesForArea, receivedOf, reconcileSummary, remainingOf,
   type DeliveryState, type LineFilter,
 } from './selectors'
-import { useTracker, useTrackerRun } from './store'
+import { useTracker, useTrackerCommand } from './store'
 import type { ComponentCategory } from './types'
 import type { TrackerLine } from './types'
 
@@ -33,7 +33,7 @@ const DELIVERY_FILTER: DeliveryState[] = ['unverified-delivered', 'unverified-pe
 export function MaterialTracker({ areaId }: { areaId?: string }) {
   const { state } = useTracker()
   const { state: construction } = useConstruction()
-  const run = useTrackerRun()
+  const { run } = useTrackerCommand()
   const { today } = useTracker()
   const [tab, setTab] = useState<Tab>('requirements')
   const [filter, setFilter] = useState<LineFilter>({})
@@ -205,7 +205,7 @@ function AnchorageTypes({ lines }: { lines: TrackerLine[] }) {
 
 function Source() {
   const { state } = useTracker()
-  const run = useTrackerRun()
+  const { run } = useTrackerCommand()
   const m = state.meta!
   const rec = reconcileSummary(state)
   return (

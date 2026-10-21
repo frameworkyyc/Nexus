@@ -1,8 +1,11 @@
 import { useCallback, useMemo } from 'react'
 import { useToast } from '@/components/ui/Toast'
 import { createPersistedStore } from '@/lib/createPersistedStore'
+import { createModuleStore, getBackend, useSaver } from '@/lib/dataSource'
+import { notify } from '@/lib/notify'
 import { todayISO } from '@/lib/date'
 import type { Reducer } from './actions'
+import { emptyConstruction } from './empty'
 import { buildPortfolio, buildSeed, REEF_PROJECT } from './seed'
 import type { ConstructionState } from './types'
 import { getIndex } from './selectors'
@@ -20,12 +23,18 @@ export function migrateConstruction(data: unknown, from: number): ConstructionSt
   }
 }
 
-export const constructionStore = createPersistedStore({
+/**
+ * Construction records. In saved-data mode they come from the server: the real REEF project and areas, plus the foundations
+ * and activity records people have entered (nothing demonstrative). In demonstration mode they are the fictional seed, in this browser.
+ */
+const constructionLocal = createPersistedStore({
   key: 'nexus.demo.construction',
   version: 2,
   seed: () => buildSeed(todayISO()),
   migrate: migrateConstruction,
 })
+
+export const constructionStore = createModuleStore<ConstructionState>('construction', constructionLocal, emptyConstruction, notify)
 
 export function useConstruction() {
   const state = constructionStore.use()
@@ -33,21 +42,33 @@ export function useConstruction() {
   return { state, idx, today: todayISO() }
 }
 
-/** Applies a reducer to the latest state. Returns the error message (also toasted) or null on success. */
+/** Saving hook for records that are persisted on the server: `run(reducer, onDone)` plus a `saving` flag. */
+export const useConstructionCommand = () => useSaver(constructionStore)
+
+/**
+ * Synchronous runner for the demonstration-only screens (procurement, fabrication, handover, documents). Those actions have no
+ * saved records, so in saved-data mode they are refused with a message instead of silently changing nothing.
+ */
 export function useRun() {
   const toast = useToast()
   return useCallback(
     (reducer: Reducer): string | null => {
-      const result = reducer(constructionStore.get())
+      if (getBackend().mode === 'server') {
+        const msg = 'This part of Nexus is not available with saved project data yet.'
+        toast(msg)
+        return msg
+      }
+      const result = reducer(constructionLocal.get())
       if (result.error !== undefined) {
         toast(result.error)
         return result.error
       }
-      constructionStore.set(result.state)
+      constructionLocal.set(result.state)
       return null
     },
     [toast],
   )
 }
 
-export const resetDemoData = () => constructionStore.reset()
+export const resetDemoData = () => constructionLocal.reset()
+export const constructionLocalStore = constructionLocal

@@ -2,9 +2,9 @@ import { Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
-import { importTracker } from './actions'
+import { importTracker } from './commands'
 import { fingerprint, importWorkbookFile, type ParsedTracker } from './import'
-import { useTracker, useTrackerRun } from './store'
+import { useTracker, useTrackerCommand } from './store'
 
 /** Reads the workbook in the browser, shows what it found, and only imports once the user confirms. */
 export function ImportButton({ label = 'Import workbook' }: { label?: string }) {
@@ -18,7 +18,7 @@ export function ImportButton({ label = 'Import workbook' }: { label?: string }) 
 }
 
 function ImportModal({ onClose }: { onClose: () => void }) {
-  const run = useTrackerRun()
+  const { run, saving } = useTrackerCommand()
   const { state } = useTracker()
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -37,7 +37,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   }
   const confirm = () => {
     if (!found) return
-    if (run(importTracker(found.parsed, { fileName: found.fileName, fileSize: found.fileSize, sha256: found.sha256, importedAt: new Date().toISOString() })) === null) onClose()
+    run(importTracker(found.parsed, { fileName: found.fileName, fileSize: found.fileSize, sha256: found.sha256, importedAt: new Date().toISOString() }), onClose)
   }
   const c = found?.parsed.counts
   const review = found?.parsed.flags.filter((f) => f.severity === 'review').length ?? 0
@@ -61,7 +61,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
               Statuses are kept as written. “Delivered” does not set any received quantity: receipts are entered in Nexus afterwards.
               {state.meta && ' Existing receipts, ordered quantities and notes are carried over to matching lines.'}
             </p>
-            <div className="mt-5 flex gap-2"><Button variant="primary" onClick={confirm}>{state.meta ? 'Re-import and merge' : 'Import'}</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>
+            <div className="mt-5 flex gap-2"><Button variant="primary" disabled={saving} onClick={confirm}>{saving ? 'Saving…' : state.meta ? 'Re-import and merge' : 'Import'}</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>
           </div>
         )}
       </div>

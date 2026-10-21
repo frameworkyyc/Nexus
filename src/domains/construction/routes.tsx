@@ -11,6 +11,7 @@ import { OverviewPage, ProjectsPage } from './pages/OverviewPage'
 import { ProjectHome } from './pages/ProjectDashboard'
 import { ProjectLayout } from './pages/ProjectLayout'
 import { projectFleetRoutes } from '../fleet/routes'
+import { DemoOnly } from './pages/DemoOnly'
 import { useConstruction } from './store'
 
 const text = (label: string): CrumbHandle => ({ crumb: () => <>{label}</> })
@@ -47,9 +48,9 @@ export const constructionRoutes: RouteObject[] = [
           { index: true, element: <ProjectHome /> },
           { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
-          { path: 'fabrication', element: <FabricationPage />, handle: text('Fabrication') },
-          { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },
-          { path: 'handover', element: <HandoverPage />, handle: text('Handover') },
+          { path: 'fabrication', element: <DemoOnly><FabricationPage /></DemoOnly>, handle: text('Fabrication') },
+          { path: 'anchorage', element: <DemoOnly><AnchoragePage /></DemoOnly>, handle: text('Anchorage types') },
+          { path: 'handover', element: <DemoOnly><HandoverPage /></DemoOnly>, handle: text('Handover') },
           { path: 'issues', element: <IssuesPage />, handle: text('Issues') },
           ...projectFleetRoutes,
           {

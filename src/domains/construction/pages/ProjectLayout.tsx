@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { NavMenu } from '@/components/ui/Menu'
 import { paths } from '../paths'
+import { useIsServer } from '@/lib/dataSource'
 import { resetDemoData, useConstruction } from '../store'
 
 export function ResetDemoButton() {
@@ -29,6 +30,7 @@ const off = 'text-muted hover:text-ink'
 export function ProjectLayout() {
   const { projectId = '' } = useParams()
   const { state } = useConstruction()
+  const server = useIsServer()
   const { pathname } = useLocation()
   const project = state.projects.find((p) => p.id === projectId)
   if (!project) return <EmptyState title="Project not found" />
@@ -45,7 +47,7 @@ export function ProjectLayout() {
     )
   }
   const currentArea = state.areas.find((a) => pathname.includes(`/areas/${a.id}`))
-  const sections = [
+  const allSections = [
     { to: paths.project(projectId), full: `${project.name} overview`, short: 'Overview', end: true },
     { to: paths.register(projectId), full: 'Foundation register', short: 'Register' },
     { to: paths.materials(projectId), full: 'Materials', short: 'Materials' },
@@ -54,6 +56,8 @@ export function ProjectLayout() {
     { to: paths.handover(projectId), full: 'Handover', short: 'Handover' },
     { to: paths.fleet(projectId), full: 'Fleet', short: 'Fleet' },
   ]
+  // Procurement, fabrication and handover have no saved records yet, so saved-data mode leaves them out rather than showing fiction.
+  const sections = server ? allSections.filter((x) => ![paths.fabrication(projectId), paths.anchorage(projectId), paths.handover(projectId)].includes(x.to)) : allSections
   const areaItems = state.areas.map((a) => ({ to: paths.area(projectId, a.id), label: a.name }))
   const current = currentArea?.name ?? (pathname.endsWith('/issues') ? 'Issues' : sections.find((s) => (s.end ? pathname === s.to : pathname.startsWith(s.to)))?.full ?? `${project.name} overview`)
   const link = (s: (typeof sections)[number]) => (
@@ -77,8 +81,8 @@ export function ProjectLayout() {
         <Outlet />
       </div>
       <footer className="mt-16 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-        <p className="text-xs text-muted">Demonstration data — fictional records, not for construction.</p>
-        <ResetDemoButton />
+        {server ? <p className="text-xs text-muted">Saved project data. Changes are stored on the server and shown on every device.</p> : <p className="text-xs text-muted">Demonstration data — fictional records, not for construction.</p>}
+        {!server && <ResetDemoButton />}
       </footer>
     </>
   )

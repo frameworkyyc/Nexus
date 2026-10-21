@@ -2,11 +2,11 @@ import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { CompactInput, CompactSelect, Textarea } from '@/components/ui/Field'
-import { updateActivity } from './actions'
+import { updateActivity } from './commands'
 import { CATEGORY_LABEL, CATEGORY_ORDER, STATUS_LABEL, STATUS_OPTIONS, getDef } from './config'
 import { paths } from './paths'
 import { derivedNote, effectiveStatus, isReady } from './selectors'
-import { useConstruction, useRun } from './store'
+import { useConstruction, useConstructionCommand } from './store'
 import { ActivityStatusBadge } from './ui'
 import type { Activity, Person } from './types'
 
@@ -19,7 +19,7 @@ function assignees(people: Person[], category: string): Person[] {
 
 function ActivityRow({ a }: { a: Activity }) {
   const { state, idx, today } = useConstruction()
-  const run = useRun()
+  const { run } = useConstructionCommand()
   const { projectId = 'reef' } = useParams()
   const [open, setOpen] = useState(false)
   const [notes, setNotes] = useState(a.notes)

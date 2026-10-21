@@ -7,7 +7,7 @@ export type Result = { state: TrackerState; error?: undefined } | { error: strin
 export type Reducer = (s: TrackerState) => Result
 
 let seq = 0
-const nextId = () => `rc-${Date.now().toString(36)}${(seq++).toString(36)}`
+const nextId = () => `rc-${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const validDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T00:00:00`).getTime())
 
 const patchLine = (s: TrackerState, id: string, fn: (l: TrackerLine) => TrackerLine | string): Result => {

@@ -11,7 +11,8 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Section } from '@/components/ui/Section'
 import { Stat } from '@/components/ui/Stat'
 import { formatDate } from '@/lib/format'
-import { addDeficiency, linkFoundationDoc, returnAllocation, setBoltsReady, setDeficiencyStatus, setFoundationNotes, setPlinthAnchorage, setPlinthNotes } from '../actions'
+import { addDeficiency, linkFoundationDoc, returnAllocation, setBoltsReady, setDeficiencyStatus, setPlinthAnchorage } from '../actions'
+import { setFoundationNotes, setPlinthNotes } from '../commands'
 import { ActivityTable } from '../ActivityTable'
 import { DocumentModal } from '../DocumentModal'
 import { STATUS_LABEL, STATUS_TONE, FOUNDATION_COMPLETE_DEFINITION } from '../config'
@@ -20,7 +21,7 @@ import {
   BOLT_STAGE_LABEL, areaOfPlinth, computeStats, deriveIssues, footingActivities, footingStep, foundationActivities, foundationState, plinthActivities, plinthBoltRequirements,
   effectiveStatus, plinthBoltStage, plinthHardware, plinthMaterials, plinthState, plinthStep, progressOf, specLabel, tallyCategory, type Index,
 } from '../selectors'
-import { useConstruction, useRun } from '../store'
+import { useConstruction, useConstructionCommand, useRun } from '../store'
 import { FoundationStateBadge, fraction, IssueList } from '../ui'
 import { FOUNDATION_STATE_LABEL } from '../selectors'
 import type { Activity, Foundation, Plinth } from '../types'
@@ -29,6 +30,7 @@ export function FoundationPage() {
   const { projectId = '', foundationId = '' } = useParams()
   const { state, idx, today } = useConstruction()
   const run = useRun()
+  const { run: save } = useConstructionCommand()
   const [params] = useSearchParams()
   const [addingDoc, setAddingDoc] = useState(false)
   const [notes, setNotes] = useState<string | null>(null)
@@ -150,7 +152,7 @@ export function FoundationPage() {
       </Section>
 
       <Section title="Notes">
-        <Textarea rows={3} value={notes ?? f.notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== null && notes !== f.notes && run(setFoundationNotes(f.id, notes))} placeholder="Foundation notes" />
+        <Textarea rows={3} value={notes ?? f.notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== null && notes !== f.notes && save(setFoundationNotes(f.id, notes))} placeholder="Foundation notes" />
       </Section>
 
       {addingDoc && <DocumentModal onClose={() => setAddingDoc(false)} onCreated={(id) => run(linkFoundationDoc(f.id, id, true))} />}
@@ -161,6 +163,7 @@ export function FoundationPage() {
 function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plinth; projectId: string; defaultOpen: boolean }) {
   const { state, idx, today } = useConstruction()
   const run = useRun()
+  const { run: save } = useConstructionCommand()
   const [notes, setNotes] = useState<string | null>(null)
   const acts = plinthActivities(idx, p)
   const ps = plinthState(idx, p)
@@ -229,7 +232,7 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
 
         <label className="block">
           <span className="t-label mb-1 block">Plinth notes</span>
-          <Textarea rows={2} value={notes ?? p.notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== null && notes !== p.notes && run(setPlinthNotes(p.id, notes))} />
+          <Textarea rows={2} value={notes ?? p.notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== null && notes !== p.notes && save(setPlinthNotes(p.id, notes))} />
         </label>
         <p className="text-xs text-muted">{f.number} · Plinth {p.index}</p>
       </div>

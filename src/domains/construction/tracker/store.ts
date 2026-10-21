@@ -1,25 +1,18 @@
-import { useCallback } from 'react'
-import { useToast } from '@/components/ui/Toast'
 import { createPersistedStore } from '@/lib/createPersistedStore'
+import { createModuleStore, useSaver } from '@/lib/dataSource'
 import { todayISO } from '@/lib/date'
-import type { Reducer } from './actions'
-import { emptyTracker } from './types'
+import { notify } from '@/lib/notify'
+import { emptyTracker, type TrackerState } from './types'
 
 /**
- * Imported project data lives in its own browser-local store, apart from the fictional demonstration data, so it is never
- * mixed into demo totals and "Reset demo data" does not erase it. Browser-local means this device only: no other user sees
- * it and clearing site data removes it. Replace with a server-side store once authentication exists.
+ * Imported project data. With a server it is saved in the database (source facts and operational edits in separate tables) and
+ * is the same on every device. Without one it stays in this browser, apart from the demonstration data and untouched by
+ * "Reset demo data".
  */
-export const trackerStore = createPersistedStore({ key: 'nexus.reef.materialTracker', version: 1, seed: emptyTracker })
+const trackerLocal = createPersistedStore({ key: 'nexus.reef.materialTracker', version: 1, seed: emptyTracker })
+
+export const trackerStore = createModuleStore<TrackerState>('materials', trackerLocal, emptyTracker, notify)
+export const trackerLocalStore = trackerLocal
 
 export const useTracker = () => ({ state: trackerStore.use(), today: todayISO() })
-
-export function useTrackerRun() {
-  const toast = useToast()
-  return useCallback((reducer: Reducer): string | null => {
-    const result = reducer(trackerStore.get())
-    if (result.error !== undefined) { toast(result.error); return result.error }
-    trackerStore.set(result.state)
-    return null
-  }, [toast])
-}
+export const useTrackerCommand = () => useSaver(trackerStore)

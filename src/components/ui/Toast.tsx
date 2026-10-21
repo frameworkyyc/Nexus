@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { onNotify } from '@/lib/notify'
 
 const ToastContext = createContext<(message: string) => void>(() => {})
 
@@ -10,6 +11,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setMessage(m)
     window.setTimeout(() => setMessage((cur) => (cur === m ? null : cur)), 5000)
   }, [])
+  useEffect(() => onNotify(push), [push])
   return (
     <ToastContext.Provider value={push}>
       {children}

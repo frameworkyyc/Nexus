@@ -5,6 +5,7 @@ import { Stat } from '@/components/ui/Stat'
 import { Disclosure } from '@/components/ui/Disclosure'
 import { Tabs } from '@/components/ui/Tabs'
 import { MaterialTracker } from '../tracker/TrackerView'
+import { useIsServer } from '@/lib/dataSource'
 import { boltRows } from '../selectors'
 import { useConstruction } from '../store'
 import { BoltTable, BulkTable } from './materials/Tables'
@@ -13,15 +14,18 @@ import { Deliveries, PurchaseOrders } from './materials/Purchasing'
 type Tab = 'bolts' | 'bulk' | 'orders' | 'deliveries'
 
 export function MaterialsPage() {
+  const server = useIsServer()
   return (
     <>
       <PageHeader title="Materials" description="REEF material tracker: requirements by area, footing type and anchorage type, with delivery verified by recorded receipts." />
       <MaterialTracker />
-      <div className="mt-16 border-t border-line">
-        <Disclosure summary={<span className="text-xs text-muted">Demonstration procurement data (fictional) — not part of the REEF tracker or its totals</span>}>
-          <DemoMaterials />
-        </Disclosure>
-      </div>
+      {!server && (
+        <div className="mt-16 border-t border-line">
+          <Disclosure summary={<span className="text-xs text-muted">Demonstration procurement data (fictional) — not part of the REEF tracker or its totals</span>}>
+            <DemoMaterials />
+          </Disclosure>
+        </div>
+      )}
     </>
   )
 }

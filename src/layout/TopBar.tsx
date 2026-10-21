@@ -2,6 +2,7 @@ import { Menu } from 'lucide-react'
 import { Link, useMatches } from 'react-router-dom'
 import { tenant } from '@/app/tenant'
 import type { ComponentType } from 'react'
+import { SyncIndicator } from './SyncIndicator'
 
 /** Routes declare `handle: { crumb: Component }`; the top bar renders the chain. */
 export interface CrumbHandle {
@@ -30,6 +31,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         </nav>
       </div>
       <div className="flex items-center gap-4">
+        <SyncIndicator />
         <span className="hidden text-[13px] text-muted sm:inline">{tenant.organization}</span>
         <div aria-label="User avatar placeholder" className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-micro font-medium text-white">
           {tenant.userInitials}
