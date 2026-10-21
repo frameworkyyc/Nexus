@@ -9,13 +9,31 @@ export interface Company {
   name: string
 }
 
+/** Recorded by a person. Never inferred from completion percentages. */
+export type ProjectStatus = 'planning' | 'active' | 'at-risk' | 'delayed' | 'on-hold' | 'complete'
+
 export interface Project {
   id: string
   companyId: string
   name: string
   jobNumber: string
+  client: string
   location: string
   scope: string
+  status: ProjectStatus
+  statusNote: string // why the recorded status was chosen
+  /** 'detailed' projects derive progress from activity records; 'summary' projects carry a reported figure. */
+  tracking: 'detailed' | 'summary'
+  reportedProgress: number | null // used only when tracking === 'summary'
+}
+
+export interface ProjectIssue {
+  id: string
+  projectId: string
+  title: string
+  severity: 'critical' | 'moderate'
+  status: 'open' | 'closed'
+  recorded: ISODate
 }
 
 export interface Area {
@@ -267,6 +285,7 @@ export interface Person {
 export interface ConstructionState {
   company: Company
   projects: Project[]
+  projectIssues: ProjectIssue[]
   areas: Area[]
   foundations: Foundation[]
   plinths: Plinth[]

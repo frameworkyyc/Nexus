@@ -55,7 +55,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
   const visible = rows
     .filter((r) => !areaId && areaFilter !== 'all' ? r.f.areaId === areaFilter : true)
     .filter((r) => typeFilter === 'all' || r.types.includes(typeFilter))
-    .filter((r) => (stateFilter === 'all' ? true : stateFilter === 'blocked' ? r.state.blocked : r.state.state === stateFilter))
+    .filter((r) => (stateFilter === 'all' ? true : stateFilter === 'blocked' ? r.state.blocked : stateFilter === 'constructed' ? r.state.state === 'constructed' || r.state.state === 'closed-out' : r.state.state === stateFilter))
     .filter((r) => !q || [r.f.number, r.f.description, r.area.name, ...r.types].some((x) => x.toLowerCase().includes(q)))
     .sort((a, b) => {
       const by = (x: Row) =>

@@ -32,9 +32,21 @@ export function ProjectLayout() {
   const { pathname } = useLocation()
   const project = state.projects.find((p) => p.id === projectId)
   if (!project) return <EmptyState title="Project not found" />
+  // Summary-tracked projects have no areas or foundations: show the project page only.
+  if (project.tracking === 'summary') {
+    return (
+      <>
+        {pathname === paths.project(projectId) ? <Outlet /> : <EmptyState title="No detailed tracking" description="This project does not have areas or foundations set up." />}
+        <footer className="mt-16 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
+          <p className="text-xs text-muted">Demonstration data — fictional records.</p>
+          <ResetDemoButton />
+        </footer>
+      </>
+    )
+  }
   const currentArea = state.areas.find((a) => pathname.includes(`/areas/${a.id}`))
   const sections = [
-    { to: paths.project(projectId), full: 'REEF overview', short: 'Overview', end: true },
+    { to: paths.project(projectId), full: `${project.name} overview`, short: 'Overview', end: true },
     { to: paths.register(projectId), full: 'Foundation register', short: 'Register' },
     { to: paths.materials(projectId), full: 'Materials', short: 'Materials' },
     { to: paths.fabrication(projectId), full: 'Fabrication', short: 'Fabrication' },
@@ -42,7 +54,7 @@ export function ProjectLayout() {
     { to: paths.handover(projectId), full: 'Handover', short: 'Handover' },
   ]
   const areaItems = state.areas.map((a) => ({ to: paths.area(projectId, a.id), label: a.name }))
-  const current = currentArea?.name ?? (pathname.endsWith('/issues') ? 'Issues' : sections.find((s) => (s.end ? pathname === s.to : pathname.startsWith(s.to)))?.full ?? 'REEF overview')
+  const current = currentArea?.name ?? (pathname.endsWith('/issues') ? 'Issues' : sections.find((s) => (s.end ? pathname === s.to : pathname.startsWith(s.to)))?.full ?? `${project.name} overview`)
   const link = (s: (typeof sections)[number]) => (
     <NavLink key={s.to} to={s.to} end={s.end} className={({ isActive }) => `${tab} ${isActive ? on : off}`}>
       <span className="hidden lg:inline">{s.full}</span>

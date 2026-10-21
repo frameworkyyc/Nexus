@@ -1,6 +1,6 @@
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
 import { formatShortDate } from '@/lib/format'
-import { FOOTING_ACTIVITIES, HANDOVER_PHASES, PLINTH_ACTIVITIES, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
+import { FOOTING_ACTIVITIES, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
 import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
   Foundation, HandoverRecord, HardwareKind, Person, Plinth, PlinthReady, POLine, PurchaseOrder, Supplier,
@@ -192,6 +192,10 @@ export function plinthActivities(idx: Index, p: Plinth): Activity[] {
 export function foundationActivities(idx: Index, f: Foundation): Activity[] {
   return [...footingActivities(idx, f), ...(idx.plinthsByFoundation.get(f.id) ?? []).flatMap((p) => plinthActivities(idx, p))]
 }
+export function foundationsOfProject(idx: Index, projectId: string): Foundation[] {
+  return idx.state.areas.filter((a) => a.projectId === projectId).flatMap((a) => idx.foundationsByArea.get(a.id) ?? [])
+}
+
 export function foundationsOf(idx: Index, areaId?: string): Foundation[] {
   return areaId ? idx.foundationsByArea.get(areaId) ?? [] : idx.state.foundations
 }
@@ -245,7 +249,9 @@ export const percent = (t: Tally) => (t.total === 0 ? 0 : Math.round((t.done / t
 export interface Stats {
   foundations: number
   plinths: number
-  constructed: number // every construction + rebar activity complete
+  constructed: number // COMPLETE foundations: every footing and plinth rebar, forming and pouring activity complete
+  inProgress: number // started, not yet complete (blocked foundations are included)
+  notStarted: number
   closedOut: number // constructed AND survey complete AND QA/QC approved
   blockedFoundations: number
   construction: Tally
@@ -267,6 +273,8 @@ export function computeStats(idx: Index, foundations: Foundation[]): Stats {
   const plinthList: Plinth[] = []
   let constructed = 0
   let closedOut = 0
+  let inProgress = 0
+  let notStarted = 0
   let blockedFoundations = 0
   for (const f of foundations) {
     const acts = foundationActivities(idx, f)
@@ -275,6 +283,8 @@ export function computeStats(idx: Index, foundations: Foundation[]): Stats {
     const st = foundationState(idx, f)
     if (st.state === 'constructed' || st.state === 'closed-out') constructed++
     if (st.state === 'closed-out') closedOut++
+    if (st.state === 'in-progress') inProgress++
+    if (st.state === 'not-started') notStarted++
     if (st.blocked) blockedFoundations++
   }
   const pick = (scope: Activity['scope'], keys: string[]) => all.filter((a) => a.scope === scope && keys.includes(a.key))
@@ -283,6 +293,8 @@ export function computeStats(idx: Index, foundations: Foundation[]): Stats {
     plinths: plinthList.length,
     constructed,
     closedOut,
+    inProgress,
+    notStarted,
     blockedFoundations,
     construction: tally(idx, all.filter((a) => isConstructionCategory(categoryOf(a)))),
     progress: progressOf(idx, all),
@@ -309,7 +321,7 @@ export interface FoundationState {
 export const FOUNDATION_STATE_LABEL: Record<FoundationStateId, string> = {
   'not-started': 'Not started',
   'in-progress': 'In progress',
-  constructed: 'Constructed',
+  constructed: 'Complete',
   'closed-out': 'Closed out',
 }
 
@@ -669,3 +681,61 @@ export function crewsOnSite(idx: Index, date: ISODate) {
   }
 }
 
+
+/* ── Plinth material readiness and area status ──────────────────────────── */
+
+const MATERIAL_KEYS = PLINTH_ACTIVITIES.filter((d) => d.category === 'materials').map((d) => d.key)
+
+/** A plinth is material-ready when bolts, nuts, washers, sole plates and templates are all complete. */
+export function plinthMaterials(idx: Index, p: Plinth): { done: number; total: number; ready: boolean } {
+  const acts = plinthActivities(idx, p).filter((a) => MATERIAL_KEYS.includes(a.key))
+  const done = acts.filter((a) => isDone(effectiveStatus(idx, a))).length
+  return { done, total: acts.length, ready: acts.length > 0 && done === acts.length }
+}
+
+/** Area status for dashboards: not started, in progress, or the handover phase once construction is complete. */
+export function areaStatus(idx: Index, areaId: string): { label: string; phase: HandoverPhase | 'not-started' } {
+  const ev = evaluateHandover(idx, areaId)
+  if (ev.phase === 'in-progress' && ev.stats.progress === 0 && ev.stats.construction.done === 0) return { label: 'Not started', phase: 'not-started' }
+  return { label: ev.label, phase: ev.phase }
+}
+
+/* ── Portfolio (company level) ──────────────────────────────────────────── */
+
+export interface ProjectSummary {
+  project: ConstructionState['projects'][number]
+  progress: number // derived for detailed projects, reported for summary projects
+  progressSource: 'derived' | 'reported'
+  openIssues: number
+  criticalIssues: number
+}
+
+export function projectSummaries(idx: Index, exceptionsFor: (projectId: string) => { severity: string }[]): ProjectSummary[] {
+  const s = idx.state
+  return s.projects.map((project): ProjectSummary => {
+    if (project.tracking === 'detailed') {
+      const ex = exceptionsFor(project.id)
+      return { project, progress: computeStats(idx, foundationsOfProject(idx, project.id)).progress, progressSource: 'derived', openIssues: ex.length, criticalIssues: ex.filter((e) => e.severity === 'high').length }
+    }
+    const open = s.projectIssues.filter((i) => i.projectId === project.id && i.status === 'open')
+    return { project, progress: project.reportedProgress ?? 0, progressSource: 'reported', openIssues: open.length, criticalIssues: open.filter((i) => i.severity === 'critical').length }
+  })
+}
+
+export interface PortfolioCounts {
+  total: number
+  active: number // in delivery: active + at risk + delayed
+  atRisk: number
+  delayed: number
+}
+
+export function portfolioCounts(projects: ConstructionState['projects']): PortfolioCounts {
+  return {
+    total: projects.length,
+    active: projects.filter((p) => IN_DELIVERY.includes(p.status)).length,
+    atRisk: projects.filter((p) => p.status === 'at-risk').length,
+    delayed: projects.filter((p) => p.status === 'delayed').length,
+  }
+}
+
+export const statusRank = (s: ConstructionState['projects'][number]['status']) => PROJECT_STATUS_RANK[s]

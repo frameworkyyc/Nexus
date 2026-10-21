@@ -4,6 +4,8 @@ interface Options<T> {
   key: string
   version: number
   seed: () => T
+  /** Upgrade data saved by an older version instead of discarding the user's edits. */
+  migrate?: (data: unknown, fromVersion: number) => T
 }
 
 export interface PersistedStore<T> {
@@ -17,7 +19,7 @@ export interface PersistedStore<T> {
  * Minimal browser-local store for the demo build. Swap for an API-backed
  * implementation later without changing consumers.
  */
-export function createPersistedStore<T>({ key, version, seed }: Options<T>): PersistedStore<T> {
+export function createPersistedStore<T>({ key, version, seed, migrate }: Options<T>): PersistedStore<T> {
   const listeners = new Set<() => void>()
 
   function load(): T {
@@ -26,6 +28,7 @@ export function createPersistedStore<T>({ key, version, seed }: Options<T>): Per
       if (raw) {
         const parsed = JSON.parse(raw) as { version: number; data: T }
         if (parsed.version === version) return parsed.data
+        if (migrate && parsed.version < version) return migrate(parsed.data, parsed.version)
       }
     } catch {
       /* fall through to seed */

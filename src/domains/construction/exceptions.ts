@@ -8,6 +8,7 @@ export interface Exception {
   severity: 'high' | 'medium'
   title: string
   area: string
+  areaId: string | null
   status: string
   to: string
 }
@@ -21,7 +22,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  */
 export function deriveExceptions(idx: Index, today: ISODate, projectId: string): Exception[] {
   const s = idx.state
-  const out: Exception[] = []
+  const out: Omit<Exception, 'areaId'>[] = []
   const areaName = (id: string) => idx.area.get(id)?.name ?? 'Project'
 
   // Blocked work
@@ -104,5 +105,7 @@ export function deriveExceptions(idx: Index, today: ISODate, projectId: string):
     if (ev.record.acceptance === 'returned') out.push({ id: `returned:${area.id}`, severity: 'high', title: 'Handover returned with comments', area: area.name, status: 'Returned', to: paths.area(projectId, area.id, 'handover') })
   }
 
-  return out.sort((a, b) => RANK[a.severity] - RANK[b.severity])
+  return out
+    .map((e): Exception => ({ ...e, areaId: s.areas.find((a) => a.name === e.area)?.id ?? null }))
+    .sort((a, b) => RANK[a.severity] - RANK[b.severity])
 }

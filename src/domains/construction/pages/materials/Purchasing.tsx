@@ -17,8 +17,11 @@ const FULFIL: Record<Fulfilment, { tone: Tone; label: string }> = {
   'over-received': { tone: 'warn', label: 'Over-received' },
 }
 
-export function PurchaseOrders() {
+export function PurchaseOrders({ areaId }: { areaId?: string }) {
   const { state, idx, today } = useConstruction()
+  const orders = areaId
+    ? state.purchaseOrders.filter((po) => po.lines.some((l) => (l.kind === 'bulk' ? idx.bulk.get(l.itemId)?.areaId === areaId : state.plinths.some((p) => idx.foundation.get(p.foundationId)!.areaId === areaId && idx.anchorage.get(p.anchorageTypeId ?? '')?.bolts.some((b) => b.specId === l.itemId)))))
+    : state.purchaseOrders
   const run = useRun()
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [receiving, setReceiving] = useState<string | null>(null)
@@ -29,7 +32,7 @@ export function PurchaseOrders() {
         <table className="w-full min-w-[860px] border-collapse text-left">
           <thead><tr className="border-b border-line"><th className="w-6" />{['PO', 'Supplier', 'Status', 'Issued', 'Expected', 'Ordered', 'Received', 'Receipt'].map((h) => <th key={h} className={th}>{h}</th>)}<th /></tr></thead>
           <tbody>
-            {state.purchaseOrders.map((po) => {
+            {orders.map((po) => {
               const f = poFulfilment(idx, po)
               const isOpen = open.has(po.id)
               const late = po.status === 'issued' && po.expectedDate && po.expectedDate < today && f.state !== 'complete'

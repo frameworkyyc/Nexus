@@ -7,20 +7,23 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { CompactSelect, Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { ProgressBar } from '@/components/ui/Progress'
+import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Section } from '@/components/ui/Section'
 import { Stat } from '@/components/ui/Stat'
 import { formatDate } from '@/lib/format'
 import { addDeficiency, linkFoundationDoc, returnAllocation, setBoltsReady, setDeficiencyStatus, setFoundationNotes, setPlinthAnchorage, setPlinthNotes } from '../actions'
 import { ActivityTable } from '../ActivityTable'
 import { DocumentModal } from '../DocumentModal'
+import { STATUS_LABEL, STATUS_TONE, FOUNDATION_COMPLETE_DEFINITION } from '../config'
 import { paths } from '../paths'
 import {
   BOLT_STAGE_LABEL, areaOfPlinth, computeStats, deriveIssues, footingActivities, footingStep, foundationActivities, foundationState, plinthActivities, plinthBoltRequirements,
-  plinthBoltStage, plinthHardware, plinthState, plinthStep, progressOf, specLabel,
+  effectiveStatus, plinthBoltStage, plinthHardware, plinthMaterials, plinthState, plinthStep, progressOf, specLabel, tallyCategory, type Index,
 } from '../selectors'
 import { useConstruction, useRun } from '../store'
 import { FoundationStateBadge, fraction, IssueList } from '../ui'
-import type { Foundation, Plinth } from '../types'
+import { FOUNDATION_STATE_LABEL } from '../selectors'
+import type { Activity, Foundation, Plinth } from '../types'
 
 export function FoundationPage() {
   const { projectId = '', foundationId = '' } = useParams()
@@ -54,11 +57,16 @@ export function FoundationPage() {
 
       <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
         <Stat label="Construction" value={`${stats.progress}%`} sub={`${stats.elementsPoured.done} of ${stats.elementsPoured.total} elements poured`} />
-        <Stat label="Footing step" value={<span className="text-xl font-normal tracking-normal">{footingStep(idx, f)}</span>} />
-        <Stat label="Plinths poured" value={fraction(stats.plinthPoured)} />
+        <Stat label="Status" value={<span className="text-xl font-normal tracking-normal">{FOUNDATION_STATE_LABEL[fs.state]}</span>} sub={fs.state === 'closed-out' ? 'Survey and QA/QC complete' : fs.state === 'constructed' ? 'Close-out outstanding' : footingStep(idx, f)} />
+        <Stat label="Materials ready" value={`${plinths.filter((p) => plinthMaterials(idx, p).ready).length}/${plinths.length}`} sub="Plinths with everything on hand" />
         <Stat label="Survey" value={fraction(stats.survey)} sub="Separate from QA/QC" />
         <Stat label="QA/QC" value={fraction(stats.qaqc)} sub={`${stats.qaqc.pending} pending review`} />
       </dl>
+      <p className="mt-3 max-w-2xl text-xs leading-relaxed text-muted">{FOUNDATION_COMPLETE_DEFINITION}</p>
+
+      <Section title="At a glance" description="The footing and each plinth, side by side.">
+        <Glance idx={idx} f={f} plinths={plinths} />
+      </Section>
 
       <Section title="Required materials" description="Anchor bolts, hardware and templates per plinth. Allocation is managed in Materials.">
         <ul className="text-[13px]">
@@ -226,5 +234,48 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
         <p className="text-xs text-muted">{f.number} · Plinth {p.index}</p>
       </div>
     </Disclosure>
+  )
+}
+
+function Glance({ idx, f, plinths }: { idx: Index; f: Foundation; plinths: Plinth[] }) {
+  const stage = (acts: Activity[], key: string) => {
+    const a = acts.find((x) => x.key === key)
+    const s = a ? effectiveStatus(idx, a) : 'not-started'
+    return <StatusBadge tone={STATUS_TONE[s]} label={STATUS_LABEL[s]} />
+  }
+  const rebar = (acts: Activity[]) => {
+    const done = (k: string) => { const a = acts.find((x) => x.key === k); return a && ['complete', 'approved'].includes(effectiveStatus(idx, a)) ? 1 : 0 }
+    return <ProgressBar value={((done('rebarBuilt') + done('rebarInstalled')) / 2) * 100} width="w-16" showValue={false} />
+  }
+  const check = (acts: Activity[], cat: 'survey' | 'qaqc') => {
+    const t = tallyCategory(idx, acts, cat)
+    return <StatusBadge tone={t.blocked ? 'bad' : t.done === t.total ? 'ok' : t.pending ? 'warn' : t.done > 0 ? 'info' : 'muted'} label={fraction(t)} />
+  }
+  const rows: { key: string; label: string; acts: Activity[]; materials: React.ReactNode }[] = [
+    { key: 'footing', label: 'Footing', acts: footingActivities(idx, f), materials: <span className="text-muted">—</span> },
+    ...plinths.map((p) => {
+      const m = plinthMaterials(idx, p)
+      return { key: p.id, label: `Plinth ${p.index} · ${p.anchorageTypeId ?? 'no anchorage'}`, acts: plinthActivities(idx, p), materials: <StatusBadge tone={m.ready ? 'ok' : m.done > 0 ? 'info' : 'muted'} label={m.ready ? 'Ready' : `${m.done}/${m.total}`} /> }
+    }),
+  ]
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[640px] border-collapse text-left">
+        <thead><tr className="border-b border-line">{['Element', 'Rebar', 'Forming', 'Pouring', 'Survey', 'QA/QC', 'Materials'].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-b border-line">
+              <td className="py-3 pr-4 text-[13px] font-medium">{r.label}</td>
+              <td className="py-3 pr-4">{rebar(r.acts)}</td>
+              <td className="py-3 pr-4">{stage(r.acts, 'formed')}</td>
+              <td className="py-3 pr-4">{stage(r.acts, 'poured')}</td>
+              <td className="py-3 pr-4">{check(r.acts, 'survey')}</td>
+              <td className="py-3 pr-4">{check(r.acts, 'qaqc')}</td>
+              <td className="py-3 pr-4">{r.materials}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

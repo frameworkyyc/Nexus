@@ -28,7 +28,7 @@ export function Select({ className = '', ...rest }: SelectHTMLAttributes<HTMLSel
 }
 
 const compact =
-  'h-7 rounded-nx border border-transparent bg-transparent px-1.5 text-[13px] text-ink transition-colors hover:border-line focus:border-ink focus:bg-surface focus:outline-none disabled:cursor-not-allowed disabled:text-muted'
+  'h-7 max-w-full rounded-nx border border-transparent bg-transparent px-1.5 text-[13px] text-ink transition-colors hover:border-line focus:border-ink focus:bg-surface focus:outline-none disabled:cursor-not-allowed disabled:text-muted'
 
 /** Table-cell controls: look like text until hovered or focused. */
 export function CompactSelect({ className = '', ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {

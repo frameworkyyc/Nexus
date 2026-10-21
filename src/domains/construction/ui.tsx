@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { STATUS_LABEL, STATUS_TONE, type HandoverPhase } from './config'
+import type { Exception } from './exceptions'
 import type { Issue } from './selectors'
 import { FOUNDATION_STATE_LABEL, type FoundationStateId, type Tally } from './selectors'
 import type { ActivityStatus } from './types'
@@ -47,3 +48,27 @@ export const TextLink = ({ to, children }: { to: string; children: React.ReactNo
     {children}
   </Link>
 )
+
+const exDot = { high: 'bg-bad', medium: 'bg-warn' }
+
+/** Compact list of significant items: title, area, status. Each row opens its record. */
+export function ExceptionList({ items, limit = 6, empty = 'Nothing needs attention.', showArea = true }: { items: Exception[]; limit?: number; empty?: string; showArea?: boolean }) {
+  if (!items.length) return <p className="border-t border-line py-6 text-[13px] text-muted">{empty}</p>
+  return (
+    <ul className="border-t border-line">
+      {items.slice(0, limit).map((e) => (
+        <li key={e.id} className="border-b border-line">
+          <Link to={e.to} className="flex items-start gap-3 py-3 transition-colors hover:bg-hover">
+            <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${exDot[e.severity]}`} title={e.severity === 'high' ? 'Critical' : 'Attention'} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px]">{e.title}</span>
+              {showArea && <span className="block text-xs text-muted">{e.area}</span>}
+            </span>
+            <span className="shrink-0 text-xs text-muted">{e.status}</span>
+          </Link>
+        </li>
+      ))}
+      {items.length > limit && <li className="py-3 text-xs text-muted">+ {items.length - limit} more</li>}
+    </ul>
+  )
+}

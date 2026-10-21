@@ -1,49 +1,55 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { DataTable, type Column } from '@/components/ui/DataTable'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { ProgressBar } from '@/components/ui/Progress'
 import { Section } from '@/components/ui/Section'
 import { Stat } from '@/components/ui/Stat'
-import { paths } from '../paths'
-import { computeStats, deriveIssues } from '../selectors'
+import { Button } from '@/components/ui/Button'
+import { companyIssues } from '../portfolio'
+import { portfolioCounts } from '../selectors'
 import { useConstruction } from '../store'
-import { IssueList } from '../ui'
-import type { Project } from '../types'
-import { useNavigate } from 'react-router-dom'
+import { ProjectPortfolio } from './ProjectPortfolio'
 
-export function ProjectsTable() {
-  const { state, idx, today } = useConstruction()
-  const navigate = useNavigate()
-  const issues = deriveIssues(idx, today)
-  const columns: Column<Project>[] = [
-    { key: 'job', header: 'Job', render: (p) => <span className="font-mono text-xs text-muted">{p.jobNumber}</span> },
-    { key: 'name', header: 'Project', render: (p) => <span className="font-medium">{p.name}</span> },
-    { key: 'company', header: 'Company', hideOnMobile: true, render: () => <span className="text-muted">{state.company.name}</span> },
-    { key: 'loc', header: 'Location', hideOnMobile: true, render: (p) => <span className="text-muted">{p.location}</span> },
-    { key: 'scope', header: 'Scope', hideOnMobile: true, render: (p) => <span className="text-muted">{p.scope}</span> },
-    { key: 'progress', header: 'Construction progress', render: () => <ProgressBar value={computeStats(idx, state.foundations).progress} /> },
-    { key: 'attn', header: 'High priority', render: () => issues.filter((i) => i.severity === 'high').length },
-  ]
-  return <DataTable columns={columns} rows={state.projects} getKey={(p) => p.id} onRowClick={(p) => navigate(paths.project(p.id))} />
-}
+const dot = { high: 'bg-bad', medium: 'bg-warn' }
 
+/** Level 1 of 4: Company → Project → Area → Foundation. Project-level information only. */
 export function OverviewPage() {
   const { state, idx, today } = useConstruction()
-  const issues = deriveIssues(idx, today)
-  const high = issues.filter((i) => i.severity === 'high')
+  const [shown, setShown] = useState(6)
+  const counts = portfolioCounts(state.projects)
+  const issues = companyIssues(idx, today)
   return (
     <>
-      <PageHeader title="Overview" description="A central view of your projects and operations." />
-      <dl className="grid grid-cols-1 border-y border-line sm:grid-cols-3 sm:divide-x sm:divide-line [&>div]:py-6 sm:[&>div]:px-8 sm:[&>div:first-child]:pl-0">
-        <Stat label="Active projects" value={state.projects.length} />
-        <Stat label="Foundations tracked" value={state.foundations.length} sub={`${state.plinths.length} plinths across ${state.areas.length} areas`} />
-        <Stat label="High-priority issues" value={high.length} sub="Blocked work, late deliveries, major deficiencies" />
+      <PageHeader title="Overview" description={state.company.name} />
+      <dl className="grid grid-cols-3 border-y border-line divide-x divide-line [&>div]:py-6 [&>div]:px-4 sm:[&>div]:px-8 [&>div:first-child]:pl-0">
+        <Stat label="Active projects" value={counts.active} />
+        <Stat label="At risk" value={counts.atRisk} />
+        <Stat label="Delayed" value={counts.delayed} />
       </dl>
-      <Section title="Projects" actions={<Link to="/projects" className="text-[13px] text-muted hover:text-ink hover:underline underline-offset-4">View all projects</Link>}>
-        <ProjectsTable />
+
+      <Section title="Projects">
+        <ProjectPortfolio pageSize={10} />
       </Section>
-      <Section title="Needs attention" description="Highest-priority items across all projects.">
-        <IssueList issues={issues} limit={6} />
+
+      <Section title="Needs attention" description="Recorded project status and issues, plus critical items derived from detailed projects.">
+        {issues.length ? (
+          <ul className="border-t border-line">
+            {issues.slice(0, shown).map((i) => (
+              <li key={i.id} className="border-b border-line">
+                <Link to={i.to} className="flex items-start gap-3 py-3 transition-colors hover:bg-hover">
+                  <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot[i.severity]}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px]">{i.title}</span>
+                    <span className="block text-xs text-muted">{i.project}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted">{i.status}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="border-t border-line py-6 text-[13px] text-muted">Nothing needs attention.</p>
+        )}
+        {issues.length > shown && <div className="mt-4 flex justify-center"><Button onClick={() => setShown(shown + 10)}>Show more ({issues.length - shown})</Button></div>}
       </Section>
     </>
   )
@@ -52,8 +58,8 @@ export function OverviewPage() {
 export function ProjectsPage() {
   return (
     <>
-      <PageHeader title="Projects" description="Demonstration data. Edits are saved in this browser only." />
-      <ProjectsTable />
+      <PageHeader title="Projects" />
+      <ProjectPortfolio pageSize={25} />
     </>
   )
 }

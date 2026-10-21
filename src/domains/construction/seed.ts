@@ -2,6 +2,7 @@ import { addDays } from '@/lib/date'
 import { DEFAULT_HANDOVER_REQUIREMENTS, FOOTING_ACTIVITIES, PLINTH_ACTIVITIES, getDef } from './config'
 import { effectiveStatus, getIndex } from './selectors'
 import type {
+  Project, ProjectIssue, ProjectStatus,
   Activity, Allocation, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, Crew, Deficiency, Delivery, DocumentKind,
   DocumentRecord, FabricationRequest, Foundation, HandoverRecord, HardwareKind, HistoryEntry, ISODate, Person, Plinth,
   PlinthReady, POLine, PurchaseOrder, Supplier,
@@ -446,9 +447,11 @@ export function buildSeed(today: ISODate): ConstructionState {
     notes: 'Handover checklist is a placeholder until the REEF requirements are defined.',
   }))
 
+  const portfolio = buildPortfolio(today)
   const state: ConstructionState = {
     company: { id: 'progressive', name: 'Progressive' },
-    projects: [{ id: 'reef', companyId: 'progressive', name: 'REEF', jobNumber: '928', location: 'Ridley Island, British Columbia', scope: 'Concrete Foundations' }],
+    projects: [REEF_PROJECT, ...portfolio.projects],
+    projectIssues: portfolio.issues,
     areas, foundations, plinths, boltSpecs: BOLT_SPECS, anchorageTypes: ANCHORAGE_TYPES, bulkMaterials, suppliers: SUPPLIERS,
     purchaseOrders, deliveries, allocations, plinthReady, fabrication, activities, documents, deficiencies, handover,
     crews: CREWS, people: PEOPLE, rotationAnchor: addDays(today, -5),
@@ -473,4 +476,53 @@ export function buildSeed(today: ISODate): ConstructionState {
     finish('templates', (idx.fabByPlinth.get(p.id) ?? []).find((r) => r.receivedDate)?.receivedDate ?? undefined)
   }
   return state
+}
+
+
+/* ── Company portfolio (fictional) ─────────────────────────────────────── */
+
+export const REEF_PROJECT: Project = {
+  id: 'reef', companyId: 'progressive', name: 'REEF', jobNumber: '928', client: 'Ridley Terminals Partners',
+  location: 'Ridley Island, British Columbia', scope: 'Concrete Foundations',
+  // Recorded status. Detailed issues are derived from the project's own records.
+  status: 'at-risk', statusNote: 'Anchor bolt delivery is late and one footing is blocked (recorded).',
+  tracking: 'detailed', reportedProgress: null,
+}
+
+const PLACES = ['Cedar Flats', 'North Harbour', 'Larch Valley', 'Stony Creek', 'Marlow Point', 'Eastbank', 'Kestrel Ridge', 'Tamarack Bay', 'Fern Hollow']
+const WORKS = ['Pump Station Upgrade', 'Substation Expansion', 'Terminal Warehouse', 'Water Treatment Plant', 'Rail Siding Extension', 'Fabrication Shop Addition', 'Compressor Station', 'Bridge Rehabilitation', 'Cold Storage Facility', 'Control Building', 'Dock Structure Repair', 'Laydown Yard']
+const CLIENTS = ['Northbank Utilities', 'Meridian Industrial Group', 'Alder & Voss Manufacturing', 'Tallis Property Partners', 'Corvane Logistics', 'Halden Energy Services', 'Kestrel Marine Terminals', 'Brightwater Municipal District']
+const SCOPES = ['Civil & Concrete', 'Mechanical Installation', 'Electrical & Controls', 'Structural Steel', 'General Contracting', 'Site Development']
+const STATUSES: ProjectStatus[] = ['active', 'active', 'at-risk', 'active', 'complete', 'planning', 'active', 'delayed', 'active', 'active', 'on-hold', 'active', 'at-risk', 'complete', 'active', 'active', 'delayed', 'planning', 'active', 'at-risk', 'active', 'complete', 'active', 'at-risk', 'active', 'delayed', 'planning']
+const NOTES: Partial<Record<ProjectStatus, string[]>> = {
+  'at-risk': ['Long-lead equipment delivery may slip (recorded).', 'Permit amendment still outstanding (recorded).', 'Subcontractor capacity is tight (recorded).', 'Design revision awaiting client approval (recorded).'],
+  delayed: ['Delayed by a client-directed scope change (recorded).', 'Delayed by late ground-condition findings (recorded).', 'Delayed waiting on utility tie-in approval (recorded).'],
+  'on-hold': ['On hold pending client funding decision (recorded).'],
+}
+const ISSUES = ['Equipment delivery date not confirmed', 'Permit amendment outstanding', 'Revised drawings awaiting approval', 'Subcontractor crew shortfall', 'Ground conditions differ from survey', 'Utility tie-in window not yet agreed']
+
+/** Summary-tracked projects: status and progress are recorded by a person, not derived from activity records. */
+export function buildPortfolio(today: ISODate, count = STATUSES.length): { projects: Project[]; issues: ProjectIssue[] } {
+  const projects: Project[] = []
+  const issues: ProjectIssue[] = []
+  let job = 900
+  for (let i = 0; i < count; i++) {
+    job++
+    if (job === 928) job++
+    const status = STATUSES[i % STATUSES.length]
+    const reported = status === 'complete' ? 100 : status === 'planning' ? (i * 3) % 5 : status === 'on-hold' ? 38 : 15 + ((i * 17) % 62)
+    const notes = NOTES[status]
+    projects.push({
+      id: `p-${job}`, companyId: 'progressive', name: `${PLACES[i % PLACES.length]} ${WORKS[(i * 5) % WORKS.length]}`, jobNumber: String(job),
+      client: CLIENTS[(i * 3) % CLIENTS.length], location: `${PLACES[(i + 3) % PLACES.length]}, British Columbia`, scope: SCOPES[(i * 7) % SCOPES.length],
+      status, statusNote: notes ? notes[i % notes.length] : '', tracking: 'summary', reportedProgress: reported,
+    })
+    if (status === 'at-risk' || status === 'delayed') {
+      issues.push({ id: `pi-${job}-1`, projectId: `p-${job}`, title: ISSUES[i % ISSUES.length], severity: status === 'delayed' ? 'critical' : 'moderate', status: 'open', recorded: addDays(today, -((i * 3) % 20 + 2)) })
+    }
+    if (status === 'delayed' || (status === 'active' && i % 4 === 0)) {
+      issues.push({ id: `pi-${job}-2`, projectId: `p-${job}`, title: ISSUES[(i + 2) % ISSUES.length], severity: 'moderate', status: 'open', recorded: addDays(today, -((i * 5) % 25 + 1)) })
+    }
+  }
+  return { projects, issues }
 }

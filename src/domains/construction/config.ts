@@ -1,5 +1,5 @@
 import type { Tone } from '@/components/ui/StatusBadge'
-import type { ActivityScope, ActivityStatus, Acceptance, AutoMetric, ApprovalStatus, AuthStatus, FabStatus, PickupStatus, SiteReceiptStatus, TemplateReuse } from './types'
+import type { ProjectStatus, ActivityScope, ActivityStatus, Acceptance, AutoMetric, ApprovalStatus, AuthStatus, FabStatus, PickupStatus, SiteReceiptStatus, TemplateReuse } from './types'
 
 export type ActivityCategory = 'materials' | 'construction' | 'rebar' | 'survey' | 'qaqc'
 export type StatusSet = 'work' | 'qaqc'
@@ -164,3 +164,20 @@ export const PROGRESS_BASIS = [
   'Area progress is the average across all elements in the area. Overall progress is the average across every element, so areas with more foundations carry proportionally more weight (it is not an average of the area percentages).',
   'No quantities, hours or costs are available, so there is no effort weighting. Survey, QA/QC and handover are tracked separately and never change this figure.',
 ]
+
+/* Project status (explicitly recorded) */
+
+export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
+  planning: 'Planning', active: 'Active', 'at-risk': 'At risk', delayed: 'Delayed', 'on-hold': 'On hold', complete: 'Complete',
+}
+export const PROJECT_STATUS_TONE: Record<ProjectStatus, Tone> = {
+  planning: 'muted', active: 'ok', 'at-risk': 'warn', delayed: 'bad', 'on-hold': 'neutral', complete: 'neutral',
+}
+/** Sort order for "needs attention first". */
+export const PROJECT_STATUS_RANK: Record<ProjectStatus, number> = { delayed: 0, 'at-risk': 1, active: 2, planning: 3, 'on-hold': 4, complete: 5 }
+/** Projects currently being delivered. At risk and delayed are subsets of active work. */
+export const IN_DELIVERY: ProjectStatus[] = ['active', 'at-risk', 'delayed']
+
+/** One definition of a completed foundation, used everywhere. */
+export const FOUNDATION_COMPLETE_DEFINITION =
+  'A foundation is complete when every rebar, forming and pouring activity is complete for its footing and all of its plinths. Survey and QA/QC close-out, and formal handover, are tracked separately.'

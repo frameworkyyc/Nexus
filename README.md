@@ -49,6 +49,27 @@ The platform never imports from `domains/*` except through the router. A differe
 types, catalogue, seed and pages. There is no backend, authentication or external integration yet; swap `store.ts`
 for an API client later.
 
+### Information hierarchy
+
+Company → Project → Area → Foundation. Each level shows only what belongs to it; detail is one click deeper.
+
+| Level | Route | Shows |
+|---|---|---|
+| Company | `/` | Active / at-risk / delayed counts, searchable and sortable project list, significant project issues |
+| Project | `/projects/:id` | Overall progress, recorded status, progress and status per area, significant issues |
+| Area | `/projects/:id/areas/:area` | Construction progress vs. foundations complete, foundation breakdown and tiles, area issues; tabs for detail |
+| Foundation | `.../foundations/:id` | Footing and plinth progress (editable), materials and readiness, survey, QA/QC, documents, deficiencies |
+
+- **Project status is recorded, never inferred.** Planning / Active / At risk / Delayed / On hold / Complete is chosen by a person
+  (with a reason for at risk, delayed and on hold). Without schedule baselines, completion percentage never changes a status.
+- **Completion percentage:** derived from activity records for projects with detailed tracking (REEF); for summary-tracked
+  demo projects it is a reported figure, labelled as such. Company issues come from recorded status notes, recorded
+  project issues, and critical items derived from a detailed project's own records.
+- **A completed foundation** has every rebar, forming and pouring activity complete for its footing and all plinths. This one
+  definition drives the area counts, the register filter and handover. "Closed out" (survey and QA/QC complete) and
+  handover are separate, later steps.
+- Saved local data from earlier versions is migrated, not discarded.
+
 ### Progress calculation
 
 - Each footing and each plinth is an element with three construction stages: rebar, forming and pouring.

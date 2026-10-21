@@ -2,7 +2,7 @@ import { addDays, type ISODate } from '@/lib/date'
 import { getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
 import type {
-  Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
+  ProjectIssue, ProjectStatus, Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
 } from './types'
 
 /** A reducer returns the next state, or an error message when a business rule is violated. */
@@ -331,3 +331,28 @@ export const orderOnNewPO = (input: { supplierId: string; expectedDate: ISODate 
   if (lined.error !== undefined) return lined
   return input.issue ? issuePurchaseOrder(id, today)(lined.state) : lined
 }
+
+/* ── Projects (company level) ───────────────────────────────────────────── */
+
+/** Status is always recorded by a person. It is never derived from a completion percentage. */
+export const setProjectStatus = (projectId: string, status: ProjectStatus, note: string): Reducer => (s) => {
+  if (!s.projects.some((p) => p.id === projectId)) return fail('Project not found.')
+  if ((status === 'at-risk' || status === 'delayed' || status === 'on-hold') && !note.trim()) return fail('Record why the project is ' + status.replace('-', ' ') + '.')
+  return ok({ ...s, projects: s.projects.map((p) => (p.id === projectId ? { ...p, status, statusNote: note.trim() } : p)) })
+}
+
+export const setReportedProgress = (projectId: string, value: number): Reducer => (s) => {
+  const p = s.projects.find((x) => x.id === projectId)
+  if (!p) return fail('Project not found.')
+  if (p.tracking !== 'summary') return fail('This project’s progress is calculated from its activity records.')
+  if (!Number.isInteger(value) || value < 0 || value > 100) return fail('Enter a whole number from 0 to 100.')
+  return ok({ ...s, projects: s.projects.map((x) => (x.id === projectId ? { ...x, reportedProgress: value } : x)) })
+}
+
+export const addProjectIssue = (projectId: string, title: string, severity: ProjectIssue['severity'], today: ISODate): Reducer => (s) => {
+  if (!title.trim()) return fail('Describe the issue.')
+  return ok({ ...s, projectIssues: [...s.projectIssues, { id: nextId('pi'), projectId, title: title.trim(), severity, status: 'open', recorded: today }] })
+}
+
+export const setProjectIssueStatus = (id: string, status: ProjectIssue['status']): Reducer => (s) =>
+  ok({ ...s, projectIssues: s.projectIssues.map((i) => (i.id === id ? { ...i, status } : i)) })

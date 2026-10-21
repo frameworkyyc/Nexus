@@ -8,7 +8,7 @@ import { HandoverPage } from './pages/HandoverPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { MaterialsPage } from './pages/MaterialsPage'
 import { OverviewPage, ProjectsPage } from './pages/OverviewPage'
-import { ProjectDashboard } from './pages/ProjectDashboard'
+import { ProjectHome } from './pages/ProjectDashboard'
 import { ProjectLayout } from './pages/ProjectLayout'
 import { useConstruction } from './store'
 
@@ -32,7 +32,7 @@ function FoundationCrumb() {
 }
 
 export const constructionRoutes: RouteObject[] = [
-  { index: true, element: <OverviewPage />, handle: text('Overview') },
+  { index: true, element: <OverviewPage />, handle: text('Dashboard') },
   {
     path: 'projects',
     handle: text('Projects'),
@@ -43,7 +43,7 @@ export const constructionRoutes: RouteObject[] = [
         element: <ProjectLayout />,
         handle: { crumb: ProjectCrumb } satisfies CrumbHandle,
         children: [
-          { index: true, element: <ProjectDashboard /> },
+          { index: true, element: <ProjectHome /> },
           { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
           { path: 'fabrication', element: <FabricationPage />, handle: text('Fabrication') },

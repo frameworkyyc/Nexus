@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import * as A from '../actions'
 import { deriveExceptions } from '../exceptions'
-import { buildSeed } from '../seed'
+import { companyIssues } from '../portfolio'
+import { buildPortfolio, buildSeed } from '../seed'
+import { migrateConstruction } from '../store'
 import {
-  boltRows, bulkRows, computeStats, crewsOnSite, deriveIssues, effectiveStatus, evaluateHandover, foundationState, foundationsOf, getIndex, plinthBoltStage, progressOf, qty,
+  areaStatus, boltRows, bulkRows, computeStats, foundationsOfProject, portfolioCounts, projectSummaries, foundationActivities, crewsOnSite, deriveIssues, effectiveStatus, evaluateHandover, foundationState, foundationsOf, getIndex, plinthBoltStage, progressOf, qty,
 } from '../selectors'
 import type { ConstructionState } from '../types'
 
@@ -399,5 +401,140 @@ describe('dashboard exceptions', () => {
   it('covers the required exception types', () => {
     const ids = list.map((e) => e.id.split(':')[0])
     for (const k of ['blocked', 'bolts', 'po', 'fab', 'def']) expect(ids).toContain(k)
+  })
+})
+
+describe('foundation completion (one definition everywhere)', () => {
+  const s = seed()
+  const idx = getIndex(s)
+  const isComplete = (f: ConstructionState['foundations'][number]) =>
+    foundationActivities(idx, f).filter((a) => ['formed', 'poured', 'rebarBuilt', 'rebarInstalled'].includes(a.key)).every((a) => effectiveStatus(idx, a) === 'complete')
+
+  it('complete means every rebar, forming and pouring activity of the footing and all plinths is complete', () => {
+    for (const f of s.foundations) {
+      expect(['constructed', 'closed-out'].includes(foundationState(idx, f).state)).toBe(isComplete(f))
+    }
+  })
+
+  it('complete + in progress + not started always equals the total, for every area and the project', () => {
+    for (const set of [...s.areas.map((a) => foundationsOf(idx, a.id)), foundationsOfProject(idx, 'reef')]) {
+      const st = computeStats(idx, set)
+      expect(st.constructed + st.inProgress + st.notStarted).toBe(st.foundations)
+    }
+    const total = s.areas.reduce((t, a) => t + computeStats(idx, foundationsOf(idx, a.id)).constructed, 0)
+    expect(total).toBe(computeStats(idx, foundationsOfProject(idx, 'reef')).constructed)
+  })
+
+  it('keeps completion separate from close-out and from handover', () => {
+    const st = computeStats(idx, s.foundations)
+    expect(st.closedOut).toBeLessThan(st.constructed) // seed has complete foundations still awaiting QA/QC
+    for (const a of s.areas) expect(evaluateHandover(idx, a.id).phase).not.toBe('handed-over')
+  })
+
+  it('area outstanding foundations use the same definition', () => {
+    for (const a of s.areas) {
+      const st = computeStats(idx, foundationsOf(idx, a.id))
+      expect(evaluateHandover(idx, a.id).outstandingFoundations).toBe(st.foundations - st.constructed)
+    }
+  })
+
+  it('area status reads "Not started" only when nothing has been completed', () => {
+    const blank = { ...s, activities: s.activities.map((a) => ({ ...a, status: 'not-started' as const })) }
+    expect(areaStatus(getIndex(blank), 'e-house').label).toBe('Not started')
+    expect(areaStatus(idx, 'e-house').label).not.toBe('Not started')
+  })
+})
+
+describe('company dashboard', () => {
+  const s = seed()
+  const idx = getIndex(s)
+  const ex = (id: string) => deriveExceptions(idx, TODAY, id)
+
+  it('has dozens of projects with unique ids and job numbers, REEF (928) included once', () => {
+    expect(s.projects.length).toBeGreaterThan(20)
+    expect(new Set(s.projects.map((p) => p.id)).size).toBe(s.projects.length)
+    expect(new Set(s.projects.map((p) => p.jobNumber)).size).toBe(s.projects.length)
+    expect(s.projects.filter((p) => p.jobNumber === '928')).toHaveLength(1)
+  })
+
+  it('counts active (in delivery), at risk and delayed from recorded status', () => {
+    const c = portfolioCounts(s.projects)
+    expect(c.active).toBe(s.projects.filter((p) => ['active', 'at-risk', 'delayed'].includes(p.status)).length)
+    expect(c.atRisk).toBe(s.projects.filter((p) => p.status === 'at-risk').length)
+    expect(c.delayed).toBe(s.projects.filter((p) => p.status === 'delayed').length)
+    expect(c.atRisk + c.delayed).toBeLessThanOrEqual(c.active)
+  })
+
+  it('derives REEF completion from activity records and uses reported figures for summary projects', () => {
+    const rows = projectSummaries(idx, ex)
+    const reef = rows.find((r) => r.project.id === 'reef')!
+    expect(reef.progressSource).toBe('derived')
+    expect(reef.progress).toBe(computeStats(idx, foundationsOfProject(idx, 'reef')).progress)
+    for (const r of rows.filter((x) => x.project.tracking === 'summary')) {
+      expect(r.progressSource).toBe('reported')
+      expect(r.progress).toBe(r.project.reportedProgress)
+    }
+  })
+
+  it('never infers status from completion: low or high percentages do not change a recorded status', () => {
+    const delayed = s.projects.find((p) => p.status === 'delayed' && p.tracking === 'summary')!
+    const active = s.projects.find((p) => p.status === 'active' && p.tracking === 'summary')!
+    let next = apply(s, A.setReportedProgress(delayed.id, 100))
+    next = apply(next, A.setReportedProgress(active.id, 0))
+    expect(next.projects.find((p) => p.id === delayed.id)!.status).toBe('delayed')
+    expect(next.projects.find((p) => p.id === active.id)!.status).toBe('active')
+    expect(portfolioCounts(next.projects)).toEqual(portfolioCounts(s.projects))
+    // Real REEF records changing does not alter its recorded status either.
+    const blank = { ...s, activities: s.activities.map((a) => ({ ...a, status: 'not-started' as const })) }
+    expect(blank.projects.find((p) => p.id === 'reef')!.status).toBe('at-risk')
+  })
+
+  it('requires a recorded reason for at risk, delayed or on hold, and rejects reported progress on detailed projects', () => {
+    const p = s.projects.find((x) => x.status === 'active' && x.tracking === 'summary')!
+    expect(error(s, A.setProjectStatus(p.id, 'delayed', ''))).toMatch(/why/)
+    const next = apply(s, A.setProjectStatus(p.id, 'delayed', 'Client directed change'))
+    expect(next.projects.find((x) => x.id === p.id)).toMatchObject({ status: 'delayed', statusNote: 'Client directed change' })
+    expect(error(s, A.setReportedProgress('reef', 50))).toMatch(/calculated/)
+  })
+
+  it('lists significant issues only from recorded status notes, recorded issues and critical derived items', () => {
+    const issues = companyIssues(idx, TODAY)
+    expect(issues.length).toBeGreaterThan(0)
+    const projectsWithIssues = new Set(issues.map((i) => i.projectId))
+    for (const id of projectsWithIssues) {
+      const p = s.projects.find((x) => x.id === id)!
+      const recorded = s.projectIssues.some((i) => i.projectId === id && i.status === 'open')
+      expect(['at-risk', 'delayed'].includes(p.status) || recorded || p.tracking === 'detailed').toBe(true)
+    }
+    expect(issues[0].severity).toBe('high')
+    // a healthy active project with low completion is not flagged
+    const quiet = s.projects.find((p) => p.status === 'active' && p.tracking === 'summary' && !s.projectIssues.some((i) => i.projectId === p.id))
+    if (quiet) expect(projectsWithIssues.has(quiet.id)).toBe(false)
+  })
+
+  it('stays fast and well-formed with hundreds of projects', () => {
+    const big = buildPortfolio(TODAY, 400)
+    expect(new Set(big.projects.map((p) => p.id)).size).toBe(400)
+    const state = { ...s, projects: [s.projects[0], ...big.projects], projectIssues: big.issues }
+    const started = Date.now()
+    const rows = projectSummaries(getIndex(state), () => [])
+    expect(rows).toHaveLength(401)
+    expect(Date.now() - started).toBeLessThan(500)
+  })
+})
+
+describe('storage migration', () => {
+  it('upgrades a v1 save without losing edits', () => {
+    const fresh = seed()
+    const v1 = JSON.parse(JSON.stringify(fresh)) as Record<string, unknown>
+    delete v1.projectIssues
+    ;(v1.projects as Record<string, unknown>[]) = [{ id: 'reef', companyId: 'progressive', name: 'REEF', jobNumber: '928', location: 'Ridley Island, British Columbia', scope: 'Concrete Foundations' }]
+    const edited = apply(fresh, A.updateActivity('f-21-05:postSurvey', { status: 'complete' }, TODAY))
+    v1.activities = edited.activities
+    const migrated = migrateConstruction(v1, 1)
+    expect(migrated.projects.length).toBeGreaterThan(20)
+    expect(migrated.projects[0]).toMatchObject({ id: 'reef', name: 'REEF', tracking: 'detailed', status: 'at-risk' })
+    expect(migrated.activities.find((a) => a.id === 'f-21-05:postSurvey')!.status).toBe('complete')
+    expect(Array.isArray(migrated.projectIssues)).toBe(true)
   })
 })

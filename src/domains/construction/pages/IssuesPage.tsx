@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { deriveIssues, type IssueCategory } from '../selectors'
@@ -15,7 +15,8 @@ const CATEGORIES: Record<IssueCategory, string> = {
 export function IssuesPage() {
   const { projectId = '' } = useParams()
   const { state, idx, today } = useConstruction()
-  const [area, setArea] = useState('all')
+  const [params] = useSearchParams()
+  const [area, setArea] = useState(params.get('area') ?? 'all')
   const [category, setCategory] = useState<IssueCategory | 'all'>('all')
   const all = deriveIssues(idx, today, projectId)
   const issues = all.filter((i) => (area === 'all' || i.areaId === area) && (category === 'all' || i.category === category))
