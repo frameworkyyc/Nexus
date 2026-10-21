@@ -1,5 +1,7 @@
 import { getDef, isConstructionCategory } from './config'
-import { boltRows, bulkRows, effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
+import { effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
+import { linesForArea, materialsProgress } from './tracker/selectors'
+import type { TrackerState } from './tracker/types'
 import type { Activity } from './types'
 
 /**
@@ -26,32 +28,24 @@ function areaActivities(idx: Index, areaId: string): { act: Activity; status: Re
   return foundationsOf(idx, areaId).flatMap((f) => foundationActivities(idx, f)).map((act) => ({ act, status: effectiveStatus(idx, act) }))
 }
 
-const fmt = (n: number) => n.toLocaleString('en-CA')
 const doneOf = (xs: { status: string }[]) => xs.filter((x) => x.status === 'complete' || x.status === 'approved').length
 
-export function materialsIndicator(idx: Index, areaId: string): PackageIndicator {
-  const lines: { name: string; required: number; ordered: number; received: number; allocated: number; sample: boolean }[] = []
-  for (const r of boltRows(idx, areaId)) {
-    lines.push({ name: `Anchor bolts ${r.spec.diameter} × ${r.spec.overallLength}″`, required: r.required, ordered: r.ordered, received: r.received, allocated: r.allocated, sample: false })
+export function materialsIndicator(idx: Index, areaId: string, tracker: TrackerState): PackageIndicator {
+  const lines = linesForArea(tracker, idx.state.areas, areaId)
+  const basis = 'Verified received quantity against required quantity, averaged across the area’s material lines. Only receipts recorded in Nexus count: a “Delivered” status in the workbook is shown but does not raise the percentage. Ordered quantities are procurement only.'
+  if (!lines.length) {
+    return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material tracker', value: tracker.meta ? 'No lines for this area' : 'Not imported' }], gaps: ['Import the REEF material tracker workbook to track materials. Demonstration material data is not counted.'] }
   }
-  for (const r of bulkRows(idx, areaId)) {
-    lines.push({ name: r.item.description, required: r.item.requiredQty, ordered: r.ordered, received: r.received, allocated: r.allocated, sample: r.item.sample })
-  }
-  const usable = lines.filter((l) => l.required > 0)
-  // Physical availability: per line, received stock (capped at the requirement) against the requirement, then averaged
-  // so a large count of washers cannot swamp a small count of bolts.
-  const percent = usable.length ? round((usable.reduce((s, l) => s + Math.min(1, l.received / l.required), 0) / usable.length) * 100) : null
-  const rows: Metric[] = usable.map((l) => ({
-    label: l.name,
-    value: `${fmt(Math.min(l.received, l.required))} / ${fmt(l.required)}`,
-    note: `${l.received > l.required ? `received ${fmt(l.received)} (pooled stock) · ` : ''}ordered ${fmt(l.ordered)} · allocated ${fmt(l.allocated)} · outstanding ${fmt(Math.max(0, l.required - l.received))}${l.sample ? ' · sample quantity' : ''}`,
-  }))
-  const gaps = ['Sole plates have no procurement records, so they are not counted.']
-  if (usable.some((l) => l.sample)) gaps.push('Some required quantities are sample figures, not take-offs.')
+  const p = materialsProgress(lines)
   return {
-    key: 'materials', title: 'Materials',
-    basis: 'Physical availability: received against required, averaged across tracked items. Ordered quantities are procurement only and do not raise the percentage.',
-    percent, rows, gaps,
+    key: 'materials', title: 'Materials', basis, percent: p.percent,
+    rows: [
+      { label: 'Lines with verified receipts', value: `${p.verifiedLines} / ${p.lines}` },
+      { label: 'Received in full', value: String(p.receivedInFull), note: p.partial ? `${p.partial} partially received` : undefined },
+      { label: 'Delivered per workbook, unverified', value: String(p.unverifiedDelivered) },
+      { label: 'Pending per workbook', value: String(p.unverifiedPending) },
+    ],
+    gaps: p.percent === null ? ['No receipts are verified yet, so no percentage is shown.'] : p.unverifiedDelivered ? [`${p.unverifiedDelivered} lines marked Delivered have no recorded receipt and count as zero until verified.`] : [],
   }
 }
 
@@ -104,5 +98,5 @@ export function qaqcIndicator(idx: Index, areaId: string): PackageIndicator {
   }
 }
 
-export const packageProgress = (idx: Index, areaId: string): PackageIndicator[] =>
-  [materialsIndicator(idx, areaId), installationIndicator(idx, areaId), surveyIndicator(idx, areaId), qaqcIndicator(idx, areaId)]
+export const packageProgress = (idx: Index, areaId: string, tracker: TrackerState): PackageIndicator[] =>
+  [materialsIndicator(idx, areaId, tracker), installationIndicator(idx, areaId), surveyIndicator(idx, areaId), qaqcIndicator(idx, areaId)]

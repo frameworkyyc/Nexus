@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Stat } from '@/components/ui/Stat'
+import { Disclosure } from '@/components/ui/Disclosure'
 import { Tabs } from '@/components/ui/Tabs'
+import { MaterialTracker } from '../tracker/TrackerView'
 import { boltRows } from '../selectors'
 import { useConstruction } from '../store'
 import { BoltTable, BulkTable } from './materials/Tables'
@@ -11,6 +13,20 @@ import { Deliveries, PurchaseOrders } from './materials/Purchasing'
 type Tab = 'bolts' | 'bulk' | 'orders' | 'deliveries'
 
 export function MaterialsPage() {
+  return (
+    <>
+      <PageHeader title="Materials" description="REEF material tracker: requirements by area, footing type and anchorage type, with delivery verified by recorded receipts." />
+      <MaterialTracker />
+      <div className="mt-16 border-t border-line">
+        <Disclosure summary={<span className="text-xs text-muted">Demonstration procurement data (fictional) — not part of the REEF tracker or its totals</span>}>
+          <DemoMaterials />
+        </Disclosure>
+      </div>
+    </>
+  )
+}
+
+function DemoMaterials() {
   const { projectId = '' } = useParams()
   const { state, idx } = useConstruction()
   const [tab, setTab] = useState<Tab>('bolts')
@@ -25,11 +41,10 @@ export function MaterialsPage() {
   ]
   return (
     <>
-      <PageHeader title="Materials & procurement" description="Anchor bolts are ordered by specification; nuts and washers are bought in bulk per area. Receiving and allocation are separate steps." />
-      <dl className="mb-8 grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
+      <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted">Anchor bolts are ordered by specification; nuts and washers are bought in bulk per area. Receiving and allocation are separate steps. All quantities here are invented for demonstration.</p>
+      <dl className="mb-6 grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
         {stages.map((s) => <Stat key={s.label} label={s.label} value={s.value} />)}
       </dl>
-      <p className="-mt-4 mb-8 text-xs text-muted">Anchor bolt pipeline, all specifications. Quantities are demonstration figures.</p>
       <Tabs<Tab> value={tab} onChange={setTab} items={[
         { id: 'bolts', label: 'Anchor bolts' }, { id: 'bulk', label: 'Bulk hardware' },
         { id: 'orders', label: 'Purchase orders', count: state.purchaseOrders.length }, { id: 'deliveries', label: 'Deliveries', count: state.deliveries.length },

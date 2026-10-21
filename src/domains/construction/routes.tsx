@@ -10,6 +10,7 @@ import { MaterialsPage } from './pages/MaterialsPage'
 import { OverviewPage, ProjectsPage } from './pages/OverviewPage'
 import { ProjectHome } from './pages/ProjectDashboard'
 import { ProjectLayout } from './pages/ProjectLayout'
+import { projectFleetRoutes } from '../fleet/routes'
 import { useConstruction } from './store'
 
 const text = (label: string): CrumbHandle => ({ crumb: () => <>{label}</> })
@@ -50,6 +51,7 @@ export const constructionRoutes: RouteObject[] = [
           { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },
           { path: 'handover', element: <HandoverPage />, handle: text('Handover') },
           { path: 'issues', element: <IssuesPage />, handle: text('Issues') },
+          ...projectFleetRoutes,
           {
             path: 'areas/:areaId',
             element: <Outlet />,

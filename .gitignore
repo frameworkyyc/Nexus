@@ -4,3 +4,8 @@ dist
 .dev.vars
 *.local
 .DS_Store
+
+# Source workbooks and exports contain project data and must not be committed
+*.xlsx
+*.xls
+*.xlsm

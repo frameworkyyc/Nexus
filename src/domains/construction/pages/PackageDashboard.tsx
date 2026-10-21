@@ -3,12 +3,14 @@ import { Donut } from '@/components/ui/Donut'
 import { paths } from '../paths'
 import { packageProgress, type PackageIndicator } from '../packageProgress'
 import type { Index } from '../selectors'
+import { useTracker } from '../tracker/store'
 
 const TAB: Record<PackageIndicator['key'], string> = { materials: 'materials', installation: 'construction', survey: 'quality', qaqc: 'quality' }
 
 /** Four monochrome indicators at the top of an area. Each links to its detail tab; all figures come from records. */
 export function PackageDashboard({ idx, projectId, areaId }: { idx: Index; projectId: string; areaId: string }) {
-  const items = packageProgress(idx, areaId)
+  const { state: tracker } = useTracker()
+  const items = packageProgress(idx, areaId, tracker)
   return (
     <section aria-label="Package progress" className="mb-10">
       <ul className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">

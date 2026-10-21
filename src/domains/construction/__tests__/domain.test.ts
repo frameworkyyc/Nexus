@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as A from '../actions'
 import { deriveExceptions } from '../exceptions'
 import { companyIssues } from '../portfolio'
+import { emptyTracker } from '../tracker/types'
 import { packageProgress } from '../packageProgress'
 import { buildPortfolio, buildSeed } from '../seed'
 import { migrateConstruction } from '../store'
@@ -544,10 +545,10 @@ describe('package progress', () => {
   const s = seed()
   const idx = getIndex(s)
   const mole = s.areas.find((a) => a.name === 'Mole Sieve')!
-  const ind = (k: string, i = idx) => packageProgress(i, mole.id).find((x) => x.key === k)!
+  const ind = (k: string, i = idx) => packageProgress(i, mole.id, emptyTracker()).find((x) => x.key === k)!
 
   it('derives every indicator from records, in range', () => {
-    for (const p of packageProgress(idx, mole.id)) {
+    for (const p of packageProgress(idx, mole.id, emptyTracker())) {
       if (p.percent === null) continue
       expect(p.percent).toBeGreaterThanOrEqual(0)
       expect(p.percent).toBeLessThanOrEqual(100)
@@ -565,10 +566,5 @@ describe('package progress', () => {
     expect(ind('qaqc').percent).toBe(Math.round((approved / acts.length) * 100))
     const bumped = { ...s, activities: s.activities.map((a) => (a.key === 'preInspection' && a.status === 'not-started' ? { ...a, status: 'pending-review' as const } : a)) }
     expect(ind('qaqc', getIndex(bumped)).percent).toBe(ind('qaqc').percent)
-  })
-  it('materials ignore ordered quantities and follow received stock', () => {
-    const before = ind('materials').percent
-    const withPo = { ...s, purchaseOrders: s.purchaseOrders.map((po) => ({ ...po, lines: po.lines.map((l) => ({ ...l, qtyOrdered: l.qtyOrdered + 1000 })) })) }
-    expect(ind('materials', getIndex(withPo)).percent).toBe(before)
   })
 })

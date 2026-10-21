@@ -22,4 +22,11 @@ export function FleetFooter() {
   )
 }
 
+/** Shown wherever people can change fleet records: access rules are modelled but nothing is enforced yet. */
+export const AccessNotice = () => (
+  <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted">
+    Records are stored in this browser only, so other users and devices do not see them. Role-based access (fleet managers, project supervisors, project users) is designed but not enforced: there is no sign-in yet, so these pages are not secure.
+  </p>
+)
+
 export const NOT_RECORDED = <span className="text-muted">Not recorded</span>

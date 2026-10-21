@@ -21,5 +21,5 @@ export function buildFleetSeed(): FleetState {
   const assignments: VehicleAssignment[] = vehicles.map((v) => ({
     id: `asg-${v.unitNumber}-1`, vehicleId: v.id, projectId: 'reef', startDate: null, endDate: null,
   }))
-  return { vehicles, assignments, odometer: [], inspections: [], maintenance: [] }
+  return { vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [] }
 }

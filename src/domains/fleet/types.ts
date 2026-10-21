@@ -26,20 +26,49 @@ export interface VehicleAssignment {
   endDate: ISODate | null
 }
 
+/**
+ * Odometer history is append-only. A reading that looks wrong (a decrease, a back-dated value above a later one, a stated
+ * correction) is recorded but held as `needs-review`; it does not change the vehicle's current mileage until someone
+ * accepts it. Nothing is rewritten.
+ */
+export type OdometerReview = 'valid' | 'needs-review' | 'accepted' | 'rejected'
 export interface OdometerReading {
   id: string
   vehicleId: string
   date: ISODate
   reading: number
   unit: 'km' | 'mi'
+  review: OdometerReview
+  flag: string | null // why the reading needs review
+  correctsId: string | null // the earlier reading this one is stated to correct
+  note: string
+  reviewNote: string
+  reviewedDate: ISODate | null
 }
 
+/** The next scheduled service, as entered by a person. History is kept; the latest entry is current. */
+export interface ServiceTarget { id: string; vehicleId: string; odometer: number; setDate: ISODate; note: string }
+
+export type DefectStatus = 'outstanding' | 'resolved'
+export interface Defect { id: string; description: string; status: DefectStatus; resolvedDate: ISODate | null; resolutionNote: string }
+
+/**
+ * A weekly inspection submission. Submitting does not say the vehicle is sound: `condition` stays null until a reviewer sets
+ * it, and defects stay outstanding until someone resolves them.
+ */
+export type InspectionReview = 'submitted' | 'reviewed'
 export interface InspectionRecord {
   id: string
   vehicleId: string
   date: ISODate
-  condition: RatedCondition
+  submittedBy: string // free text; not tied to a user account yet
   notes: string
+  defects: Defect[]
+  review: InspectionReview
+  reviewedBy: string
+  reviewedDate: ISODate | null
+  reviewNote: string
+  condition: RatedCondition | null
 }
 
 export interface MaintenanceRecord {
@@ -55,6 +84,7 @@ export interface FleetState {
   vehicles: Vehicle[]
   assignments: VehicleAssignment[]
   odometer: OdometerReading[]
+  serviceTargets: ServiceTarget[]
   inspections: InspectionRecord[]
   maintenance: MaintenanceRecord[]
 }

@@ -65,14 +65,56 @@ for an API client later.
 
 ### Fleet module
 
-`src/domains/fleet` is a separate, organization-level pack (route `/fleet`). Vehicles are not owned by a project: each
-assignment stores only a project id, so a vehicle can be reassigned or unassigned and its history is kept. Names are
-resolved through one adapter (`useProjectRegistry` in `domains/fleet/store.ts`).
+`src/domains/fleet` is a separate, organization-level pack. Vehicles are not owned by a project: each assignment stores only a
+project id, so a vehicle can be reassigned or unassigned and its history is kept. Names are resolved through one adapter
+(`useProjectRegistry` in `domains/fleet/store.ts`).
 
-- Seed: the four REEF vehicles (T6010, T6005, LV167, LV174). VINs, plates, mileage, drivers, inspections and maintenance
-  are not invented; they show as "Not recorded", and condition is "Not assessed" until a record states one.
-- Persistence is browser-local demonstration data (`nexus.demo.fleet`), like the construction pack.
-- Not built yet: recording odometer/inspection/maintenance, scheduling, analytics.
+Two views read and write the **same records** (`nexus.demo.fleet`), through the same selectors (`fleetRow`) and reducers:
+
+- `/fleet` — organization view for office fleet management: every vehicle, filter by project, reassign between projects.
+- `/projects/:projectId/fleet` (and `/fleet/:vehicleId`) — project view for site supervisors: the vehicles currently assigned
+  to that project, with quick actions. Nothing is copied; an update in one view appears in the other.
+
+Weekly tracking (all in kilometres):
+
+- **Odometer** readings are dated and append-only. Impossible values (zero, negative, fractional, future-dated, duplicates) are
+  refused. A reading lower than an earlier one, higher than a later one, or stated as a correction is saved but **held for
+  review** and does not change the current mileage until a person accepts it; a rejected reading stays in the history.
+- **Service**: the next service mileage is entered by a person (history kept). KM remaining = next service − latest valid
+  reading, and is blank rather than estimated when either is missing. Past due shows as overdue.
+- **Weekly inspections**: a submission records that the inspection happened. It never implies the vehicle is sound: condition
+  stays "Not assessed" until a reviewer states one. Submitted, reviewed and outstanding defects are shown separately; a review
+  does not close defects. An inspection is flagged when none is recorded or the last is more than 7 days old.
+- Seed: the four REEF vehicles. VINs, plates, mileage, schedules, inspections and maintenance are not invented.
+
+Access rules (`domains/fleet/access.ts`) model fleet managers (all vehicles), project supervisors (update vehicles assigned
+to their projects) and project users (view only, configurable later). **They are not enforced**: there is no sign-in, every
+visitor acts as the demo fleet manager, and data lives in this browser only, so other users and devices never see it. Do not
+treat these pages as secure until server-side authentication, authorization and a shared store exist.
+
+### Material tracker import
+
+The REEF material tracker workbook (Material List + Anchorage Type sheets) is imported **in the browser** from
+Projects → REEF → Materials (and each area's Materials tab). The file is read locally by `src/lib/xlsx.ts`, stored only in
+this browser (`nexus.reef.materialTracker`, separate from the demonstration data and untouched by "Reset demo data"), and is
+never uploaded or bundled into the app. Workbooks are git-ignored (`*.xlsx`); keep project files out of the repository and
+out of public deployments until sign-in exists.
+
+- **Detailed requirements** (Material List A:I) become material lines, each keeping its sheet and row, verbatim component
+  description, footing type, anchorage type, counts, status and cell comments. Descriptions are never renamed or merged.
+- **Area summary** (K:N) is the workbook's own roll-up. It is kept only to check the totals Nexus rebuilds from the detail,
+  and is never added to requirements. The Anchorage Type sheet is reference data (no area, different codes) and is also not
+  counted.
+- **Quantity logic**: each formula is kept and re-evaluated (`# Ftngs × # Plinths × # Bolts`, nuts/washers as a multiple of
+  the bolt row, typed values). Required quantity is the workbook's value; any disagreement is flagged, not corrected.
+- **Delivery**: "Delivered"/"Pending" are preserved as the workbook's claim. Received quantity is only the sum of receipts
+  recorded in Nexus (partial deliveries supported). Remaining = required − received and is shown only once receipts exist or
+  "nothing received" is confirmed. Ordered quantity is optional and never raises progress.
+- **Materials indicator**: verified received ÷ required per line, averaged across the area's lines. It is "Not tracked" until
+  a receipt is verified; "Delivered" lines without receipts count as zero and are listed separately. Fictional demo materials
+  are not included.
+- Ambiguous records (transposed nut/washer multipliers, embed plates multiplied by bolt count, "N/A" footing types, typed-in
+  quantities, workbook comments such as "ordered as…") are flagged for review. Re-importing carries Nexus entries over.
 
 ### Information hierarchy
 

@@ -20,6 +20,7 @@ import { AreaHandover } from './HandoverPage'
 import { FoundationRegister } from './FoundationRegister'
 import { BoltTable, BulkTable } from './materials/Tables'
 import { PurchaseOrders } from './materials/Purchasing'
+import { MaterialTracker } from '../tracker/TrackerView'
 
 type Tab = 'overview' | 'register' | 'construction' | 'materials' | 'quality' | 'handover'
 const TABS: { id: Tab; label: string }[] = [
@@ -176,7 +177,8 @@ function AreaMaterials({ projectId, areaId }: { projectId: string; areaId: strin
   const types = state.anchorageTypes.map((t) => ({ t, used: plinths.filter((p) => p.anchorageTypeId === t.id) })).filter((x) => x.used.length)
   return (
     <>
-      <Section title="Anchorage types in use" description="Defined once in the library; referenced by plinths." className="mt-0">
+      <MaterialTracker areaId={areaId} />
+      <Section title="Anchorage types in use (demonstration)" description="Defined once in the library; referenced by plinths." className="mt-0">
         <ul className="border-t border-line text-[13px]">
           {types.map(({ t, used }) => (
             <li key={t.id} className="flex items-baseline justify-between gap-4 border-b border-line py-3">
@@ -187,9 +189,13 @@ function AreaMaterials({ projectId, areaId }: { projectId: string; areaId: strin
         </ul>
         <p className="mt-2 text-xs"><TextLink to={paths.anchorage(projectId)}>Open anchorage library</TextLink></p>
       </Section>
-      <Section title="Anchor bolts" description="Requirements and allocation for this area. Ordering and stock are shared across the project."><BoltTable projectId={projectId} areaId={areaId} /></Section>
-      <Section title="Bulk hardware" description="Nuts and washers for this area."><BulkTable areaId={areaId} /></Section>
-      <Section title="Procurement" description="Purchase orders supplying this area."><PurchaseOrders areaId={areaId} /></Section>
+      <Section title="Demonstration procurement data" description="Fictional bolt, hardware and purchase-order records, kept apart from the REEF tracker above and not included in its totals.">
+        <Disclosure summary={<span className="text-xs text-muted">Show demonstration data</span>}>
+          <Section title="Anchor bolts" className="mt-0"><BoltTable projectId={projectId} areaId={areaId} /></Section>
+          <Section title="Bulk hardware"><BulkTable areaId={areaId} /></Section>
+          <Section title="Procurement"><PurchaseOrders areaId={areaId} /></Section>
+        </Disclosure>
+      </Section>
     </>
   )
 }
