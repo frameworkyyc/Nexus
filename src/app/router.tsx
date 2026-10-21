@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { constructionRoutes } from '@/domains/construction/routes'
+import { fleetRoutes } from '@/domains/fleet/routes'
 import { AppShell } from '@/layout/AppShell'
 import { NotFoundPage } from './NotFoundPage'
 
@@ -7,6 +8,6 @@ import { NotFoundPage } from './NotFoundPage'
 export const router = createBrowserRouter([
   {
     element: <AppShell />,
-    children: [...constructionRoutes, { path: '*', element: <NotFoundPage /> }],
+    children: [...constructionRoutes, ...fleetRoutes, { path: '*', element: <NotFoundPage /> }],
   },
 ])

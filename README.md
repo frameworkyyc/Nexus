@@ -63,6 +63,17 @@ for an API client later.
   suite that stays `queued` with no check runs. Missed events are not replayed. Re-run the build from the Cloudflare dashboard
   or push the next change.
 
+### Fleet module
+
+`src/domains/fleet` is a separate, organization-level pack (route `/fleet`). Vehicles are not owned by a project: each
+assignment stores only a project id, so a vehicle can be reassigned or unassigned and its history is kept. Names are
+resolved through one adapter (`useProjectRegistry` in `domains/fleet/store.ts`).
+
+- Seed: the four REEF vehicles (T6010, T6005, LV167, LV174). VINs, plates, mileage, drivers, inspections and maintenance
+  are not invented; they show as "Not recorded", and condition is "Not assessed" until a record states one.
+- Persistence is browser-local demonstration data (`nexus.demo.fleet`), like the construction pack.
+- Not built yet: recording odometer/inspection/maintenance, scheduling, analytics.
+
 ### Information hierarchy
 
 Company → Project → Area → Foundation. Each level shows only what belongs to it; detail is one click deeper.

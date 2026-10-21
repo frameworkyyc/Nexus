@@ -12,7 +12,7 @@ export interface NexusModule {
 export const MODULES: NexusModule[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, path: '/' },
   { id: 'projects', label: 'Projects', icon: FolderKanban, path: '/projects' },
-  { id: 'fleet', label: 'Fleet', icon: Truck },
+  { id: 'fleet', label: 'Fleet', icon: Truck, path: '/fleet' },
   { id: 'assets', label: 'Assets', icon: Boxes },
   { id: 'workforce', label: 'Workforce', icon: HardHat },
   { id: 'procurement', label: 'Procurement', icon: ShoppingCart },
