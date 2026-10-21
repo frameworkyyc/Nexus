@@ -11,3 +11,4 @@ dist
 *.xlsm
 wrangler.preview-migrations.jsonc
 .wrangler
+*.tsbuildinfo
