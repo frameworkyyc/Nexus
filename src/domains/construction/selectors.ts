@@ -1,6 +1,6 @@
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
 import { formatShortDate } from '@/lib/format'
-import { FOOTING_ACTIVITIES, PLINTH_ACTIVITIES, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef } from './config'
+import { FOOTING_ACTIVITIES, HANDOVER_PHASES, PLINTH_ACTIVITIES, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
 import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
   Foundation, HandoverRecord, HardwareKind, Person, Plinth, PlinthReady, POLine, PurchaseOrder, Supplier,
@@ -221,6 +221,25 @@ export function tally(idx: Index, acts: Activity[]): Tally {
 export const tallyCategory = (idx: Index, acts: Activity[], category: 'construction' | 'survey' | 'qaqc'): Tally =>
   tally(idx, acts.filter((a) => (category === 'construction' ? isConstructionCategory(categoryOf(a)) : categoryOf(a) === category)))
 
+/**
+ * Construction progress for a set of activities (0–100).
+ * Each element (footing or plinth) = average of three equal stages: rebar (built + installed, split evenly), forming, pouring.
+ */
+export function progressOf(idx: Index, acts: Activity[]): number {
+  const owners = new Map<string, Activity[]>()
+  for (const a of acts) if (isConstructionCategory(categoryOf(a))) push(owners, a.plinthId ?? a.foundationId, a)
+  if (!owners.size) return 0
+  let sum = 0
+  for (const list of owners.values()) {
+    const done = (key: string) => {
+      const a = list.find((x) => x.key === key)
+      return a && isDone(effectiveStatus(idx, a)) ? 1 : 0
+    }
+    sum += ((done('rebarBuilt') + done('rebarInstalled')) / 2 + done('formed') + done('poured')) / 3
+  }
+  return Math.round((sum / owners.size) * 100)
+}
+
 export const percent = (t: Tally) => (t.total === 0 ? 0 : Math.round((t.done / t.total) * 100))
 
 export interface Stats {
@@ -230,6 +249,8 @@ export interface Stats {
   closedOut: number // constructed AND survey complete AND QA/QC approved
   blockedFoundations: number
   construction: Tally
+  progress: number // see progressOf
+  elementsPoured: { done: number; total: number } // footings + plinths
   survey: Tally
   qaqc: Tally
   footingFormed: Tally
@@ -264,6 +285,8 @@ export function computeStats(idx: Index, foundations: Foundation[]): Stats {
     closedOut,
     blockedFoundations,
     construction: tally(idx, all.filter((a) => isConstructionCategory(categoryOf(a)))),
+    progress: progressOf(idx, all),
+    elementsPoured: (() => { const p = all.filter((a) => a.key === 'poured'); return { done: p.filter((a) => isDone(effectiveStatus(idx, a))).length, total: p.length } })(),
     survey: tally(idx, all.filter((a) => categoryOf(a) === 'survey')),
     qaqc: tally(idx, all.filter((a) => categoryOf(a) === 'qaqc')),
     footingFormed: tally(idx, pick('footing', ['formed'])),
@@ -457,6 +480,7 @@ export interface HandoverItem {
 }
 
 export interface HandoverEvaluation {
+  phase: HandoverPhase
   record: HandoverRecord
   items: HandoverItem[]
   constructionComplete: boolean
@@ -484,15 +508,18 @@ export function evaluateHandover(idx: Index, areaId: string): HandoverEvaluation
       : { id: r.id, label: r.label, auto: false, met: r.done, detail: r.done ? 'Confirmed' : 'Not yet confirmed' },
   )
   const allMet = items.every((i) => i.met)
-  const label =
-    record.acceptance === 'accepted' ? 'Accepted'
-    : record.acceptance === 'submitted' ? 'Submitted for handover'
-    : record.acceptance === 'returned' ? 'Returned with comments'
-    : allMet && constructionComplete ? 'Ready to submit'
-    : constructionComplete ? 'Construction complete — requirements outstanding'
-    : 'Construction in progress'
-  return { record, items, constructionComplete, allMet, stats, outstandingFoundations: stats.foundations - stats.constructed, openDeficiencies, label }
+  const prepStarted = record.acceptance === 'returned' || record.requirements.some((r) => !r.metric && r.done)
+  // Construction completion alone never produces "Handed over": acceptance is a separate, deliberate record.
+  const phase: HandoverPhase =
+    record.acceptance === 'accepted' ? 'handed-over'
+    : record.acceptance === 'submitted' ? 'ready-for-review'
+    : constructionComplete ? (prepStarted ? 'handover-preparation' : 'construction-complete')
+    : 'in-progress'
+  const label = HANDOVER_PHASES.find((p) => p.id === phase)!.label
+  return { phase, record, items, constructionComplete, allMet, stats, outstandingFoundations: stats.foundations - stats.constructed, openDeficiencies, label }
 }
+
+export const phaseIndex = (p: HandoverPhase) => HANDOVER_PHASES.findIndex((x) => x.id === p)
 
 /* ── Issues requiring attention ─────────────────────────────────────────── */
 

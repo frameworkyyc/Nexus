@@ -27,16 +27,16 @@ function DisabledItem({ label, Icon }: { label: string; Icon: (typeof MODULES)[n
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <>
-      {open && <div className="fixed inset-0 z-30 bg-ink/50 lg:hidden" onClick={onClose} />}
+      {open && <div className="fixed inset-0 z-30 bg-ink/50 xl:hidden" onClick={onClose} />}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-sidebar text-sidebar-ink transition-transform lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-sidebar text-sidebar-ink transition-transform xl:static xl:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-line px-5">
           <div className="leading-none">
             <div className="text-[15px] font-semibold tracking-[0.28em]">NEXUS</div>
             <div className="mt-1.5 text-micro tracking-wide text-sidebar-muted">by Framework</div>
           </div>
-          <button onClick={onClose} aria-label="Close navigation" className="text-sidebar-muted hover:text-sidebar-ink lg:hidden">
+          <button onClick={onClose} aria-label="Close navigation" className="text-sidebar-muted hover:text-sidebar-ink xl:hidden">
             <X size={18} strokeWidth={1.5} />
           </button>
         </div>

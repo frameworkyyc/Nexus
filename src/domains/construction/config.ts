@@ -144,3 +144,23 @@ export const DEFAULT_HANDOVER_REQUIREMENTS: { label: string; metric: AutoMetric 
 /* Workforce context */
 
 export const ROTATION = { onDays: 14, offDays: 7 }
+
+/* Handover phases (construction completion is distinct from handover) */
+
+export type HandoverPhase = 'in-progress' | 'construction-complete' | 'handover-preparation' | 'ready-for-review' | 'handed-over'
+
+export const HANDOVER_PHASES: { id: HandoverPhase; label: string }[] = [
+  { id: 'in-progress', label: 'Construction in progress' },
+  { id: 'construction-complete', label: 'Construction complete' },
+  { id: 'handover-preparation', label: 'Handover preparation' },
+  { id: 'ready-for-review', label: 'Ready for review' },
+  { id: 'handed-over', label: 'Handed over' },
+]
+
+/** Shown beside the progress figures so the basis is never hidden. */
+export const PROGRESS_BASIS = [
+  'Every footing and every plinth is an element with three construction stages: rebar, forming and pouring.',
+  'The three stages count equally. The rebar stage is split evenly between "built" and "installed", so rebar is not counted twice as heavily as forming or pouring.',
+  'Area progress is the average across all elements in the area. Overall progress is the average across every element, so areas with more foundations carry proportionally more weight (it is not an average of the area percentages).',
+  'No quantities, hours or costs are available, so there is no effort weighting. Survey, QA/QC and handover are tracked separately and never change this figure.',
+]

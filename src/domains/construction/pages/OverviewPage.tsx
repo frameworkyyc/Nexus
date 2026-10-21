@@ -5,7 +5,7 @@ import { ProgressBar } from '@/components/ui/Progress'
 import { Section } from '@/components/ui/Section'
 import { Stat } from '@/components/ui/Stat'
 import { paths } from '../paths'
-import { computeStats, deriveIssues, percent } from '../selectors'
+import { computeStats, deriveIssues } from '../selectors'
 import { useConstruction } from '../store'
 import { IssueList } from '../ui'
 import type { Project } from '../types'
@@ -21,7 +21,7 @@ export function ProjectsTable() {
     { key: 'company', header: 'Company', hideOnMobile: true, render: () => <span className="text-muted">{state.company.name}</span> },
     { key: 'loc', header: 'Location', hideOnMobile: true, render: (p) => <span className="text-muted">{p.location}</span> },
     { key: 'scope', header: 'Scope', hideOnMobile: true, render: (p) => <span className="text-muted">{p.scope}</span> },
-    { key: 'progress', header: 'Construction progress', render: () => <ProgressBar value={percent(computeStats(idx, state.foundations).construction)} /> },
+    { key: 'progress', header: 'Construction progress', render: () => <ProgressBar value={computeStats(idx, state.foundations).progress} /> },
     { key: 'attn', header: 'High priority', render: () => issues.filter((i) => i.severity === 'high').length },
   ]
   return <DataTable columns={columns} rows={state.projects} getKey={(p) => p.id} onRowClick={(p) => navigate(paths.project(p.id))} />

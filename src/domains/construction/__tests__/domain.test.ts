@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import * as A from '../actions'
+import { deriveExceptions } from '../exceptions'
 import { buildSeed } from '../seed'
 import {
-  boltRows, bulkRows, computeStats, crewsOnSite, deriveIssues, effectiveStatus, evaluateHandover, foundationState, getIndex, plinthBoltStage, qty,
+  boltRows, bulkRows, computeStats, crewsOnSite, deriveIssues, effectiveStatus, evaluateHandover, foundationState, foundationsOf, getIndex, plinthBoltStage, progressOf, qty,
 } from '../selectors'
 import type { ConstructionState } from '../types'
 
@@ -276,11 +277,12 @@ describe('handover', () => {
     const ev = evaluateHandover(getIndex(s), areaId)
     expect(ev.constructionComplete).toBe(true)
     expect(ev.record.acceptance).toBe('not-submitted')
-    expect(ev.label).toBe('Ready to submit')
+    expect(ev.phase).toBe('handover-preparation')
+    expect(ev.allMet).toBe(true)
     expect(error(s, A.recordAcceptance(areaId, true, 'Owner rep', TODAY))).toMatch(/submitted/)
     s = apply(s, A.submitHandover(areaId, TODAY, ev.allMet))
     s = apply(s, A.recordAcceptance(areaId, true, 'Owner rep', TODAY))
-    expect(evaluateHandover(getIndex(s), areaId).label).toBe('Accepted')
+    expect(evaluateHandover(getIndex(s), areaId).phase).toBe('handed-over')
   })
 
   it('blocks submission while requirements are outstanding and supports configurable requirements', () => {
@@ -305,5 +307,97 @@ describe('workforce context', () => {
     const people = idx.state.people
     expect(people.filter((p) => p.role === 'foreman')).toHaveLength(3)
     expect(people.filter((p) => p.role === 'carpenter')).toHaveLength(12)
+  })
+})
+
+describe('construction progress', () => {
+  const s = seed()
+  const idx = getIndex(s)
+  const only = (ids: string[], status: 'complete' | 'not-started') => (state: ConstructionState, owner: string) => ({
+    ...state,
+    activities: state.activities.map((a) => ((a.plinthId ?? a.foundationId) === owner && ids.includes(a.key) ? { ...a, status } : a)),
+  })
+
+  it('is 0 with nothing done and 100 with everything done for an element', () => {
+    const blank = { ...s, activities: s.activities.map((a) => ({ ...a, status: 'not-started' as const })) }
+    expect(computeStats(getIndex(blank), blank.foundations).progress).toBe(0)
+    const full = { ...blank, activities: blank.activities.map((a) => ({ ...a, status: 'complete' as const })) }
+    expect(computeStats(getIndex(full), full.foundations).progress).toBe(100)
+  })
+
+  it('counts rebar as one stage, not as half of all progress', () => {
+    const base = { ...s, activities: s.activities.map((a) => ({ ...a, status: 'not-started' as const })) }
+    const f = s.foundations.find((x) => x.number === '21-01')!
+    const owner = f.id
+    const rebarOnly = only(['rebarBuilt', 'rebarInstalled'], 'complete')(base, owner)
+    const footingActs = getIndex(rebarOnly).activitiesByOwner.get(owner)!
+    expect(progressOf(getIndex(rebarOnly), footingActs)).toBe(33) // 1 of 3 stages
+    const poured = only(['poured'], 'complete')(base, owner)
+    expect(progressOf(getIndex(poured), getIndex(poured).activitiesByOwner.get(owner)!)).toBe(33)
+    const half = only(['rebarBuilt'], 'complete')(base, owner)
+    expect(progressOf(getIndex(half), getIndex(half).activitiesByOwner.get(owner)!)).toBe(17) // half of the rebar stage
+  })
+
+  it('ignores survey, QA/QC and material statuses', () => {
+    const before = computeStats(idx, s.foundations).progress
+    const changed = { ...s, activities: s.activities.map((a) => (['preSurvey', 'postSurvey', 'preInspection', 'postInspection', 'solePlates'].includes(a.key) ? { ...a, status: 'complete' as const } : a)) }
+    expect(computeStats(getIndex(changed), changed.foundations).progress).toBe(before)
+  })
+
+  it('pools elements across areas rather than averaging the area percentages', () => {
+    const areas = s.areas.map((a) => computeStats(idx, foundationsOf(idx, a.id)))
+    const overall = computeStats(idx, s.foundations)
+    const elements = s.foundations.length + s.plinths.length
+    const weighted = areas.reduce((t, a) => t + (a.progress / 100) * (a.foundations + a.plinths), 0) / elements
+    expect(Math.abs(overall.progress - weighted * 100)).toBeLessThanOrEqual(areas.length / 2)
+  })
+})
+
+describe('handover phases', () => {
+  it('starts every area at construction in progress and never at handed over', () => {
+    const idx = getIndex(seed())
+    for (const a of idx.state.areas) expect(evaluateHandover(idx, a.id).phase).toBe('in-progress')
+  })
+
+  it('moves construction complete → preparation → ready for review → handed over only through deliberate steps', () => {
+    let s = seed()
+    const areaId = 'e-house'
+    s = { ...s, activities: s.activities.map((a) => (s.foundations.find((f) => f.id === a.foundationId)!.areaId === areaId ? { ...a, status: a.key.includes('Inspection') ? ('approved' as const) : ('complete' as const) } : a)) }
+    expect(evaluateHandover(getIndex(s), areaId).phase).toBe('construction-complete')
+    const manual = s.handover.find((h) => h.areaId === areaId)!.requirements.filter((r) => !r.metric)
+    s = apply(s, A.setRequirementDone(areaId, manual[0].id, true, TODAY))
+    expect(evaluateHandover(getIndex(s), areaId).phase).toBe('handover-preparation')
+    for (const r of manual.slice(1)) s = apply(s, A.setRequirementDone(areaId, r.id, true, TODAY))
+    s = apply(s, A.submitHandover(areaId, TODAY, evaluateHandover(getIndex(s), areaId).allMet))
+    expect(evaluateHandover(getIndex(s), areaId).phase).toBe('ready-for-review')
+    s = apply(s, A.recordAcceptance(areaId, true, 'Owner rep', TODAY))
+    expect(evaluateHandover(getIndex(s), areaId).phase).toBe('handed-over')
+  })
+})
+
+describe('dashboard exceptions', () => {
+  const idx = getIndex(seed())
+  const list = deriveExceptions(idx, TODAY, 'reef')
+
+  it('is short, sorted by severity, and every item links to a record with an area and status', () => {
+    expect(list.length).toBeGreaterThan(0)
+    expect(list.length).toBeLessThan(deriveIssues(idx, TODAY).length)
+    const rank = list.map((e) => (e.severity === 'high' ? 0 : 1))
+    expect([...rank].sort()).toEqual(rank)
+    for (const e of list) {
+      expect(e.to).toMatch(/^\/projects\/reef\//)
+      expect(e.area).toBeTruthy()
+      expect(e.status).toBeTruthy()
+    }
+  })
+
+  it('groups related records instead of repeating them', () => {
+    const bolts = list.filter((e) => e.id.startsWith('bolts:'))
+    expect(new Set(bolts.map((e) => e.area)).size).toBe(bolts.length)
+  })
+
+  it('covers the required exception types', () => {
+    const ids = list.map((e) => e.id.split(':')[0])
+    for (const k of ['blocked', 'bolts', 'po', 'fab', 'def']) expect(ids).toContain(k)
   })
 })

@@ -49,10 +49,22 @@ The platform never imports from `domains/*` except through the router. A differe
 types, catalogue, seed and pages. There is no backend, authentication or external integration yet; swap `store.ts`
 for an API client later.
 
+### Progress calculation
+
+- Each footing and each plinth is an element with three construction stages: rebar, forming and pouring.
+  The stages count equally, and the rebar stage is split evenly between "built" and "installed" (so rebar is not
+  counted twice as heavily as forming or pouring).
+- Area progress = average across all elements in the area. Overall progress = average across every element
+  (not an average of the area percentages), so areas with more foundations carry proportionally more weight.
+- There are no quantities, hours or costs in the demo data, so there is no effort weighting. Replace this with
+  quantity-based earned value when real data exists.
+- Survey, QA/QC and handover are tracked separately and never change the figure.
+- Handover phases: construction in progress → construction complete → handover preparation → ready for review →
+  handed over. Only the last step (recorded acceptance) hands an area over.
+
 ### Key rules (covered by `npm test`)
 
-- Progress is derived from activity records. Physical progress counts forming, pouring and rebar activities equally;
-  survey and QA/QC are separate measures.
+- Progress is derived from activity records (see above); survey and QA/QC are separate measures.
 - Anchor bolt, nut, washer and plywood-template statuses are derived from allocation and fabrication records.
 - Receiving stock and allocating it to plinths are separate steps. Allocation cannot exceed received stock or a
   plinth's requirement, so the same inventory cannot be allocated twice.

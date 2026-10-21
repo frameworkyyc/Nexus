@@ -15,8 +15,8 @@ import { ActivityTable } from '../ActivityTable'
 import { DocumentModal } from '../DocumentModal'
 import { paths } from '../paths'
 import {
-  BOLT_STAGE_LABEL, areaOfPlinth, computeStats, deriveIssues, footingActivities, footingStep, foundationActivities, foundationState, percent, plinthActivities, plinthBoltRequirements,
-  plinthBoltStage, plinthHardware, plinthState, plinthStep, specLabel, tallyCategory,
+  BOLT_STAGE_LABEL, areaOfPlinth, computeStats, deriveIssues, footingActivities, footingStep, foundationActivities, foundationState, plinthActivities, plinthBoltRequirements,
+  plinthBoltStage, plinthHardware, plinthState, plinthStep, progressOf, specLabel,
 } from '../selectors'
 import { useConstruction, useRun } from '../store'
 import { FoundationStateBadge, fraction, IssueList } from '../ui'
@@ -53,7 +53,7 @@ export function FoundationPage() {
       <PageHeader title={f.number} description={`${area.name} · ${f.description} · ${plinths.length} plinth${plinths.length === 1 ? '' : 's'}`} actions={<FoundationStateBadge state={fs.state} blocked={fs.blocked} />} />
 
       <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
-        <Stat label="Construction" value={`${percent(stats.construction)}%`} sub={`${fraction(stats.construction)} activities`} />
+        <Stat label="Construction" value={`${stats.progress}%`} sub={`${stats.elementsPoured.done} of ${stats.elementsPoured.total} elements poured`} />
         <Stat label="Footing step" value={<span className="text-xl font-normal tracking-normal">{footingStep(idx, f)}</span>} />
         <Stat label="Plinths poured" value={fraction(stats.plinthPoured)} />
         <Stat label="Survey" value={fraction(stats.survey)} sub="Separate from QA/QC" />
@@ -170,7 +170,7 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
           <span className="font-medium">Plinth {p.index}</span>
           <span>{p.anchorageTypeId ?? 'No anchorage type'}</span>
           <span className="text-muted">{plinthStep(idx, p)}</span>
-          <ProgressBar value={percent(tallyCategory(idx, acts, 'construction'))} width="w-20" />
+          <ProgressBar value={progressOf(idx, acts)} width="w-20" />
           <FoundationStateBadge state={ps.state} blocked={ps.blocked} />
         </div>
       }

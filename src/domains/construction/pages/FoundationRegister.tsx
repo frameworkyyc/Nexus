@@ -8,7 +8,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { paths } from '../paths'
 import {
   BOLT_STAGE_LABEL, FOUNDATION_STATE_LABEL, computeStats, footingActivities, footingStep, foundationState, foundationsOf, percent, plinthActivities, plinthBoltStage,
-  plinthState, plinthStep, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
+  plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
 import { FoundationStateBadge, fraction } from '../ui'
@@ -59,7 +59,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
     .filter((r) => !q || [r.f.number, r.f.description, r.area.name, ...r.types].some((x) => x.toLowerCase().includes(q)))
     .sort((a, b) => {
       const by = (x: Row) =>
-        sort.key === 'number' ? x.f.number : sort.key === 'construction' ? percent(x.stats.construction) : sort.key === 'survey' ? percent(x.stats.survey) : sort.key === 'qaqc' ? percent(x.stats.qaqc) : STATE_RANK[x.state.state]
+        sort.key === 'number' ? x.f.number : sort.key === 'construction' ? x.stats.progress : sort.key === 'survey' ? percent(x.stats.survey) : sort.key === 'qaqc' ? percent(x.stats.qaqc) : STATE_RANK[x.state.state]
       const [va, vb] = [by(a), by(b)]
       return (va < vb ? -1 : va > vb ? 1 : a.f.number.localeCompare(b.f.number)) * sort.dir
     })
@@ -149,7 +149,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                       {!areaId && <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.area.name}</td>}
                       <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{r.types.join(', ')}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.step}</td>
-                      <td className="py-3.5 pr-5"><ProgressBar value={percent(r.stats.construction)} width="w-16 sm:w-24" /></td>
+                      <td className="py-3.5 pr-5"><ProgressBar value={r.stats.progress} width="w-16 sm:w-24" /></td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(plinthPoured)}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(r.stats.survey)}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(r.stats.qaqc)}</td>
@@ -197,7 +197,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                     </td>
                     <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{p.anchorageTypeId ?? '—'}</td>
                     <td className="py-3.5 pr-5 text-[13px] text-muted">{plinthStep(idx, p)}</td>
-                    <td className="py-3.5 pr-5"><ProgressBar value={percent(tallyCategory(idx, acts, 'construction'))} width="w-16 sm:w-24" /></td>
+                    <td className="py-3.5 pr-5"><ProgressBar value={progressOf(idx, acts)} width="w-16 sm:w-24" /></td>
                     <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(tallyCategory(idx, acts, 'survey'))}</td>
                     <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(tallyCategory(idx, acts, 'qaqc'))}</td>
                     <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</td>
@@ -226,7 +226,7 @@ function PlinthDetail({ projectId, f, plinths, footingStatsLine }: { projectId: 
             <Link to={paths.foundation(projectId, f, p.id)} className="w-24 font-medium underline-offset-4 hover:underline">Plinth {p.index}</Link>
             <span className="w-16">{p.anchorageTypeId ?? '—'}</span>
             <span className="w-44 text-muted">{plinthStep(idx, p)}</span>
-            <span className="w-20 tabular-nums text-muted">{percent(tallyCategory(idx, acts, 'construction'))}%</span>
+            <span className="w-20 tabular-nums text-muted">{progressOf(idx, acts)}%</span>
             <span className="text-muted">{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</span>
             <StatusBadge tone={ps.blocked ? 'bad' : ps.state === 'in-progress' ? 'info' : ps.state === 'not-started' ? 'muted' : 'ok'} label={ps.blocked ? 'Blocked' : FOUNDATION_STATE_LABEL[ps.state]} />
           </div>

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
-import { StatusBadge } from '@/components/ui/StatusBadge'
-import { STATUS_LABEL, STATUS_TONE } from './config'
+import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
+import { STATUS_LABEL, STATUS_TONE, type HandoverPhase } from './config'
 import type { Issue } from './selectors'
 import { FOUNDATION_STATE_LABEL, type FoundationStateId, type Tally } from './selectors'
 import type { ActivityStatus } from './types'
@@ -12,6 +12,9 @@ export function FoundationStateBadge({ state, blocked }: { state: FoundationStat
   const tone = { 'not-started': 'muted', 'in-progress': 'info', constructed: 'ok', 'closed-out': 'ok' } as const
   return <StatusBadge tone={tone[state]} label={FOUNDATION_STATE_LABEL[state]} />
 }
+
+export const phaseTone = (phase: HandoverPhase): Tone =>
+  ({ 'in-progress': 'muted', 'construction-complete': 'info', 'handover-preparation': 'info', 'ready-for-review': 'warn', 'handed-over': 'ok' } as const)[phase]
 
 export const fraction = (t: Pick<Tally, 'done' | 'total'>) => `${t.done}/${t.total}`
 

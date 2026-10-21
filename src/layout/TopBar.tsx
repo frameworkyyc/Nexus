@@ -13,7 +13,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 sm:px-8">
       <div className="flex min-w-0 items-center gap-3">
-        <button onClick={onMenu} aria-label="Open navigation" className="text-muted hover:text-ink lg:hidden">
+        <button onClick={onMenu} aria-label="Open navigation" className="text-muted hover:text-ink xl:hidden">
           <Menu size={20} strokeWidth={1.5} />
         </button>
         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-[13px]">

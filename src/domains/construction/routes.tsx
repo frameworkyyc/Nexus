@@ -5,6 +5,7 @@ import { AreaPage, RegisterPage } from './pages/AreaPage'
 import { FabricationPage } from './pages/FabricationPage'
 import { FoundationPage } from './pages/FoundationPage'
 import { HandoverPage } from './pages/HandoverPage'
+import { IssuesPage } from './pages/IssuesPage'
 import { MaterialsPage } from './pages/MaterialsPage'
 import { OverviewPage, ProjectsPage } from './pages/OverviewPage'
 import { ProjectDashboard } from './pages/ProjectDashboard'
@@ -16,7 +17,8 @@ const text = (label: string): CrumbHandle => ({ crumb: () => <>{label}</> })
 function ProjectCrumb() {
   const { projectId } = useParams()
   const { state } = useConstruction()
-  return <>{state.projects.find((p) => p.id === projectId)?.name ?? 'Project'}</>
+  const project = state.projects.find((p) => p.id === projectId)
+  return <>{project ? `${project.name} · Job ${project.jobNumber}` : 'Project'}</>
 }
 function AreaCrumb() {
   const { areaId } = useParams()
@@ -47,6 +49,7 @@ export const constructionRoutes: RouteObject[] = [
           { path: 'fabrication', element: <FabricationPage />, handle: text('Fabrication') },
           { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },
           { path: 'handover', element: <HandoverPage />, handle: text('Handover') },
+          { path: 'issues', element: <IssuesPage />, handle: text('Issues') },
           {
             path: 'areas/:areaId',
             element: <Outlet />,

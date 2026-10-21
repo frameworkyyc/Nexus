@@ -1,191 +1,116 @@
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { DataTable, type Column } from '@/components/ui/DataTable'
-import { PageHeader } from '@/components/ui/PageHeader'
-import { ProgressBar } from '@/components/ui/Progress'
+import { Link, useParams } from 'react-router-dom'
+import { Disclosure } from '@/components/ui/Disclosure'
 import { Section } from '@/components/ui/Section'
-import { Stat, StatRow } from '@/components/ui/Stat'
-import { StatusBadge } from '@/components/ui/StatusBadge'
-import { formatShortDate } from '@/lib/format'
+import { HANDOVER_PHASES, PROGRESS_BASIS } from '../config'
+import { deriveExceptions } from '../exceptions'
 import { paths } from '../paths'
-import {
-  activitiesWhere, boltRows, bulkRows, computeStats, crewsOnSite, deriveIssues, evaluateHandover, foundationsOf, percent, poFulfilment, specLabel, upcomingWork,
-  type BoltRow, type HandoverEvaluation, type Stats,
-} from '../selectors'
+import { computeStats, evaluateHandover, foundationsOf, phaseIndex } from '../selectors'
 import { useConstruction } from '../store'
-import { fraction, IssueList, TextLink } from '../ui'
-import type { Area } from '../types'
 
-interface AreaRow {
-  area: Area
-  stats: Stats
-  handover: HandoverEvaluation
-}
+const dot = { high: 'bg-bad', medium: 'bg-warn' }
 
 export function ProjectDashboard() {
   const { projectId = '' } = useParams()
   const { state, idx, today } = useConstruction()
-  const navigate = useNavigate()
   const project = state.projects.find((p) => p.id === projectId)!
-  const stats = computeStats(idx, state.foundations)
-  const issues = deriveIssues(idx, today, projectId)
-  const upcoming = upcomingWork(idx, today, 14)
-  const rows: AreaRow[] = state.areas.map((area) => ({ area, stats: computeStats(idx, foundationsOf(idx, area.id)), handover: evaluateHandover(idx, area.id) }))
-  const onSite = crewsOnSite(idx, today)
-  const pendingInspections = activitiesWhere(idx, (_a, def, s) => def.category === 'qaqc' && s === 'pending-review')
-  const surveyDue = activitiesWhere(idx, (a, def, s) => def.category === 'survey' && s !== 'complete' && s !== 'blocked' && (s === 'in-progress' || isReadyCached(a)))
-  function isReadyCached(a: (typeof state.activities)[number]) {
-    return issues.some((i) => i.id === `survey:${a.id}`)
-  }
-  const shortBolts = boltRows(idx).filter((r) => r.toOrder > 0 || r.received < r.required)
-  const lateDeliveries = state.purchaseOrders.filter((po) => po.status === 'issued' && po.expectedDate && po.expectedDate < today && poFulfilment(idx, po).state !== 'complete')
-  const toOrderBulk = bulkRows(idx).filter((r) => r.outstanding > 0)
-  const highCount = issues.filter((i) => i.severity === 'high').length
-
-  const areaColumns: Column<AreaRow>[] = [
-    { key: 'area', header: 'Area', render: (r) => <span className="font-medium">{r.area.name}</span> },
-    { key: 'f', header: 'Constructed', render: (r) => <span className="tabular-nums">{r.stats.constructed} / {r.stats.foundations}</span> },
-    { key: 'c', header: 'Construction', render: (r) => <ProgressBar value={percent(r.stats.construction)} width="w-20 sm:w-28" /> },
-    { key: 'p', header: 'Footings / plinths poured', hideOnMobile: true, render: (r) => <span className="tabular-nums text-muted">{fraction(r.stats.footingPoured)} · {fraction(r.stats.plinthPoured)}</span> },
-    { key: 's', header: 'Survey', hideOnMobile: true, render: (r) => <span className="tabular-nums text-muted">{fraction(r.stats.survey)}</span> },
-    { key: 'q', header: 'QA/QC', hideOnMobile: true, render: (r) => <span className="tabular-nums text-muted">{fraction(r.stats.qaqc)}</span> },
-    { key: 'm', header: 'Bolts ready', hideOnMobile: true, render: (r) => <span className="tabular-nums text-muted">{r.stats.materialsReady.ready}/{r.stats.materialsReady.total}</span> },
-    { key: 'h', header: 'Handover', render: (r) => <span className="text-muted">{r.handover.label}</span> },
-  ]
-
-  const boltColumns: Column<BoltRow>[] = [
-    { key: 's', header: 'Anchor bolt', render: (r) => <span className="font-medium">{specLabel(r.spec)} <span className="font-normal text-muted">{r.spec.id}</span></span> },
-    { key: 'r', header: 'Required', render: (r) => r.required },
-    { key: 'rc', header: 'Received', render: (r) => r.received },
-    { key: 'o', header: 'To order', render: (r) => (r.toOrder > 0 ? <StatusBadge tone="warn" label={String(r.toOrder)} /> : <span className="text-muted">0</span>) },
-  ]
+  const overall = computeStats(idx, state.foundations)
+  const areas = state.areas.map((area) => ({ area, progress: computeStats(idx, foundationsOf(idx, area.id)).progress, ev: evaluateHandover(idx, area.id) }))
+  const exceptions = deriveExceptions(idx, today, projectId)
+  const critical = exceptions.filter((e) => e.severity === 'high').length
+  const handedOver = areas.filter((a) => a.ev.phase === 'handed-over').length
 
   return (
     <>
-      <PageHeader title={project.name} description={`Project dashboard · Job ${project.jobNumber} · ${project.scope}`} />
+      <header>
+        <h1 className="t-display">{project.name}</h1>
+        <p className="mt-1 text-[13px] text-muted">Job {project.jobNumber} · {state.company.name} · {project.scope}</p>
+        <p className="text-[13px] text-muted">{project.location}</p>
+      </header>
 
-      <StatRow>
-        <Stat label="Physical progress" value={`${percent(stats.construction)}%`} sub={`${stats.construction.done} of ${stats.construction.total} construction activities complete (forming, rebar, pours; footings and plinths)`} />
-        <Stat label="Foundations constructed" value={`${stats.constructed} / ${stats.foundations}`} sub={`${stats.closedOut} fully closed out (survey and QA/QC also complete)`} />
-        <Stat label="Footings poured" value={`${stats.footingPoured.done} / ${stats.footingPoured.total}`} sub={`${stats.footingFormed.done} formed`} />
-        <Stat label="Plinths poured" value={`${stats.plinthPoured.done} / ${stats.plinthPoured.total}`} sub={`${stats.plinthFormed.done} formed`} />
-        <Stat label="Rebar installed" value={`${stats.rebarInstalled.done} / ${stats.rebarInstalled.total}`} sub={`${stats.rebarBuilt.done} of ${stats.rebarBuilt.total} built (footings and plinths)`} />
-      </StatRow>
+      <dl className="mt-8 grid grid-cols-1 border-y border-line sm:grid-cols-3 sm:divide-x sm:divide-line">
+        <div className="py-6 sm:pr-8">
+          <dt className="t-label">Overall progress</dt>
+          <dd className="t-metric mt-2">{overall.progress}<span className="text-2xl text-muted">%</span></dd>
+          <div className="mt-3 h-px bg-line" role="progressbar" aria-label="Overall progress" aria-valuenow={overall.progress} aria-valuemin={0} aria-valuemax={100}>
+            <div className="-mt-px h-0.5 bg-ink" style={{ width: `${overall.progress}%` }} />
+          </div>
+        </div>
+        <div className="border-t border-line py-6 sm:border-t-0 sm:px-8">
+          <dt className="t-label">Areas handed over</dt>
+          <dd className="t-metric mt-2">{handedOver}<span className="text-2xl text-muted"> / {areas.length}</span></dd>
+        </div>
+        <div className="border-t border-line py-6 sm:border-t-0 sm:pl-8">
+          <dt className="t-label">Critical issues</dt>
+          <dd className="t-metric mt-2">{critical}</dd>
+        </div>
+      </dl>
 
-      <Section title="Readiness" description="Tracked separately from physical progress: a poured foundation is not closed out until survey and inspection are complete.">
-        <dl className="grid grid-cols-2 gap-6 lg:grid-cols-4">
-          <Stat label="Survey complete" value={`${percent(stats.survey)}%`} sub={`${stats.survey.done} of ${stats.survey.total} survey activities`} />
-          <Stat label="QA/QC approved" value={`${percent(stats.qaqc)}%`} sub={`${stats.qaqc.done} of ${stats.qaqc.total} inspections · ${stats.qaqc.pending} pending review`} />
-          <Stat label="Plinths with bolts ready" value={`${stats.materialsReady.ready} / ${stats.materialsReady.total}`} sub="Allocated, sorted and marked ready for installation" />
-          <Stat label="Open deficiencies" value={state.deficiencies.filter((d) => d.status === 'open').length} sub={`${highCount} high-priority issues overall`} />
-        </dl>
-      </Section>
-
-      <Section title="Progress by area" description="Select an area to open its workspace.">
-        <DataTable columns={areaColumns} rows={rows} getKey={(r) => r.area.id} onRowClick={(r) => navigate(paths.area(projectId, r.area.id))} />
-      </Section>
-
-      <div className="grid gap-x-12 lg:grid-cols-2">
-        <Section title="Needs attention" description={`${issues.length} open items, highest priority first.`}>
-          <IssueList issues={issues} limit={8} />
-        </Section>
-        <Section title="Upcoming work" description="Planned for the next 14 days.">
-          {upcoming.length ? (
-            <ul>
-              {upcoming.slice(0, 8).map((u) => (
-                <li key={u.activity.id} className="flex items-baseline justify-between gap-4 border-b border-line py-3 text-[13px]">
-                  <TextLink to={paths.foundation(projectId, u.foundation, u.activity.plinthId ?? undefined)}>{u.title}</TextLink>
-                  <span className="shrink-0 text-xs text-muted">{formatShortDate(u.activity.plannedDate)}</span>
-                </li>
-              ))}
-              {upcoming.length > 8 && <li className="py-3 text-xs text-muted">+ {upcoming.length - 8} more</li>}
-            </ul>
-          ) : (
-            <p className="py-6 text-[13px] text-muted">No planned work in the next 14 days.</p>
-          )}
-        </Section>
-      </div>
-
-      <div className="grid gap-x-12 lg:grid-cols-2">
-        <Section title="Outstanding material requirements" description="Anchor bolts consolidated by specification, project-wide." actions={<Link to={paths.materials(projectId)} className="text-[13px] text-muted hover:text-ink hover:underline underline-offset-4">Open materials</Link>}>
-          <DataTable columns={boltColumns} rows={shortBolts} getKey={(r) => r.spec.id} />
-          {toOrderBulk.length > 0 && <p className="mt-3 text-xs text-muted">{toOrderBulk.length} bulk nut and washer lines still have received quantity below requirement.</p>}
-        </Section>
-        <Section title="Procurement delays">
-          {lateDeliveries.length || issues.some((i) => i.category === 'fabrication') ? (
-            <ul>
-              {lateDeliveries.map((po) => {
-                const f = poFulfilment(idx, po)
-                return (
-                  <li key={po.id} className="border-b border-line py-3 text-[13px]">
-                    <TextLink to={paths.materials(projectId)}>{po.number}</TextLink> <span className="text-muted">· {idx.supplier.get(po.supplierId)?.name}</span>
-                    <span className="block text-xs text-muted">Expected {formatShortDate(po.expectedDate)} · {f.received} of {f.ordered} received</span>
-                  </li>
-                )
-              })}
-              {issues.filter((i) => i.category === 'fabrication').map((i) => (
-                <li key={i.id} className="border-b border-line py-3 text-[13px]">
-                  <TextLink to={i.to}>{i.title}</TextLink>
-                  <span className="block truncate text-xs text-muted">{i.detail}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-6 text-[13px] text-muted">No late deliveries or fabrication delays.</p>
-          )}
-        </Section>
-      </div>
-
-      <div className="grid gap-x-12 lg:grid-cols-2">
-        <Section title="Pending inspections" description="Inspections awaiting a QA/QC response.">
-          <ActivityList items={pendingInspections} projectId={projectId} empty="No inspections pending." />
-        </Section>
-        <Section title="Outstanding survey" description="Survey activities that are in progress or whose prerequisite work is complete.">
-          <ActivityList items={surveyDue} projectId={projectId} empty="No survey activities outstanding." />
-        </Section>
-      </div>
-
-      <Section title="Areas approaching handover" description="Handover requirements are a configurable placeholder. Construction completion is not acceptance.">
-        <ul>
-          {[...rows].sort((a, b) => percent(b.stats.construction) - percent(a.stats.construction)).slice(0, 3).map((r) => (
-            <li key={r.area.id} className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b border-line py-3 text-[13px]">
-              <TextLink to={paths.area(projectId, r.area.id, 'handover')}>{r.area.name}</TextLink>
-              <span className="text-muted">
-                {r.stats.constructed} of {r.stats.foundations} foundations constructed · {r.handover.items.filter((i) => i.met).length} of {r.handover.items.length} requirements met · {r.handover.label}
-              </span>
+      <Section title="Construction progress by area">
+        <ul className="border-t border-line">
+          {areas.map(({ area, progress }) => (
+            <li key={area.id} className="border-b border-line">
+              <Link to={paths.area(projectId, area.id)} className="group grid grid-cols-[6.5rem_minmax(0,1fr)_3.5rem] items-center gap-x-4 py-5 transition-colors hover:bg-hover sm:grid-cols-[11rem_minmax(0,1fr)_4rem] sm:gap-x-6">
+                <span className="text-[13px] font-medium">{area.name}</span>
+                <span className="h-3 bg-line" role="progressbar" aria-label={`${area.name} progress`} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+                  <span className="block h-full bg-ink transition-[width]" style={{ width: `${progress}%` }} />
+                </span>
+                <span className="text-right text-xl font-light tabular-nums tracking-tight">{progress}%</span>
+              </Link>
             </li>
           ))}
         </ul>
       </Section>
 
-      <p className="mt-12 text-xs text-muted">
-        On site today: {onSite.crews.map((c) => c.name).join(' and ')} · Superintendent{onSite.superintendents.length === 1 ? '' : 's'}: {onSite.superintendents.map((s) => s.name).join(', ')} · 14 days on / 7 days off rotation (demonstration).
-      </p>
+      <div className="grid grid-cols-1 gap-x-14 lg:grid-cols-2">
+        <Section title="Handover">
+          <ul className="border-t border-line">
+            {areas.map(({ area, ev }) => {
+              const current = phaseIndex(ev.phase)
+              return (
+                <li key={area.id} className="border-b border-line">
+                  <Link to={paths.area(projectId, area.id, 'handover')} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3.5 transition-colors hover:bg-hover sm:flex-nowrap">
+                    <span className="min-w-0 flex-1 truncate text-[13px]">{area.name}</span>
+                    <span className="order-3 flex w-full gap-0.5 sm:order-none sm:w-auto" aria-hidden>
+                      {HANDOVER_PHASES.map((p, i) => <span key={p.id} className={`h-1 flex-1 sm:w-4 sm:flex-none ${i <= current ? 'bg-ink' : 'bg-line'}`} />)}
+                    </span>
+                    <span className="text-xs text-muted sm:w-40 sm:text-right">{ev.label}</span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </Section>
 
-      <details className="mt-6 text-xs text-muted">
-        <summary className="cursor-pointer hover:text-ink">How progress is calculated</summary>
-        <ul className="mt-2 max-w-2xl list-disc space-y-1 pl-5 leading-relaxed">
-          <li>Physical progress = completed construction activities ÷ all construction activities: footing and plinth forming, pouring, rebar built and rebar installed. Every activity counts equally; there is no weighting by effort or cost.</li>
-          <li>Survey and QA/QC are separate measures. A completed survey does not imply an approved inspection, and neither changes physical progress.</li>
-          <li>Constructed = every construction activity for the foundation and all its plinths is complete. Closed out = constructed plus all survey complete and all inspections approved.</li>
-          <li>Anchor bolt, nut, washer and template statuses are derived from allocation and fabrication records, not entered by hand.</li>
-          <li>All records are fictional demonstration data.</li>
-        </ul>
-      </details>
+        <Section title="Needs attention" actions={<Link to={paths.issues(projectId)} className="text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">All issues</Link>}>
+          {exceptions.length ? (
+            <ul className="border-t border-line">
+              {exceptions.slice(0, 6).map((e) => (
+                <li key={e.id} className="border-b border-line">
+                  <Link to={e.to} className="flex items-start gap-3 py-3 transition-colors hover:bg-hover">
+                    <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot[e.severity]}`} title={e.severity === 'high' ? 'Critical' : 'Attention'} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px]">{e.title}</span>
+                      <span className="block text-xs text-muted">{e.area}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted">{e.status}</span>
+                  </Link>
+                </li>
+              ))}
+              {exceptions.length > 6 && <li className="py-3 text-xs text-muted">+ {exceptions.length - 6} more</li>}
+            </ul>
+          ) : (
+            <p className="border-t border-line py-6 text-[13px] text-muted">Nothing needs attention.</p>
+          )}
+        </Section>
+      </div>
+
+      <div className="mt-12 border-t border-line">
+        <Disclosure summary={<span className="text-xs text-muted">How progress is calculated</span>}>
+          <ul className="max-w-2xl list-disc space-y-1.5 pl-5 text-xs leading-relaxed text-muted">
+            {PROGRESS_BASIS.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        </Disclosure>
+      </div>
     </>
-  )
-}
-
-function ActivityList({ items, projectId, empty }: { items: ReturnType<typeof activitiesWhere>; projectId: string; empty: string }) {
-  if (!items.length) return <p className="py-6 text-[13px] text-muted">{empty}</p>
-  return (
-    <ul>
-      {items.slice(0, 8).map((u) => (
-        <li key={u.activity.id} className="flex items-baseline justify-between gap-4 border-b border-line py-3 text-[13px]">
-          <TextLink to={paths.foundation(projectId, u.foundation, u.activity.plinthId ?? undefined)}>{u.title}</TextLink>
-          <span className="shrink-0 text-xs text-muted">{u.activity.plannedDate ? `planned ${formatShortDate(u.activity.plannedDate)}` : ''}</span>
-        </li>
-      ))}
-      {items.length > 8 && <li className="py-3 text-xs text-muted">+ {items.length - 8} more</li>}
-    </ul>
   )
 }

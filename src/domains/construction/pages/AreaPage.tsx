@@ -9,7 +9,7 @@ import { Tabs } from '@/components/ui/Tabs'
 import { paths } from '../paths'
 import { computeStats, deriveIssues, evaluateHandover, foundationActivities, foundationsOf, percent, plinthBoltStage, tally, type Index } from '../selectors'
 import { useConstruction } from '../store'
-import { fraction, IssueList, TextLink } from '../ui'
+import { fraction, IssueList, phaseTone, TextLink } from '../ui'
 import type { Activity, Foundation } from '../types'
 import { AreaHandover } from './HandoverPage'
 import { FoundationRegister } from './FoundationRegister'
@@ -71,7 +71,7 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
   return (
     <>
       <StatRow>
-        <Stat label="Physical progress" value={`${percent(stats.construction)}%`} sub={`${fraction(stats.construction)} construction activities complete`} />
+        <Stat label="Construction progress" value={`${stats.progress}%`} sub={`${stats.elementsPoured.done} of ${stats.elementsPoured.total} footings and plinths poured`} />
         <Stat label="Foundations constructed" value={`${stats.constructed} / ${stats.foundations}`} sub={`${stats.closedOut} fully closed out`} />
         <Stat label="Survey complete" value={`${percent(stats.survey)}%`} sub={`${fraction(stats.survey)} survey activities`} />
         <Stat label="QA/QC approved" value={`${percent(stats.qaqc)}%`} sub={`${fraction(stats.qaqc)} inspections · ${stats.qaqc.pending} pending`} />
@@ -90,7 +90,7 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
         </ul>
       </Section>
 
-      <div className="grid gap-x-12 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-12 lg:grid-cols-2">
         <Section title="Anchorage types in use" description="Defined once in the library; referenced by plinths.">
           <ul className="text-[13px]">
             {types.map(({ t, used }) => (
@@ -103,7 +103,7 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
           <p className="mt-2 text-xs"><TextLink to={paths.anchorage(projectId)}>Open anchorage library</TextLink></p>
         </Section>
         <Section title="Handover readiness">
-          <p className="text-[13px]"><StatusBadge tone={ev.record.acceptance === 'accepted' ? 'ok' : (ev.allMet && ev.constructionComplete ? 'warn' : 'muted') as Tone} label={ev.label} /></p>
+          <p className="text-[13px]"><StatusBadge tone={phaseTone(ev.phase)} label={ev.label} /></p>
           <p className="mt-2 text-xs text-muted">{ev.items.filter((i) => i.met).length} of {ev.items.length} requirements met · {ev.outstandingFoundations} foundations not yet constructed · {ev.openDeficiencies} open deficiencies</p>
           <p className="mt-3 text-xs"><TextLink to={paths.area(projectId, areaId, 'handover')}>Open handover</TextLink></p>
         </Section>
