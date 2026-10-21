@@ -66,8 +66,8 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
 
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }))
   const toggleOpen = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  const Th = ({ k, children, hide }: { k?: SortKey; children: React.ReactNode; hide?: boolean }) => (
-    <th className={`t-label py-3 pr-5 font-medium ${hide ? 'hidden lg:table-cell' : ''}`}>
+  const Th = ({ k, children, hide }: { k?: SortKey; children: React.ReactNode; hide?: boolean | 'sm' }) => (
+    <th className={`t-label py-3 pr-5 font-medium ${hide === 'sm' ? 'hidden sm:table-cell' : hide ? 'hidden lg:table-cell' : ''}`}>
       {k ? (
         <button onClick={() => toggleSort(k)} className="inline-flex items-center gap-1 uppercase tracking-[0.08em] hover:text-ink">
           {children}
@@ -120,7 +120,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                 <th className="w-6" />
                 <Th k="number">Foundation</Th>
                 {!areaId && <Th hide>Area</Th>}
-                <Th>Anchorage</Th>
+                <Th hide="sm">Anchorage</Th>
                 <Th hide>Footing step</Th>
                 <Th k="construction">Construction</Th>
                 <Th hide>Plinths poured</Th>
@@ -144,10 +144,10 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                       </td>
                       <td className="py-3.5 pr-5 text-[13px]">
                         <Link to={paths.foundation(projectId, r.f)} className="font-medium underline-offset-4 hover:underline">{r.f.number}</Link>
-                        <span className="block text-xs text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}</span>
+                        <span className="block text-xs text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}<span className="sm:hidden"> · {r.types.join(', ')}</span></span>
                       </td>
                       {!areaId && <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.area.name}</td>}
-                      <td className="py-3.5 pr-5 text-[13px]">{r.types.join(', ')}</td>
+                      <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{r.types.join(', ')}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.step}</td>
                       <td className="py-3.5 pr-5"><ProgressBar value={percent(r.stats.construction)} width="w-16 sm:w-24" /></td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(plinthPoured)}</td>
@@ -176,7 +176,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
             <thead>
               <tr className="border-b border-line">
                 <Th>Plinth</Th>
-                <Th>Anchorage</Th>
+                <Th hide="sm">Anchorage</Th>
                 <Th>Current step</Th>
                 <Th>Construction</Th>
                 <Th hide>Survey</Th>
@@ -193,9 +193,9 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                   <tr key={p.id} className="border-b border-line transition-colors hover:bg-hover">
                     <td className="py-3.5 pr-5 text-[13px]">
                       <Link to={paths.foundation(projectId, r.f, p.id)} className="font-medium underline-offset-4 hover:underline">{r.f.number} · P{p.index}</Link>
-                      {!areaId && <span className="block text-xs text-muted">{r.area.name}</span>}
+                      <span className="block text-xs text-muted">{!areaId && `${r.area.name} · `}<span className="sm:hidden">{p.anchorageTypeId ?? '—'}</span></span>
                     </td>
-                    <td className="py-3.5 pr-5 text-[13px]">{p.anchorageTypeId ?? '—'}</td>
+                    <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{p.anchorageTypeId ?? '—'}</td>
                     <td className="py-3.5 pr-5 text-[13px] text-muted">{plinthStep(idx, p)}</td>
                     <td className="py-3.5 pr-5"><ProgressBar value={percent(tallyCategory(idx, acts, 'construction'))} width="w-16 sm:w-24" /></td>
                     <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(tallyCategory(idx, acts, 'survey'))}</td>
