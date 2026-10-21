@@ -8,10 +8,19 @@ Active development happens on `staging`. `main` is the stable production branch.
 
 ```
 npm install
-npm run dev         # local dev server
+npm run dev
 npm run typecheck && npm run lint && npm run build
-npm run deploy   # manual deploy to the "nexus" Worker; needs Cloudflare credentials
 ```
+
+## Environments
+
+| Environment | Branch    | Worker          | Domain                       | Deploy command                       |
+|-------------|-----------|-----------------|------------------------------|--------------------------------------|
+| Staging     | `staging` | `nexus-staging` | staging.nexus.frameworkco.ca | `npx wrangler deploy --env staging`  |
+| Production  | `main`    | `nexus`         | nexus.frameworkco.ca         | `npx wrangler deploy --env production` |
+
+Build command for both: `npm run build`. Custom domains are managed in the Cloudflare dashboard.
+Production changes reach `main` only by approved merge from `staging`.
 
 Stack: React, TypeScript, Vite, Tailwind CSS v4, React Router, Lucide, Cloudflare Workers (static assets).
 All data is fictional demonstration data kept in `src/features/projects/store.ts` (localStorage).

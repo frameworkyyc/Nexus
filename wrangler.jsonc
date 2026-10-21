@@ -1,14 +1,41 @@
 {
-  // Static single-page app served by Cloudflare Workers assets.
-  // `name` must match the Worker connected to GitHub in the Cloudflare dashboard.
-  // The Worker currently builds from the `staging` branch; `main` stays the stable branch.
+  // Nexus Worker configuration — two independent environments, one repository.
+  //
+  //   Environment  Branch   Worker         Domain                     Deploy command
+  //   staging      staging  nexus-staging  staging.nexus.frameworkco.ca  npx wrangler deploy --env staging
+  //   production   main     nexus          nexus.frameworkco.ca          npx wrangler deploy --env production
+  //
+  // The top-level (default) name is STAGING on purpose: a plain `wrangler deploy` can only ever
+  // target nexus-staging, so it cannot overwrite the production Worker. Production must be
+  // requested explicitly with `--env production`.
+  //
+  // Custom domains are managed in the Cloudflare dashboard, not here, so a deploy never
+  // creates or moves a domain.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nexus",
+  "name": "nexus-staging",
   "compatibility_date": "2025-09-01",
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
   },
-  // Required by `wrangler preview` (Worker Previews for non-production branch builds).
-  "previews": {}
+  // Required by `wrangler preview` (Worker Previews).
+  "previews": {},
+  "env": {
+    "staging": {
+      "name": "nexus-staging",
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      },
+      "previews": {}
+    },
+    "production": {
+      "name": "nexus",
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+      },
+      "previews": {}
+    }
+  }
 }
