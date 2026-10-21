@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy:staging": "npm run build && wrangler deploy --env staging",
-    "deploy:production": "npm run build && wrangler deploy --env production"
+    "deploy": "node scripts/guard-production.mjs && wrangler deploy",
+    "preview:staging": "npm run build && wrangler preview"
   },
   "dependencies": {
     "lucide-react": "^1.60.0",

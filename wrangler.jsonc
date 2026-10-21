@@ -1,41 +1,23 @@
 {
-  // Nexus Worker configuration — two independent environments, one repository.
+  // Nexus — ONE Cloudflare Worker (`nexus`), two branches, same architecture as Studio29 and LaNoir.
   //
-  //   Environment  Branch   Worker         Domain                     Deploy command
-  //   staging      staging  nexus-staging  staging.nexus.frameworkco.ca  npx wrangler deploy --env staging
-  //   production   main     nexus          nexus.frameworkco.ca          npx wrangler deploy --env production
+  //   Branch    Cloudflare build command   Deploy command         Served at
+  //   main      npm run build              npx wrangler deploy    nexus.frameworkco.ca          (production)
+  //   staging   npm run build              npx wrangler preview   staging.nexus.frameworkco.ca  (Worker Preview)
   //
-  // The top-level (default) name is STAGING on purpose: a plain `wrangler deploy` can only ever
-  // target nexus-staging, so it cannot overwrite the production Worker. Production must be
-  // requested explicitly with `--env production`.
-  //
-  // Custom domains are managed in the Cloudflare dashboard, not here, so a deploy never
-  // creates or moves a domain.
+  // `wrangler preview` publishes an isolated Preview named after the git branch ("staging"). It never
+  // creates a Worker version or deployment on production, so staging cannot overwrite `nexus`.
+  // Domains are managed in the Cloudflare dashboard (not in this file), so a deploy never moves them.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nexus-staging",
+  "name": "nexus",
   "compatibility_date": "2025-09-01",
+  // Safety net: `wrangler deploy` builds dist/ itself on a clean clone.
+  "build": { "command": "npm run build" },
   "assets": {
     "directory": "./dist",
+    // Unknown paths return index.html so React Router handles direct URLs and refreshes.
     "not_found_handling": "single-page-application"
   },
-  // Required by `wrangler preview` (Worker Previews).
-  "previews": {},
-  "env": {
-    "staging": {
-      "name": "nexus-staging",
-      "assets": {
-        "directory": "./dist",
-        "not_found_handling": "single-page-application"
-      },
-      "previews": {}
-    },
-    "production": {
-      "name": "nexus",
-      "assets": {
-        "directory": "./dist",
-        "not_found_handling": "single-page-application"
-      },
-      "previews": {}
-    }
-  }
+  // Required by `wrangler preview`.
+  "previews": {}
 }
