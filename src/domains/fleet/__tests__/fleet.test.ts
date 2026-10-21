@@ -32,7 +32,8 @@ describe('fleet seed', () => {
 
   it('does not invent VINs, plates, mileage, inspections, maintenance, notes or assignment dates', () => {
     for (const v of s.vehicles) expect(v).toMatchObject({ vin: null, licencePlate: null, notes: '' })
-    expect(s.odometer).toEqual([])
+    // Only T6010 carries supplied values; every other vehicle has no mileage, service, tire or accessory records.
+    expect(s.odometer.map((r) => r.vehicleId)).toEqual(['veh-T6010'])
     expect(s.inspections).toEqual([])
     expect(s.maintenance).toEqual([])
     for (const a of s.assignments) expect(a.startDate).toBeNull()
@@ -53,7 +54,7 @@ describe('fleet seed', () => {
 
   it('reports every vehicle as Not assessed until a record states a condition', () => {
     for (const v of s.vehicles) expect(conditionOf(s, v.id)).toBe('not-assessed')
-    expect(latestOdometer(s, s.vehicles[0].id)).toBeUndefined()
+    expect(latestOdometer(s, s.vehicles[1].id)).toBeUndefined()
   })
 
   it('counts vehicles and project assignments', () => {
@@ -68,7 +69,7 @@ describe('condition derivation', () => {
     const next: FleetState = {
       ...s,
       inspections: [{ id: 'i1', vehicleId: id, date: '2026-09-01', submittedBy: '', notes: '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: '2026-09-02', reviewNote: '', condition: 'good' }],
-      maintenance: [{ id: 'm1', vehicleId: id, date: '2026-10-01', description: 'Brake service', condition: 'fair', notes: '' }, { id: 'm2', vehicleId: id, date: '2026-10-10', description: 'Oil change', notes: '' }],
+      maintenance: [{ id: 'm1', vehicleId: id, date: '2026-10-01', serviceType: 'Brake service', odometer: null, description: 'Brake service', condition: 'fair', notes: '' }, { id: 'm2', vehicleId: id, date: '2026-10-10', serviceType: 'Oil change', odometer: null, description: 'Oil change', notes: '' }],
     }
     expect(conditionOf(next, id)).toBe('fair') // latest dated record that states a condition
     expect(conditionOf(next, s.vehicles[1].id)).toBe('not-assessed') // other vehicles unaffected
@@ -84,7 +85,7 @@ describe('reassignment', () => {
     const next = apply(s, reassignVehicle(id, other, projects, TODAY))
     expect(currentAssignment(next, id)?.projectId).toBe(other)
     expect(next.assignments.filter((a) => a.vehicleId === id)).toHaveLength(2)
-    const history = historyOf(next, id, name)
+    const history = historyOf(next, id, name).filter((h) => /^(Assigned|Removed)/.test(h.text))
     expect(history.map((h) => h.text)).toEqual([`Assigned to ${other}`, 'Removed from REEF', 'Assigned to REEF'])
     expect(history[0].date).toBe(TODAY)
     expect(history[history.length - 1].date).toBeNull() // seed assignment date was never recorded
@@ -110,7 +111,8 @@ describe('reassignment', () => {
   })
 })
 
-const reef = buildFleetSeed()
+/** The REEF vehicles without T6010's verified entries, so generic workflow tests start from empty records. */
+const reef: FleetState = { ...buildFleetSeed(), odometer: [], serviceTargets: [], tireSets: [], accessories: [] }
 const T6010 = reef.vehicles[0].id
 const T6005 = reef.vehicles[1].id
 const err = (s: FleetState, r: Reducer) => r(s).error
@@ -342,7 +344,8 @@ describe('store migration', () => {
     delete (v1 as Partial<FleetState>).serviceTargets
     const m = migrateFleet(v1, 1)
     expect(m.vehicles).toHaveLength(4)
-    expect(m.serviceTargets).toEqual([])
+    expect(m.serviceTargets.map((t) => t.vehicleId)).toEqual([T6010]) // T6010's verified target is added; no other vehicle gets one
+    expect(m.odometer).toHaveLength(1) // its own reading is kept, the verified one is not added on top
     expect(m.odometer[0]).toMatchObject({ reading: 1000, review: 'valid' })
     expect(m.inspections[0]).toMatchObject({ review: 'reviewed', condition: 'good', notes: 'ok' })
     expect(latestOdometer(m, T6010)?.reading).toBe(1000)

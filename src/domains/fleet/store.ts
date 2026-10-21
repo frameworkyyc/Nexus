@@ -5,24 +5,38 @@ import { todayISO } from '@/lib/date'
 import { useConstruction } from '@/domains/construction/store'
 import { DEMO_ACTOR } from './access'
 import type { Reducer } from './actions'
-import { buildFleetSeed } from './seed'
+import { applyVerifiedT6010, buildFleetSeed } from './seed'
 import type { FleetState, InspectionRecord, OdometerReading, RatedCondition } from './types'
 
-/** v1 → v2: readings gain a review state, inspections gain submission/review fields, and service targets appear. Nothing is dropped. */
+/**
+ * Upgrades saved data without losing records. v1 → v2: readings gain a review state, inspections gain submission/review
+ * fields, service targets appear. v2 → v3: dates may be unrecorded, maintenance gains a type and odometer, service targets gain
+ * a type and warning window, tire sets and accessories appear, and T6010's verified information is added where still empty.
+ */
 export function migrateFleet(data: unknown, from: number): FleetState {
   const d = data as Partial<FleetState> & { odometer?: Partial<OdometerReading>[]; inspections?: (Partial<InspectionRecord> & { condition?: RatedCondition })[] }
-  if (from >= 2) return data as FleetState
-  return {
-    vehicles: d.vehicles ?? [], assignments: d.assignments ?? [], maintenance: d.maintenance ?? [], serviceTargets: [],
+  let s: FleetState
+  if (from >= 2) s = data as FleetState
+  else s = {
+    vehicles: d.vehicles ?? [], assignments: d.assignments ?? [], maintenance: d.maintenance ?? [], serviceTargets: [], tireSets: [], accessories: [],
     odometer: (d.odometer ?? []).map((r) => ({ id: r.id!, vehicleId: r.vehicleId!, date: r.date!, reading: r.reading!, unit: r.unit ?? 'km', review: 'valid', flag: null, correctsId: null, note: '', reviewNote: '', reviewedDate: null })),
     inspections: (d.inspections ?? []).map((i) => ({ id: i.id!, vehicleId: i.vehicleId!, date: i.date!, submittedBy: '', notes: i.notes ?? '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: i.date ?? null, reviewNote: '', condition: i.condition ?? null })),
   }
+  if (from < 3) {
+    s = {
+      ...s, tireSets: s.tireSets ?? [], accessories: s.accessories ?? [],
+      serviceTargets: (s.serviceTargets ?? []).map((t) => ({ ...t, serviceType: t.serviceType ?? null, warnWithinKm: t.warnWithinKm ?? null })),
+      maintenance: (s.maintenance ?? []).map((m) => ({ ...m, serviceType: m.serviceType ?? 'Other', odometer: m.odometer ?? null })),
+    }
+    s = applyVerifiedT6010(s)
+  }
+  return s
 }
 
 /** Demonstration persistence: browser-local only, like the construction pack. Swap for an API later. */
 export const fleetStore = createPersistedStore({
   key: 'nexus.demo.fleet',
-  version: 2,
+  version: 3,
   seed: buildFleetSeed,
   migrate: migrateFleet,
 })

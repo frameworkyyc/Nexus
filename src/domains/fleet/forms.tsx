@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import * as A from './actions'
 import { recordOdometer, reviewInspection, setServiceTarget, submitInspection } from './actions'
-import { latestOdometer, odometerHistory, serviceStatus } from './selectors'
+import { activeTireSet, ACCESSORY_CATEGORY_LABEL, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
 import { useFleet, useFleetRun } from './store'
-import type { InspectionRecord, RatedCondition, Vehicle } from './types'
+import type { Accessory, AccessoryCategory, InspectionRecord, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
 
 const Body = ({ children }: { children: React.ReactNode }) => <div className="space-y-4 p-6 text-[13px]">{children}</div>
 
@@ -61,20 +62,267 @@ export function InspectionModal({ vehicle, onClose }: { vehicle: Vehicle; onClos
   )
 }
 
+const numOrNull = (t: string) => (t.trim() === '' ? null : Number(t))
+const dateOrNull = (t: string) => (t === '' ? null : t)
+const SERVICE_TYPES = ['Oil change', 'Tire rotation', 'Brake service', 'Scheduled service', 'Inspection']
+
 export function ServiceModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
   const { state, today } = useFleet()
   const run = useFleetRun()
   const s = serviceStatus(state, vehicle.id)
   const [value, setValue] = useState(s.target ? String(s.target.odometer) : '')
+  const [type, setType] = useState(s.target?.serviceType ?? '')
+  const [warn, setWarn] = useState(s.target?.warnWithinKm ? String(s.target.warnWithinKm) : '')
   const [note, setNote] = useState('')
-  const save = () => { if (run(setServiceTarget(vehicle.id, Number(value), note, today)) === null) onClose() }
+  const save = () => { if (run(setServiceTarget(vehicle.id, Number(value), note, today, { serviceType: type, warnWithinKm: numOrNull(warn) })) === null) onClose() }
   return (
     <Modal title={`Next service · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
-        <p className="text-muted">Enter the odometer reading at which the next scheduled service falls due. KM remaining is calculated from the latest valid reading; nothing is estimated.</p>
+        <p className="text-muted">Enter the odometer reading at which the next scheduled service falls due. KM remaining is calculated from the latest valid reading. The service type is optional and is not assumed.</p>
         <Field label="Next service at (km)"><Input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} /></Field>
+        <Field label="Service type (optional)"><Input list="service-types" value={type} onChange={(e) => setType(e.target.value)} placeholder="Not specified" /></Field>
+        <datalist id="service-types">{SERVICE_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+        <Field label="Highlight as due soon within (km, optional)"><Input inputMode="numeric" value={warn} onChange={(e) => setWarn(e.target.value)} placeholder="No warning window" /></Field>
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <Button variant="primary" disabled={!value} onClick={save}>Save</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+export function MaintenanceModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
+  const { today } = useFleet()
+  const run = useFleetRun()
+  const [date, setDate] = useState(today)
+  const [type, setType] = useState('')
+  const [odo, setOdo] = useState('')
+  const [description, setDescription] = useState('')
+  const [notes, setNotes] = useState('')
+  const save = () => { if (run(A.recordMaintenance(vehicle.id, { date, serviceType: type, odometer: numOrNull(odo), description, notes }, today)) === null) onClose() }
+  return (
+    <Modal title={`Record maintenance · ${vehicle.unitNumber}`} onClose={onClose}>
+      <Body>
+        <p className="text-muted">Records work that has been completed. A service threshold alone is never shown as done.</p>
+        <Field label="Service type"><Input list="service-types" autoFocus value={type} onChange={(e) => setType(e.target.value)} /></Field>
+        <datalist id="service-types">{SERVICE_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Date"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Odometer (km, optional)"><Input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} /></Field>
+        </div>
+        <Field label="Work done"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        <Button variant="primary" disabled={!type.trim()} onClick={save}>Save record</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+export function VehicleEditModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
+  const run = useFleetRun()
+  const [f, setF] = useState({ unitNumber: vehicle.unitNumber, year: String(vehicle.year), make: vehicle.make, model: vehicle.model, vin: vehicle.vin ?? '', licencePlate: vehicle.licencePlate ?? '', notes: vehicle.notes })
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const save = () => { if (run(A.updateVehicle(vehicle.id, { ...f, year: Number(f.year) })) === null) onClose() }
+  return (
+    <Modal title={`Edit ${vehicle.unitNumber}`} onClose={onClose}>
+      <Body>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Unit number"><Input value={f.unitNumber} onChange={set('unitNumber')} /></Field>
+          <Field label="Year"><Input inputMode="numeric" value={f.year} onChange={set('year')} /></Field>
+          <Field label="Make"><Input value={f.make} onChange={set('make')} /></Field>
+          <Field label="Model"><Input value={f.model} onChange={set('model')} /></Field>
+          <Field label="VIN"><Input value={f.vin} onChange={set('vin')} placeholder="Not recorded" /></Field>
+          <Field label="Licence plate"><Input value={f.licencePlate} onChange={set('licencePlate')} placeholder="Not recorded" /></Field>
+        </div>
+        <Field label="Notes"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
+        <Button variant="primary" onClick={save}>Save changes</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+const CLASSES: TireClass[] = ['winter', 'all-season', 'all-terrain', 'summer', 'other']
+const CONDITIONS: TireCondition[] = ['unknown', 'good', 'fair', 'worn', 'replace']
+export type TireMode = { kind: 'add' } | { kind: 'replace' } | { kind: 'edit'; tire: TireSet }
+
+/** Add the first set, replace the active set (keeping it in history), or edit a set's details. */
+export function TireModal({ vehicle, mode, onClose }: { vehicle: Vehicle; mode: TireMode; onClose: () => void }) {
+  const { state, today } = useFleet()
+  const run = useFleetRun()
+  const cur = latestOdometer(state, vehicle.id)
+  const old = mode.kind === 'edit' ? mode.tire : undefined
+  const [f, setF] = useState({
+    manufacturer: old?.manufacturer ?? '', model: old?.model ?? '', size: old?.size ?? '', studded: (old?.studded ?? 'unknown') as Studded, origin: old?.origin ?? '',
+    installDate: old?.installDate ?? '', installOdometer: old ? (old.installOdometer === null ? '' : String(old.installOdometer)) : cur ? String(cur.reading) : '', condition: (old?.condition ?? 'unknown') as TireCondition, notes: old?.notes ?? '',
+  })
+  const [classes, setClasses] = useState<TireClass[]>(old?.classes ?? [])
+  const [remDate, setRemDate] = useState(today)
+  const [remOdo, setRemOdo] = useState(cur ? String(cur.reading) : '')
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const input = (): A.TireInput => ({ manufacturer: f.manufacturer, model: f.model, size: f.size, classes, studded: f.studded, origin: f.origin, installDate: dateOrNull(f.installDate), installOdometer: numOrNull(f.installOdometer), condition: f.condition, notes: f.notes })
+  const save = () => {
+    const r = mode.kind === 'add' ? A.addTireSet(vehicle.id, input(), today)
+      : mode.kind === 'replace' ? A.replaceTireSet(vehicle.id, input(), { date: dateOrNull(remDate), odometer: numOrNull(remOdo) }, today)
+      : A.updateTireSet(mode.tire.id, input(), today)
+    if (run(r) === null) onClose()
+  }
+  const active = activeTireSet(state, vehicle.id)
+  return (
+    <Modal title={mode.kind === 'replace' ? `Replace tires · ${vehicle.unitNumber}` : mode.kind === 'add' ? `Add tire set · ${vehicle.unitNumber}` : `Edit tire set · ${vehicle.unitNumber}`} onClose={onClose}>
+      <Body>
+        {mode.kind === 'replace' && active && (
+          <section className="space-y-3 border-b border-line pb-4">
+            <p className="text-muted">The current set ({active.manufacturer} {active.model}) is taken off and kept in the tire history.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Removal date (optional)"><Input type="date" max={today} value={remDate} onChange={(e) => setRemDate(e.target.value)} /></Field>
+              <Field label="Removal odometer (km)"><Input inputMode="numeric" value={remOdo} onChange={(e) => setRemOdo(e.target.value)} /></Field>
+            </div>
+          </section>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Manufacturer"><Input autoFocus value={f.manufacturer} onChange={set('manufacturer')} /></Field>
+          <Field label="Model"><Input value={f.model} onChange={set('model')} /></Field>
+          <Field label="Size (if known)"><Input value={f.size} onChange={set('size')} placeholder="Not recorded" /></Field>
+          <Field label="Studded"><Select value={f.studded} onChange={set('studded')}><option value="unknown">Unknown</option><option value="yes">Yes</option><option value="no">No</option></Select></Field>
+        </div>
+        <fieldset><legend className="t-label mb-1.5">Classification (choose any that apply)</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">{CLASSES.map((c) => <label key={c} className="flex items-center gap-2"><input type="checkbox" checked={classes.includes(c)} onChange={(e) => setClasses((x) => (e.target.checked ? [...x, c] : x.filter((y) => y !== c)))} />{TIRE_CLASS_LABEL[c]}</label>)}</div>
+        </fieldset>
+        <Field label="Installed as"><Input value={f.origin} onChange={set('origin')} placeholder="e.g. Original factory tires" /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Installation date (optional)"><Input type="date" max={today} value={f.installDate} onChange={set('installDate')} /></Field>
+          <Field label="Installation odometer (km)"><Input inputMode="numeric" value={f.installOdometer} onChange={set('installOdometer')} /></Field>
+        </div>
+        <Field label="Condition"><Select value={f.condition} onChange={set('condition')}>{CONDITIONS.map((c) => <option key={c} value={c}>{TIRE_CONDITION_LABEL[c]}</option>)}</Select></Field>
+        <Field label="Notes"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
+        <Button variant="primary" onClick={save}>{mode.kind === 'replace' ? 'Replace set' : 'Save'}</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+export function TreadModal({ tire, onClose }: { tire: TireSet; onClose: () => void }) {
+  const { today } = useFleet()
+  const run = useFleetRun()
+  const [depth, setDepth] = useState('')
+  const [date, setDate] = useState(today)
+  const [note, setNote] = useState('')
+  const save = () => { if (run(A.addTreadMeasurement(tire.id, { date: dateOrNull(date), depthMm: Number(depth), note }, today)) === null) onClose() }
+  return (
+    <Modal title="Record tread depth" onClose={onClose}>
+      <Body>
+        <p className="text-muted">{tire.manufacturer} {tire.model}. The vehicle’s current odometer is stored with the measurement.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Tread depth (mm)"><Input inputMode="decimal" autoFocus value={depth} onChange={(e) => setDepth(e.target.value)} /></Field>
+          <Field label="Date"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        </div>
+        <Field label="Note (e.g. position)"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <Button variant="primary" disabled={!depth} onClick={save}>Save measurement</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+export function RemoveTireModal({ tire, onClose }: { tire: TireSet; onClose: () => void }) {
+  const { state, today } = useFleet()
+  const run = useFleetRun()
+  const cur = latestOdometer(state, tire.vehicleId)
+  const [date, setDate] = useState(today)
+  const [odo, setOdo] = useState(cur ? String(cur.reading) : '')
+  const save = () => { if (run(A.removeTireSet(tire.id, { date: dateOrNull(date), odometer: numOrNull(odo) }, today)) === null) onClose() }
+  return (
+    <Modal title="Remove tire set" onClose={onClose}>
+      <Body>
+        <p className="text-muted">Takes {tire.manufacturer} {tire.model} off without fitting another set. It stays in the tire history.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Removal date (optional)"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Removal odometer (km)"><Input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} /></Field>
+        </div>
+        <Button variant="primary" onClick={save}>Remove set</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+const CATEGORIES: AccessoryCategory[] = ['tidy-tank', 'light-bar', 'job-box', 'headache-rack', 'radio', 'other']
+
+/** Add an accessory to a vehicle, or edit its details. */
+export function AccessoryModal({ vehicle, accessory, onClose }: { vehicle: Vehicle; accessory?: Accessory; onClose: () => void }) {
+  const { state, today } = useFleet()
+  const run = useFleetRun()
+  const cur = latestOdometer(state, vehicle.id)
+  const [f, setF] = useState({ name: accessory?.name ?? '', category: (accessory?.category ?? 'other') as AccessoryCategory, description: accessory?.description ?? '', specification: accessory?.specification ?? '', cost: accessory?.cost == null ? '' : String(accessory.cost), warranty: accessory?.warranty ?? '', notes: accessory?.notes ?? '', installDate: '', installOdometer: cur ? String(cur.reading) : '' })
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const input = (): A.AccessoryInput => ({ name: f.name, category: f.category, description: f.description, specification: f.specification, cost: numOrNull(f.cost), warranty: f.warranty, notes: f.notes })
+  const save = () => {
+    const r = accessory ? A.updateAccessory(accessory.id, input()) : A.addAccessory(vehicle.id, input(), { date: dateOrNull(f.installDate), odometer: numOrNull(f.installOdometer) }, today)
+    if (run(r) === null) onClose()
+  }
+  return (
+    <Modal title={accessory ? `Edit ${accessory.name}` : `Add accessory · ${vehicle.unitNumber}`} onClose={onClose}>
+      <Body>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Name"><Input autoFocus value={f.name} onChange={set('name')} /></Field>
+          <Field label="Type"><Select value={f.category} onChange={set('category')}>{CATEGORIES.map((c) => <option key={c} value={c}>{ACCESSORY_CATEGORY_LABEL[c]}</option>)}</Select></Field>
+        </div>
+        <Field label="Description"><Input value={f.description} onChange={set('description')} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Specification / capacity"><Input value={f.specification} onChange={set('specification')} placeholder="e.g. 750 L" /></Field>
+          <Field label="Cost (if known)"><Input inputMode="decimal" value={f.cost} onChange={set('cost')} placeholder="Not recorded" /></Field>
+        </div>
+        <Field label="Warranty"><Input value={f.warranty} onChange={set('warranty')} placeholder="Not recorded" /></Field>
+        {!accessory && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Installation date (optional)"><Input type="date" max={today} value={f.installDate} onChange={set('installDate')} /></Field>
+            <Field label="Installation odometer (km)"><Input inputMode="numeric" value={f.installOdometer} onChange={set('installOdometer')} /></Field>
+          </div>
+        )}
+        <Field label="Notes"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
+        <Button variant="primary" onClick={save}>{accessory ? 'Save changes' : 'Add accessory'}</Button>
+      </Body>
+    </Modal>
+  )
+}
+
+export type MoveMode = 'install-details' | 'remove' | 'transfer' | 'reinstall'
+
+/** Fill in installation details, remove, transfer to another vehicle, or reinstall an accessory. Its record and history are always kept. */
+export function AccessoryMoveModal({ vehicle, accessory, mode, onClose }: { vehicle: Vehicle; accessory: Accessory; mode: MoveMode; onClose: () => void }) {
+  const { state, today } = useFleet()
+  const run = useFleetRun()
+  const placement = accessory.placements.filter((p) => p.vehicleId === vehicle.id).at(-1)
+  const cur = latestOdometer(state, vehicle.id)
+  const [date, setDate] = useState(mode === 'install-details' ? placement?.installDate ?? '' : today)
+  const [odo, setOdo] = useState(mode === 'install-details' ? (placement?.installOdometer == null ? '' : String(placement.installOdometer)) : cur ? String(cur.reading) : '')
+  const [target, setTarget] = useState(mode === 'transfer' ? state.vehicles.find((v) => v.id !== vehicle.id)?.id ?? '' : vehicle.id)
+  const [toOdo, setToOdo] = useState('')
+  const [note, setNote] = useState('')
+  const save = () => {
+    const d = dateOrNull(date)
+    const r = mode === 'install-details' ? A.updateInstallation(accessory.id, vehicle.id, { date: d, odometer: numOrNull(odo) }, today)
+      : mode === 'remove' ? A.removeAccessory(accessory.id, { date: d, odometer: numOrNull(odo), note }, today)
+      : mode === 'transfer' ? A.transferAccessory(accessory.id, target, { date: d, fromOdometer: numOrNull(odo), toOdometer: numOrNull(toOdo), note }, today)
+      : A.installAccessory(accessory.id, target, { date: d, odometer: numOrNull(odo), note }, today)
+    if (run(r) === null) onClose()
+  }
+  const title = { 'install-details': 'Installation details', remove: 'Remove accessory', transfer: 'Transfer accessory', reinstall: 'Install accessory' }[mode]
+  const others = state.vehicles.filter((v) => v.id !== vehicle.id)
+  return (
+    <Modal title={`${title} · ${accessory.name}`} onClose={onClose}>
+      <Body>
+        {mode === 'transfer' && <p className="text-muted">The accessory moves to another vehicle. Its record and history stay together, and both vehicles keep their part of it.</p>}
+        {mode === 'transfer' && (
+          <Field label="Transfer to"><Select value={target} onChange={(e) => setTarget(e.target.value)}>{others.map((v) => <option key={v.id} value={v.id}>{v.unitNumber} · {vehicleTitle(v)}</option>)}</Select></Field>
+        )}
+        {mode === 'reinstall' && (
+          <Field label="Install on"><Select value={target} onChange={(e) => setTarget(e.target.value)}>{state.vehicles.map((v) => <option key={v.id} value={v.id}>{v.unitNumber} · {vehicleTitle(v)}</option>)}</Select></Field>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={mode === 'install-details' || mode === 'reinstall' ? 'Installation date (optional)' : 'Date (optional)'}><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label={mode === 'transfer' ? `Odometer on ${vehicle.unitNumber} (km)` : 'Odometer (km)'}><Input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} /></Field>
+        </div>
+        {mode === 'transfer' && <Field label="Odometer on the receiving vehicle (km)"><Input inputMode="numeric" value={toOdo} onChange={(e) => setToOdo(e.target.value)} /></Field>}
+        {mode !== 'install-details' && <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>}
+        <Button variant="primary" onClick={save}>{mode === 'install-details' ? 'Save' : title}</Button>
       </Body>
     </Modal>
   )

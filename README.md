@@ -87,6 +87,24 @@ Weekly tracking (all in kilometres):
   does not close defects. An inspection is flagged when none is recorded or the last is more than 7 days old.
 - Seed: the four REEF vehicles. VINs, plates, mileage, schedules, inspections and maintenance are not invented.
 
+Vehicle dashboard (`pages/VehicleDashboard.tsx`): every row in either Fleet list opens it, at `/fleet/:vehicleId` or
+`/projects/:projectId/fleet/:vehicleId` (a vehicle not currently assigned to that project is not shown there). Both routes render
+one component against the one record in `nexus.demo.fleet`; only the back link and breadcrumbs differ. Sections: overview and
+specifications (editable), odometer, maintenance, tires, modifications and accessories, weekly inspections and defects, history.
+
+- **T6010** carries only the supplied facts: 11,856 km (undated), next service 13,551 km (1,695 km remaining), original
+  Bridgestone Dueler A/T tires installed at 0 km, and a 750 L Tidy Tank. Last oil change, tire installation date, size, tread,
+  condition, studded status, accessory date/cost/warranty are shown as "Not recorded"/"Unknown". The next service is **not**
+  assumed to be an oil change (its type is blank unless entered).
+- **Maintenance**: a service threshold is not a completed service; only recorded maintenance counts as done. "Due soon" is
+  highlighted only when a warning window has been recorded; overdue (negative KM remaining) always is. No intervals are invented.
+- **Tires**: any number of sets per vehicle, one active. Classification can combine (e.g. winter + all-terrain); studded is
+  yes/no/unknown; condition is "Not assessed" until set. Km on the active set = latest valid odometer − installation odometer
+  (a held reading is ignored); a replaced set keeps its removal date/odometer and its frozen distance.
+- **Accessories**: one record per accessory for its whole life, with placements per vehicle. Removing or transferring closes a
+  placement and (for transfers) opens one on the receiving vehicle, so both vehicles keep the history.
+- Saved data upgrades from v1/v2 to v3 without losing records; T6010's verified entries are added only where that part is empty.
+
 Access rules (`domains/fleet/access.ts`) model fleet managers (all vehicles), project supervisors (update vehicles assigned
 to their projects) and project users (view only, configurable later). **They are not enforced**: there is no sign-in, every
 visitor acts as the demo fleet manager, and data lives in this browser only, so other users and devices never see it. Do not

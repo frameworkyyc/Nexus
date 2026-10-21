@@ -35,7 +35,7 @@ export type OdometerReview = 'valid' | 'needs-review' | 'accepted' | 'rejected'
 export interface OdometerReading {
   id: string
   vehicleId: string
-  date: ISODate
+  date: ISODate | null // null = a verified value supplied without a date
   reading: number
   unit: 'km' | 'mi'
   review: OdometerReview
@@ -47,7 +47,17 @@ export interface OdometerReading {
 }
 
 /** The next scheduled service, as entered by a person. History is kept; the latest entry is current. */
-export interface ServiceTarget { id: string; vehicleId: string; odometer: number; setDate: ISODate; note: string }
+export interface ServiceTarget {
+  id: string
+  vehicleId: string
+  odometer: number
+  setDate: ISODate | null
+  note: string
+  /** What the service is, only when someone recorded it. null means unspecified: it is never assumed to be an oil change. */
+  serviceType: string | null
+  /** Highlight as "due soon" once this many km or fewer remain. null = no warning window recorded. */
+  warnWithinKm: number | null
+}
 
 export type DefectStatus = 'outstanding' | 'resolved'
 export interface Defect { id: string; description: string; status: DefectStatus; resolvedDate: ISODate | null; resolutionNote: string }
@@ -75,9 +85,69 @@ export interface MaintenanceRecord {
   id: string
   vehicleId: string
   date: ISODate
+  serviceType: string // e.g. "Oil change"; "Other" when not classified
+  odometer: number | null // odometer when the work was done; null = not recorded
   description: string
   condition?: RatedCondition // outcome, if one was recorded
   notes: string
+}
+
+/* ── Tires ─────────────────────────────────────────────────────────────── */
+
+export type TireClass = 'winter' | 'all-season' | 'all-terrain' | 'summer' | 'other'
+export type Studded = 'yes' | 'no' | 'unknown'
+/** "unknown" means nobody has assessed the set; it is not a good rating. */
+export type TireCondition = 'unknown' | 'good' | 'fair' | 'worn' | 'replace'
+export interface TreadMeasurement { id: string; date: ISODate | null; odometer: number | null; depthMm: number; note: string }
+
+/** A set of tires fitted to a vehicle over a period. Replaced sets are kept; at most one set per vehicle is active. */
+export interface TireSet {
+  id: string
+  vehicleId: string
+  manufacturer: string
+  model: string
+  size: string | null // null = not recorded
+  classes: TireClass[] // may combine, e.g. winter and all-terrain; empty = not recorded
+  studded: Studded
+  origin: string // e.g. "Original factory tires"
+  active: boolean
+  installDate: ISODate | null
+  installOdometer: number | null
+  removalDate: ISODate | null
+  removalOdometer: number | null
+  condition: TireCondition
+  treads: TreadMeasurement[]
+  notes: string
+}
+
+/* ── Modifications and accessories ─────────────────────────────────────── */
+
+export type AccessoryCategory = 'tidy-tank' | 'light-bar' | 'job-box' | 'headache-rack' | 'radio' | 'other'
+export type AccessoryStatus = 'installed' | 'removed' | 'transferred'
+
+/** One period an accessory spent on one vehicle. An open placement (no endReason) means it is installed there now. */
+export interface AccessoryPlacement {
+  vehicleId: string
+  installDate: ISODate | null
+  installOdometer: number | null
+  endDate: ISODate | null
+  endOdometer: number | null
+  endReason: 'removed' | 'transferred' | null
+  toVehicleId: string | null
+  note: string
+}
+
+/** The accessory is one record for life: transferring it adds a placement, it never copies or deletes the record. */
+export interface Accessory {
+  id: string
+  name: string
+  category: AccessoryCategory
+  description: string
+  specification: string // capacity or specification, e.g. "750 L"
+  cost: number | null
+  warranty: string
+  notes: string
+  placements: AccessoryPlacement[]
 }
 
 export interface FleetState {
@@ -87,4 +157,6 @@ export interface FleetState {
   serviceTargets: ServiceTarget[]
   inspections: InspectionRecord[]
   maintenance: MaintenanceRecord[]
+  tireSets: TireSet[]
+  accessories: Accessory[]
 }

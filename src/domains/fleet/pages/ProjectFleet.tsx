@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -7,6 +7,7 @@ import { Stat } from '@/components/ui/Stat'
 import { canUpdate, visibleVehicles } from '../access'
 import { FleetTable } from '../FleetTable'
 import { InspectionModal, OdometerModal, ServiceModal } from '../forms'
+import { fleetPaths } from '../paths'
 import { fleetRow, vehiclesForProject } from '../selectors'
 import { useFleet, useFleetActor, useProjectRegistry } from '../store'
 import { AccessNotice } from '../ui'
@@ -24,6 +25,7 @@ export function ProjectFleet() {
   const registry = useProjectRegistry()
   const actor = useFleetActor()
   const [modal, setModal] = useState<Modal>(null)
+  const navigate = useNavigate()
   const project = registry.get(projectId)
   const allowed = new Set(visibleVehicles(state, actor).map((v) => v.id))
   const rows = vehiclesForProject(state, projectId).filter((v) => allowed.has(v.id)).map((v) => fleetRow(state, v, today))
@@ -45,7 +47,8 @@ export function ProjectFleet() {
         {rows.length ? (
           <FleetTable
             rows={rows}
-            unit={(r) => <Link to={`/projects/${projectId}/fleet/${r.vehicle.id}`} className="font-medium underline-offset-4 hover:underline">{r.vehicle.unitNumber}</Link>}
+            onRowClick={(r) => navigate(fleetPaths.projectVehicle(projectId, r.vehicle.id))}
+            unit={(r) => <Link to={fleetPaths.projectVehicle(projectId, r.vehicle.id)} className="font-medium underline-offset-4 hover:underline">{r.vehicle.unitNumber}</Link>}
             actions={(r) => canUpdate(state, actor, r.vehicle.id) && (
               <>
                 <Button variant="ghost" className={act} onClick={() => setModal({ kind: 'odometer', vehicle: r.vehicle })}>Odometer</Button>

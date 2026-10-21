@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Input, Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Stat } from '@/components/ui/Stat'
 import { visibleVehicles } from '../access'
 import { FleetTable } from '../FleetTable'
+import { fleetPaths } from '../paths'
 import { fleetCounts, fleetRow, vehicleTitle } from '../selectors'
 import { useFleet, useFleetActor, useProjectRegistry } from '../store'
 import { AccessNotice, FleetFooter } from '../ui'
@@ -14,6 +15,7 @@ export function FleetOverview() {
   const { state, today } = useFleet()
   const registry = useProjectRegistry()
   const actor = useFleetActor()
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [project, setProject] = useState('')
   const counts = fleetCounts(state)
@@ -44,7 +46,7 @@ export function FleetOverview() {
         </Select>
       </div>
       <div className="mt-6">
-        <FleetTable rows={rows} projectName={registry.name} unit={(r) => <Link to={`/fleet/${r.vehicle.id}`} className="font-medium underline-offset-4 hover:underline">{r.vehicle.unitNumber}</Link>} />
+        <FleetTable rows={rows} projectName={registry.name} onRowClick={(r) => navigate(fleetPaths.orgVehicle(r.vehicle.id))} unit={(r) => <Link to={fleetPaths.orgVehicle(r.vehicle.id)} className="font-medium underline-offset-4 hover:underline">{r.vehicle.unitNumber}</Link>} />
       </div>
       <AccessNotice />
       <FleetFooter />

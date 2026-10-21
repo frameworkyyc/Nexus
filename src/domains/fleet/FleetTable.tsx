@@ -25,9 +25,10 @@ const td = 'py-3 pr-5 align-top text-[13px]'
 
 /**
  * Vehicle table shared by the organization Fleet page and a project's Fleet page: same row data, same cells.
- * `unit` renders the unit link; `actions` renders row buttons (omit for read-only).
+ * `unit` renders the unit link; `actions` renders row buttons (omit for read-only). With `onRowClick`, the whole row opens the
+ * vehicle dashboard; the unit link inside remains a real link for keyboard and open-in-new-tab use.
  */
-export function FleetTable({ rows, projectName, unit, actions }: { rows: FleetRow[]; projectName?: (id: string) => string; unit: (r: FleetRow) => ReactNode; actions?: (r: FleetRow) => ReactNode }) {
+export function FleetTable({ rows, projectName, unit, actions, onRowClick }: { rows: FleetRow[]; projectName?: (id: string) => string; unit: (r: FleetRow) => ReactNode; actions?: (r: FleetRow) => ReactNode; onRowClick?: (r: FleetRow) => void }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[1100px] border-collapse text-left">
@@ -39,7 +40,7 @@ export function FleetTable({ rows, projectName, unit, actions }: { rows: FleetRo
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.vehicle.id} className="border-b border-line">
+            <tr key={r.vehicle.id} onClick={onRowClick ? () => onRowClick(r) : undefined} className={`border-b border-line transition-colors ${onRowClick ? 'cursor-pointer hover:bg-hover' : ''}`}>
               <td className={td}>{unit(r)}</td>
               <td className={td}>{vehicleTitle(r.vehicle)}</td>
               {projectName && <td className={td}>{r.assignment ? projectName(r.assignment.projectId) : <span className="text-muted">Unassigned</span>}</td>}
@@ -51,7 +52,7 @@ export function FleetTable({ rows, projectName, unit, actions }: { rows: FleetRo
               <td className={td}><InspectionCell row={r} />{r.inspection.last && <span className="block text-xs text-muted">{formatDate(r.inspection.last.date)}</span>}</td>
               <td className={`${td} text-right tabular-nums`}>{r.defects}{r.unreviewedDefects > 0 && <span className="block text-xs text-muted">{r.unreviewedDefects} unreviewed</span>}</td>
               <td className={td}><ConditionBadge condition={r.condition} /></td>
-              {actions && <td className={`${td} whitespace-nowrap`}>{actions(r)}</td>}
+              {actions && <td className={`${td} whitespace-nowrap`} onClick={(e) => e.stopPropagation()}>{actions(r)}</td>}
             </tr>
           ))}
         </tbody>

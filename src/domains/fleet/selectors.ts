@@ -1,5 +1,5 @@
 import { daysBetween, type ISODate } from '@/lib/date'
-import type { ConditionStatus, FleetState, InspectionRecord, OdometerReading, ServiceTarget, Vehicle, VehicleAssignment } from './types'
+import type { Accessory, AccessoryPlacement, AccessoryStatus, ConditionStatus, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, ServiceTarget, TireSet, TreadMeasurement, Vehicle, VehicleAssignment } from './types'
 
 export const CONDITION_LABEL: Record<ConditionStatus, string> = {
   'not-assessed': 'Not assessed',
@@ -30,7 +30,9 @@ export function conditionOf(state: FleetState, vehicleId: string): ConditionStat
 /* ── Odometer ──────────────────────────────────────────────────────────── */
 
 export const countsAsCurrent = (r: OdometerReading) => r.review === 'valid' || r.review === 'accepted'
-const byDate = (a: { date: ISODate }, b: { date: ISODate }) => a.date.localeCompare(b.date)
+/** Oldest first; an unrecorded date sorts before every dated entry. */
+const cmpDate = (a: ISODate | null, b: ISODate | null) => (a === b ? 0 : a === null ? -1 : b === null ? 1 : a.localeCompare(b))
+const byDate = (a: { date: ISODate | null }, b: { date: ISODate | null }) => cmpDate(a.date, b.date)
 
 /** Readings in the order they happened (date, then the order they were entered). */
 export function odometerHistory(state: FleetState, vehicleId: string): OdometerReading[] {
@@ -48,15 +50,81 @@ export const readingsNeedingReview = (state: FleetState, vehicleId?: string) => 
 
 export const currentServiceTarget = (state: FleetState, vehicleId: string): ServiceTarget | undefined => state.serviceTargets.filter((t) => t.vehicleId === vehicleId).at(-1)
 
-export interface ServiceStatus { target: ServiceTarget | undefined; odometer: OdometerReading | undefined; kmRemaining: number | null; overdue: boolean }
+export type ServiceState = 'not-set' | 'no-reading' | 'ok' | 'due-soon' | 'overdue'
+export interface ServiceStatus {
+  target: ServiceTarget | undefined
+  odometer: OdometerReading | undefined
+  kmRemaining: number | null
+  overdue: boolean
+  /** "due-soon" only when a warning window was recorded; without one, only overdue is highlighted. */
+  state: ServiceState
+}
 
 /** KM remaining is only stated when both a service target and a valid current reading exist; never estimated. */
 export function serviceStatus(state: FleetState, vehicleId: string): ServiceStatus {
   const target = currentServiceTarget(state, vehicleId)
   const odometer = latestOdometer(state, vehicleId)
   const kmRemaining = target && odometer ? target.odometer - odometer.reading : null
-  return { target, odometer, kmRemaining, overdue: kmRemaining !== null && kmRemaining < 0 }
+  const overdue = kmRemaining !== null && kmRemaining < 0
+  const st: ServiceState = !target ? 'not-set' : kmRemaining === null ? 'no-reading' : overdue ? 'overdue' : target.warnWithinKm !== null && kmRemaining <= target.warnWithinKm ? 'due-soon' : 'ok'
+  return { target, odometer, kmRemaining, overdue, state: st }
 }
+
+/* ── Maintenance records ───────────────────────────────────────────────── */
+
+/** Newest first. A recorded future service threshold is not a maintenance record: only completed work appears here. */
+export const maintenanceOf = (state: FleetState, vehicleId: string): MaintenanceRecord[] =>
+  state.maintenance.map((m, n) => ({ m, n })).filter((x) => x.m.vehicleId === vehicleId).sort((a, b) => byDate(b.m, a.m) || b.n - a.n).map((x) => x.m)
+
+const sameType = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+export const lastService = (state: FleetState, vehicleId: string, serviceType?: string): MaintenanceRecord | undefined =>
+  maintenanceOf(state, vehicleId).find((m) => !serviceType || sameType(m.serviceType, serviceType))
+
+/* ── Tires ─────────────────────────────────────────────────────────────── */
+
+export const activeTireSet = (state: FleetState, vehicleId: string): TireSet | undefined => state.tireSets.find((t) => t.vehicleId === vehicleId && t.active)
+
+/** The active set first, then replaced sets newest first (by installation odometer, then entry order). */
+export function tireSetsOf(state: FleetState, vehicleId: string): TireSet[] {
+  return state.tireSets.map((t, n) => ({ t, n })).filter((x) => x.t.vehicleId === vehicleId)
+    .sort((a, b) => Number(b.t.active) - Number(a.t.active) || (b.t.installOdometer ?? -1) - (a.t.installOdometer ?? -1) || b.n - a.n).map((x) => x.t)
+}
+
+/**
+ * Kilometres run on a set: for the active set, the latest valid vehicle odometer minus the installation odometer; for a removed
+ * set, removal odometer minus installation odometer. Null when either figure is missing or the result would be negative.
+ */
+export function tireKm(state: FleetState, set: TireSet): number | null {
+  const end = set.active ? latestOdometer(state, set.vehicleId)?.reading ?? null : set.removalOdometer
+  if (end === null || set.installOdometer === null) return null
+  const km = end - set.installOdometer
+  return km < 0 ? null : km
+}
+
+export const latestTread = (set: TireSet): TreadMeasurement | undefined =>
+  set.treads.map((t, n) => ({ t, n })).sort((a, b) => cmpDate(a.t.date, b.t.date) || a.n - b.n).map((x) => x.t).at(-1)
+
+export const TIRE_CLASS_LABEL = { winter: 'Winter', 'all-season': 'All-season', 'all-terrain': 'All-terrain', summer: 'Summer', other: 'Other' } as const
+export const TIRE_CONDITION_LABEL = { unknown: 'Not assessed', good: 'Good', fair: 'Fair', worn: 'Worn', replace: 'Replace' } as const
+
+/* ── Accessories ───────────────────────────────────────────────────────── */
+
+export interface AccessoryOnVehicle { accessory: Accessory; placement: AccessoryPlacement; status: AccessoryStatus }
+
+/** Every accessory that has ever been on this vehicle, with its latest placement here. Nothing is removed from view when it moves. */
+export function accessoriesOf(state: FleetState, vehicleId: string): AccessoryOnVehicle[] {
+  const out: AccessoryOnVehicle[] = []
+  for (const accessory of state.accessories) {
+    const here = accessory.placements.filter((p) => p.vehicleId === vehicleId)
+    const placement = here.at(-1)
+    if (!placement) continue
+    out.push({ accessory, placement, status: placement.endReason === null ? 'installed' : placement.endReason })
+  }
+  return out
+}
+
+export const ACCESSORY_CATEGORY_LABEL = { 'tidy-tank': 'Tidy tank', 'light-bar': 'Light bar', 'job-box': 'Job box', 'headache-rack': 'Headache rack', radio: 'Radio', other: 'Other' } as const
+export const currentVehicleOf = (a: Accessory): string | null => a.placements.find((p) => p.endReason === null)?.vehicleId ?? null
 
 /* ── Inspections and defects ───────────────────────────────────────────── */
 
@@ -90,6 +158,9 @@ export interface FleetRow {
   unreviewedDefects: number // outstanding defects on inspections nobody has reviewed yet
   flaggedReadings: number
   condition: ConditionStatus
+  tires: TireSet | undefined
+  tireKm: number | null
+  accessories: number // currently installed
 }
 
 export function fleetRow(state: FleetState, vehicle: Vehicle, today: ISODate): FleetRow {
@@ -98,6 +169,8 @@ export function fleetRow(state: FleetState, vehicle: Vehicle, today: ISODate): F
     vehicle, assignment: currentAssignment(state, vehicle.id), odometer: latestOdometer(state, vehicle.id), service: serviceStatus(state, vehicle.id),
     inspection: inspectionStatus(state, vehicle.id, today), defects: open.length, unreviewedDefects: open.filter((x) => x.inspection.review === 'submitted').length,
     flaggedReadings: readingsNeedingReview(state, vehicle.id).length, condition: conditionOf(state, vehicle.id),
+    tires: activeTireSet(state, vehicle.id), tireKm: (() => { const t = activeTireSet(state, vehicle.id); return t ? tireKm(state, t) : null })(),
+    accessories: accessoriesOf(state, vehicle.id).filter((x) => x.status === 'installed').length,
   }
 }
 
@@ -132,7 +205,19 @@ export function historyOf(state: FleetState, vehicleId: string, projectName: (id
   }
   for (const i of state.inspections.filter((x) => x.vehicleId === vehicleId)) events.push({ id: i.id, date: i.date, text: `Inspection submitted${i.defects.length ? ` (${i.defects.length} defect${i.defects.length === 1 ? '' : 's'} noted)` : ''}${i.review === 'reviewed' ? ', reviewed' : ', awaiting review'}` })
   for (const r of state.odometer.filter((x) => x.vehicleId === vehicleId)) events.push({ id: r.id, date: r.date, text: `Odometer ${r.reading.toLocaleString('en-CA')} ${r.unit}${r.review === 'needs-review' ? ' (held for review)' : r.review === 'rejected' ? ' (rejected)' : ''}` })
-  for (const m of state.maintenance.filter((x) => x.vehicleId === vehicleId)) events.push({ id: m.id, date: m.date, text: `Maintenance: ${m.description}` })
+  for (const m of state.maintenance.filter((x) => x.vehicleId === vehicleId)) events.push({ id: m.id, date: m.date, text: `${m.serviceType}${m.description ? `: ${m.description}` : ''}${m.odometer !== null ? ` at ${m.odometer.toLocaleString('en-CA')} km` : ''}` })
+  for (const t of state.serviceTargets.filter((x) => x.vehicleId === vehicleId)) events.push({ id: t.id, date: t.setDate, text: `Next ${t.serviceType ? t.serviceType.toLowerCase() : 'service'} set for ${t.odometer.toLocaleString('en-CA')} km` })
+  for (const t of state.tireSets.filter((x) => x.vehicleId === vehicleId)) {
+    const name = `${t.manufacturer} ${t.model}`.trim()
+    events.push({ id: `${t.id}:in`, date: t.installDate, text: `Tires installed: ${name}${t.origin ? ` (${t.origin.toLowerCase()})` : ''}${t.installOdometer !== null ? ` at ${t.installOdometer.toLocaleString('en-CA')} km` : ''}` })
+    if (!t.active) events.push({ id: `${t.id}:out`, date: t.removalDate, text: `Tires removed: ${name}${t.removalOdometer !== null ? ` at ${t.removalOdometer.toLocaleString('en-CA')} km` : ''}` })
+    t.treads.forEach((m) => events.push({ id: m.id, date: m.date, text: `Tread measured on ${name}: ${m.depthMm} mm` }))
+  }
+  for (const a of state.accessories) a.placements.forEach((p, i) => {
+    if (p.vehicleId !== vehicleId) return
+    events.push({ id: `${a.id}:${i}:in`, date: p.installDate, text: `${a.name} installed` })
+    if (p.endReason) events.push({ id: `${a.id}:${i}:out`, date: p.endDate, text: p.endReason === 'transferred' ? `${a.name} transferred to another vehicle` : `${a.name} removed` })
+  })
   // Dated events newest first (ties broken by creation order, newest first); undated events last.
   return events
     .map((e, n) => ({ e, n }))
