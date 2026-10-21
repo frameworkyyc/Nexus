@@ -6,7 +6,7 @@ import * as A from '../actions'
 import { buildFleetSeed, applyVerifiedT6010, T6010_ID } from '../seed'
 import { fleetPaths } from '../paths'
 import {
-  accessoriesOf, activeTireSet, conditionOf, currentVehicleOf, fleetRow, historyOf, lastService, latestOdometer, maintenanceOf, serviceStatus, tireKm, tireSetsOf, vehiclesForProject,
+  accessoriesOf, activeTireSet, currentOilTarget, conditionOf, currentVehicleOf, fleetRow, historyOf, lastService, latestOdometer, maintenanceOf, serviceStatus, tireKm, tireSetsOf, vehiclesForProject,
 } from '../selectors'
 import type { FleetState } from '../types'
 
@@ -169,7 +169,8 @@ describe('maintenance thresholds', () => {
 
   it('a recorded threshold is not a completed service; only maintenance records are', () => {
     let s = apply(seed(), A.setServiceTarget(T6010_ID, 13_551, 'oil', TODAY, { serviceType: 'Oil change' }))
-    expect(serviceStatus(s, T6010_ID).target?.serviceType).toBe('Oil change') // only because someone recorded it
+    expect(currentOilTarget(s, T6010_ID)?.serviceType).toBe('Oil change') // only because someone recorded it
+    expect(serviceStatus(s, T6010_ID).target?.serviceType).toBeNull() // the untyped scheduled service is unchanged
     expect(lastService(s, T6010_ID)).toBeUndefined()
     s = apply(s, A.recordMaintenance(T6010_ID, { date: '2026-10-10', serviceType: 'Oil change', odometer: 11_000, description: '', notes: '' }, TODAY))
     expect(lastService(s, T6010_ID, 'oil change')).toMatchObject({ odometer: 11_000 })

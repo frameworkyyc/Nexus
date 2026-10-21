@@ -36,7 +36,7 @@ npx wrangler login            # once
 npx wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc
 ```
 
-Expected: `0001_core_schema.sql` and `0002_seed_reef_and_fleet.sql` applied. (No terminal? In the dashboard open the database →
+Expected: `0001_core_schema.sql`, `0002_seed_reef_and_fleet.sql` and `0003_tire_thresholds.sql` applied. (`0003` adds two optional, empty tire columns; apply it before the staging code that reads them runs against the database.) (No terminal? In the dashboard open the database →
 **Console** and run the two files' contents in order. The migration tool is preferred because it records what was applied.)
 
 ### Step 4 — Put Cloudflare Access in front of staging

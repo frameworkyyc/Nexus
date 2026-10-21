@@ -6,16 +6,19 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Section } from '@/components/ui/Section'
+import { Sparkline } from '@/components/viz'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
 import { canReassign, canReview, canUpdate } from '../access'
 import { addDefect, reassignVehicle, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
-import { InspectionCell, ServiceCell } from '../FleetTable'
+import { ServiceCell } from '../FleetTable'
 import {
   AccessoryModal, AccessoryMoveModal, InspectionModal, MaintenanceModal, OdometerModal, RemoveTireModal, ReviewModal, ServiceModal, TireModal, TreadModal, VehicleEditModal,
   type MoveMode, type TireMode,
 } from '../forms'
 import { fleetPaths } from '../paths'
+import { oilIndicator } from '../indicators'
+import { VehicleGauges } from '../VehicleGauges'
 import {
   accessoriesOf, ACCESSORY_CATEGORY_LABEL, currentAssignment, fleetRow, historyOf, inspectionsOf, lastService, latestTread, maintenanceOf, odometerHistory, tireKm, tireSetsOf, TIRE_CLASS_LABEL,
   TIRE_CONDITION_LABEL, vehicleTitle,
@@ -31,21 +34,21 @@ const Row = ({ label, children }: { label: string; children: ReactNode }) => (
   </div>
 )
 const Empty = ({ children }: { children: ReactNode }) => <p className="border-t border-line py-5 text-[13px] text-muted">{children}</p>
-const Metric = ({ label, children, sub }: { label: string; children: ReactNode; sub?: ReactNode }) => (
-  <div><dt className="t-label">{label}</dt><dd className="mt-1 text-[17px] leading-snug">{children}</dd>{sub && <dd className="mt-0.5 text-xs text-muted">{sub}</dd>}</div>
-)
 const link = 'text-xs text-muted underline-offset-4 hover:text-ink hover:underline'
 const km = (n: number) => `${n.toLocaleString('en-CA')} km`
 const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
 
 type Modal =
-  | { kind: 'edit' | 'odometer' | 'inspection' | 'service' | 'maintenance' | 'accessory-add' }
+  | { kind: 'edit' | 'odometer' | 'inspection' | 'service' | 'oil-target' | 'oil-record' | 'maintenance' | 'accessory-add' }
   | { kind: 'review'; inspection: InspectionRecord }
   | { kind: 'tire'; mode: TireMode }
   | { kind: 'tread' | 'tire-remove'; tire: TireSet }
   | { kind: 'accessory-edit'; accessory: Accessory }
   | { kind: 'move'; accessory: Accessory; mode: MoveMode }
   | null
+
+/** Scrolls to a detail section; used by the gauges and the section links. */
+const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
 const SECTIONS = [
   ['overview', 'Overview'], ['odometer', 'Odometer'], ['maintenance', 'Maintenance'], ['tires', 'Tires'], ['accessories', 'Accessories'], ['inspections', 'Inspections'], ['history', 'History'],
@@ -90,7 +93,9 @@ export function VehicleDashboard() {
   const s = row.service
   const oil = lastService(state, vehicle.id, 'Oil change')
   const lastAny = lastService(state, vehicle.id)
-  const serviceTone: Tone = s.state === 'overdue' ? 'bad' : s.state === 'due-soon' ? 'warn' : 'ok'
+  const oilInd = oilIndicator(state, vehicle.id)
+  // Green only when a recorded warning window says the vehicle is outside it; with none recorded, not-yet-due is neutral blue.
+  const serviceTone: Tone = s.state === 'overdue' ? 'bad' : s.state === 'due-soon' ? 'warn' : s.target?.warnWithinKm ? 'ok' : 'info'
   const Btn = ({ onClick, children, variant }: { onClick: () => void; children: ReactNode; variant?: 'primary' | 'secondary' }) => <Button variant={variant} className="h-8 px-3" onClick={onClick}>{children}</Button>
 
   return (
@@ -100,19 +105,13 @@ export function VehicleDashboard() {
       </Link>
       <PageHeader title={vehicle.unitNumber} description={`${vehicleTitle(vehicle)}${project ? ` · ${project.name}` : ' · Unassigned'}`} actions={<><ConditionBadge condition={row.condition} />{editable && <Btn onClick={() => setModal({ kind: 'edit' })}>Edit vehicle</Btn>}</>} />
 
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-6 border-y border-line py-6 md:grid-cols-3 xl:grid-cols-6">
-        <Metric label="Odometer" sub={row.odometer ? (row.odometer.date ? formatDate(row.odometer.date) : 'Date not recorded') : undefined}>{row.odometer ? km(row.odometer.reading) : NOT_RECORDED}</Metric>
-        <Metric label="Next service" sub={s.target ? `due at ${km(s.target.odometer)}${s.target.serviceType ? ` · ${s.target.serviceType}` : ''}` : undefined}>
-          {s.kmRemaining === null ? <ServiceCell row={row} /> : s.state === 'ok' ? km(s.kmRemaining) : <StatusBadge tone={serviceTone} label={s.overdue ? `Overdue by ${km(-s.kmRemaining)}` : `${km(s.kmRemaining)} · due soon`} />}
-        </Metric>
-        <Metric label="Current tire set" sub={row.tires ? `${row.tires.manufacturer} ${row.tires.model}` : undefined}>{row.tires ? (row.tireKm === null ? NOT_RECORDED : km(row.tireKm)) : <span className="text-muted">None fitted</span>}</Metric>
-        <Metric label="Outstanding defects" sub={row.unreviewedDefects ? `${row.unreviewedDefects} unreviewed` : undefined}>{row.defects}</Metric>
-        <Metric label="Last inspection" sub={row.inspection.last ? formatDate(row.inspection.last.date) : undefined}><span className="text-[13px]"><InspectionCell row={row} /></span></Metric>
-        <Metric label="Accessories" sub="Currently installed">{row.accessories}</Metric>
-      </dl>
+      <VehicleGauges state={state} vehicle={vehicle} today={today} handlers={{
+        jump,
+        edit: editable ? { service: () => setModal({ kind: 'service' }), oilTarget: () => setModal({ kind: 'oil-target' }), oilRecord: () => setModal({ kind: 'oil-record' }), tire: () => setModal({ kind: 'tire', mode: { kind: 'edit', tire: row.tires! } }), tread: () => setModal({ kind: 'tread', tire: row.tires! }), inspection: () => setModal({ kind: 'inspection' }) } : undefined,
+      }} />
       {!editable && <p className="mt-3 text-xs text-muted">View only.</p>}
       <nav aria-label="Dashboard sections" className="mt-4 flex gap-5 overflow-x-auto pb-1 text-[13px]">
-        {SECTIONS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="shrink-0 text-muted transition-colors hover:text-ink">{label}</a>)}
+        {SECTIONS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); jump(id) }} className="shrink-0 text-muted transition-colors hover:text-ink">{label}</a>)}
       </nav>
 
       {/* 1 · Overview and specifications */}
@@ -162,7 +161,7 @@ export function VehicleDashboard() {
       </Section>
 
       {/* 3 · Maintenance */}
-      <Section title="Maintenance" description="A service threshold says when work is due; it is not a record that work was done. Only completed work appears under service history." actions={editable && <><Btn onClick={() => setModal({ kind: 'service' })}>{s.target ? 'Update next service' : 'Set next service'}</Btn><Btn onClick={() => setModal({ kind: 'maintenance' })}>Record maintenance</Btn></>}>
+      <Section title="Maintenance" description="A service threshold says when work is due; it is not a record that work was done. Only completed work appears under service history." actions={editable && <><Btn onClick={() => setModal({ kind: 'service' })}>{s.target ? 'Update next service' : 'Set next service'}</Btn><Btn onClick={() => setModal({ kind: 'oil-target' })}>{oilInd.schedule ? 'Update next oil change' : 'Set next oil change'}</Btn><Btn onClick={() => setModal({ kind: 'maintenance' })}>Record maintenance</Btn></>}>
         <span id="maintenance" className="relative -top-4 block" />
         <dl className="border-t border-line">
           <Row label="Next service at">{s.target ? <>{km(s.target.odometer)}{s.target.serviceType ? <span className="text-muted"> · {s.target.serviceType}</span> : <span className="text-muted"> · service type not specified</span>}</> : <span className="text-muted">Not set</span>}</Row>
@@ -170,6 +169,7 @@ export function VehicleDashboard() {
           <Row label="KM remaining">{s.kmRemaining === null ? <ServiceCell row={row} /> : <StatusBadge tone={serviceTone} label={s.overdue ? `Overdue by ${km(-s.kmRemaining)}` : s.state === 'due-soon' ? `${km(s.kmRemaining)} · due soon` : km(s.kmRemaining)} />}</Row>
           <Row label="Warning window">{s.target?.warnWithinKm ? `Due soon within ${km(s.target.warnWithinKm)}` : <span className="text-muted">Not recorded — only overdue is highlighted</span>}</Row>
           <Row label="Last completed service">{lastAny ? <>{lastAny.serviceType}{lastAny.odometer !== null && ` at ${km(lastAny.odometer)}`}<span className="text-muted"> · {formatDate(lastAny.date)}</span></> : NOT_RECORDED}</Row>
+          <Row label="Next oil change at">{oilInd.schedule ? <>{km(oilInd.schedule.odometer)}{oilInd.remaining !== null && <span className="text-muted"> · {oilInd.remaining < 0 ? `overdue by ${km(-oilInd.remaining)}` : `${km(oilInd.remaining)} remaining`}</span>}{oilInd.percent !== null && <span className="text-muted"> · {Math.round(oilInd.percent)}% of interval used</span>}</> : <span className="text-muted">Unknown — no oil-change schedule recorded</span>}</Row>
           <Row label="Last oil change">{oil ? <>{oil.odometer !== null ? km(oil.odometer) : 'Odometer not recorded'}<span className="text-muted"> · {formatDate(oil.date)}</span></> : NOT_RECORDED}</Row>
         </dl>
         {targets.length > 1 && <p className="mt-2 text-xs text-muted">Earlier targets: {targets.slice(1).map((t) => `${km(t.odometer)}${t.setDate ? ` (set ${formatDate(t.setDate)})` : ''}`).join(', ')}</p>}
@@ -196,7 +196,7 @@ export function VehicleDashboard() {
             <article key={t.id} className="border-t border-line py-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-[15px] font-medium">{t.manufacturer} {t.model}</h3>
-                <span className="flex items-center gap-3"><StatusBadge tone={t.active ? 'ok' : 'muted'} label={t.active ? 'Active set' : 'Removed'} />
+                <span className="flex items-center gap-3"><StatusBadge tone={t.active ? 'info' : 'muted'} label={t.active ? 'Active set' : 'Removed'} />
                   {editable && <button className={link} onClick={() => setModal({ kind: 'tire', mode: { kind: 'edit', tire: t } })}>Edit</button>}
                   {editable && t.active && <button className={link} onClick={() => setModal({ kind: 'tire-remove', tire: t })}>Remove</button>}</span>
               </div>
@@ -209,10 +209,20 @@ export function VehicleDashboard() {
                 {!t.active && <Row label="Removed">{t.removalDate ? formatDate(t.removalDate) : 'Date not recorded'}{t.removalOdometer !== null && <span className="text-muted"> · at {km(t.removalOdometer)}</span>}</Row>}
                 <Row label={t.active ? 'Distance on set' : 'Distance run'}>{run_ === null ? NOT_RECORDED : km(run_)}</Row>
                 <Row label="Condition">{t.condition === 'unknown' ? <span className="text-muted">{TIRE_CONDITION_LABEL.unknown}</span> : TIRE_CONDITION_LABEL[t.condition]}</Row>
+                <Row label="Expected lifespan">{t.expectedLifeKm !== null ? km(t.expectedLifeKm) : <span className="text-muted">Not set — no remaining-life estimate is shown</span>}</Row>
+                <Row label="Replace at tread">{t.replaceAtMm !== null ? `${t.replaceAtMm} mm` : <span className="text-muted">Not set</span>}</Row>
                 <Row label="Tread depth">{tread ? <>{tread.depthMm} mm<span className="text-muted"> · {tread.date ? formatDate(tread.date) : 'date not recorded'}{tread.odometer !== null && ` · ${km(tread.odometer)}`}{tread.note && ` · ${tread.note}`}</span></> : NOT_RECORDED}</Row>
                 {t.notes && <Row label="Notes">{t.notes}</Row>}
               </dl>
-              {t.treads.length > 1 && <p className="mt-1 text-xs text-muted">Earlier measurements: {t.treads.slice(0, -1).map((m) => `${m.depthMm} mm${m.date ? ` (${formatDate(m.date)})` : ''}`).join(', ')}</p>}
+              {t.treads.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="t-label mb-1">Tread measurements</h4>
+                  <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
+                    <ul className="text-[13px]">{t.treads.slice().reverse().map((m) => <li key={m.id} className="tabular-nums">{m.depthMm} mm<span className="text-muted"> · {m.date ? formatDate(m.date) : 'date not recorded'}{m.odometer !== null && ` · ${km(m.odometer)}`}{m.note && ` · ${m.note}`}</span></li>)}</ul>
+                    <Sparkline label={`Tread depth over ${t.treads.length} measurements`} points={t.treads.filter((m) => m.odometer !== null).map((m) => ({ x: m.odometer!, y: m.depthMm }))} />
+                  </div>
+                </div>
+              )}
               {editable && <button className={`${link} mt-2`} onClick={() => setModal({ kind: 'tread', tire: t })}>Record tread depth</button>}
             </article>
           )
@@ -226,7 +236,7 @@ export function VehicleDashboard() {
           <article key={a.id} className="border-t border-line py-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-[15px] font-medium">{a.name}<span className="ml-2 text-xs font-normal text-muted">{ACCESSORY_CATEGORY_LABEL[a.category]}</span></h3>
-              <span className="flex items-center gap-3"><StatusBadge tone={status === 'installed' ? 'ok' : 'muted'} label={status === 'installed' ? 'Installed' : status === 'removed' ? 'Removed' : 'Transferred'} />
+              <span className="flex items-center gap-3"><StatusBadge tone={status === 'installed' ? 'info' : 'muted'} label={status === 'installed' ? 'Installed' : status === 'removed' ? 'Removed' : 'Transferred'} />
                 {editable && <button className={link} onClick={() => setModal({ kind: 'accessory-edit', accessory: a })}>Edit</button>}</span>
             </div>
             <dl className="mt-2">
@@ -308,6 +318,8 @@ export function VehicleDashboard() {
       {modal?.kind === 'odometer' && <OdometerModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'inspection' && <InspectionModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'service' && <ServiceModal vehicle={vehicle} onClose={() => setModal(null)} />}
+      {modal?.kind === 'oil-target' && <ServiceModal vehicle={vehicle} oil onClose={() => setModal(null)} />}
+      {modal?.kind === 'oil-record' && <MaintenanceModal vehicle={vehicle} presetType="Oil change" onClose={() => setModal(null)} />}
       {modal?.kind === 'maintenance' && <MaintenanceModal vehicle={vehicle} onClose={() => setModal(null)} />}
       {modal?.kind === 'review' && <ReviewModal inspection={modal.inspection} onClose={() => setModal(null)} />}
       {modal?.kind === 'tire' && <TireModal vehicle={vehicle} mode={modal.mode} onClose={() => setModal(null)} />}

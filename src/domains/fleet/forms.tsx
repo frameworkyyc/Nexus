@@ -5,7 +5,7 @@ import { Modal } from '@/components/ui/Modal'
 import * as A from './commands'
 import type { AccessoryInput, TireInput } from './actions'
 import { recordOdometer, reviewInspection, setServiceTarget, submitInspection } from './commands'
-import { activeTireSet, ACCESSORY_CATEGORY_LABEL, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
+import { activeTireSet, ACCESSORY_CATEGORY_LABEL, currentOilTarget, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
 import { useFleet, useFleetCommand } from './store'
 import type { Accessory, AccessoryCategory, InspectionRecord, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
 
@@ -67,22 +67,22 @@ const numOrNull = (t: string) => (t.trim() === '' ? null : Number(t))
 const dateOrNull = (t: string) => (t === '' ? null : t)
 const SERVICE_TYPES = ['Oil change', 'Tire rotation', 'Brake service', 'Scheduled service', 'Inspection']
 
-export function ServiceModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
+export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehicle; oil?: boolean; onClose: () => void }) {
   const { state, today } = useFleet()
   const { run, saving } = useFleetCommand()
-  const s = serviceStatus(state, vehicle.id)
+  const s = oil ? { target: currentOilTarget(state, vehicle.id) } : serviceStatus(state, vehicle.id)
   const [value, setValue] = useState(s.target ? String(s.target.odometer) : '')
-  const [type, setType] = useState(s.target?.serviceType ?? '')
+  const [type, setType] = useState(oil ? 'Oil change' : s.target?.serviceType ?? '')
   const [warn, setWarn] = useState(s.target?.warnWithinKm ? String(s.target.warnWithinKm) : '')
   const [note, setNote] = useState('')
   const save = () => { run(setServiceTarget(vehicle.id, Number(value), note, today, { serviceType: type, warnWithinKm: numOrNull(warn) }), onClose)}
   return (
-    <Modal title={`Next service · ${vehicle.unitNumber}`} onClose={onClose}>
+    <Modal title={`${oil ? 'Next oil change' : 'Next service'} · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
-        <p className="text-muted">Enter the odometer reading at which the next scheduled service falls due. KM remaining is calculated from the latest valid reading. The service type is optional and is not assumed.</p>
-        <Field label="Next service at (km)"><Input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} /></Field>
-        <Field label="Service type (optional)"><Input list="service-types" value={type} onChange={(e) => setType(e.target.value)} placeholder="Not specified" /></Field>
-        <datalist id="service-types">{SERVICE_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+        <p className="text-muted">{oil ? 'Enter the odometer reading at which the next oil change falls due. The interval percentage is shown only when the last oil change was recorded with its odometer.' : 'Enter the odometer reading at which the next scheduled service falls due. KM remaining is calculated from the latest valid reading. The service type is optional and is not assumed. Oil changes are scheduled separately.'}</p>
+        <Field label={oil ? 'Next oil change at (km)' : 'Next service at (km)'}><Input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} /></Field>
+        {!oil && <Field label="Service type (optional)"><Input list="service-types" value={type} onChange={(e) => setType(e.target.value)} placeholder="Not specified" /></Field>}
+        {!oil && <datalist id="service-types">{SERVICE_TYPES.filter((t) => t !== 'Oil change').map((t) => <option key={t} value={t} />)}</datalist>}
         <Field label="Highlight as due soon within (km, optional)"><Input inputMode="numeric" value={warn} onChange={(e) => setWarn(e.target.value)} placeholder="No warning window" /></Field>
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <Button variant="primary" disabled={saving || !value} onClick={save}>Save</Button>
@@ -91,11 +91,11 @@ export function ServiceModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: 
   )
 }
 
-export function MaintenanceModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
+export function MaintenanceModal({ vehicle, presetType = '', onClose }: { vehicle: Vehicle; presetType?: string; onClose: () => void }) {
   const { today } = useFleet()
   const { run, saving } = useFleetCommand()
   const [date, setDate] = useState(today)
-  const [type, setType] = useState('')
+  const [type, setType] = useState(presetType)
   const [odo, setOdo] = useState('')
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
@@ -154,12 +154,13 @@ export function TireModal({ vehicle, mode, onClose }: { vehicle: Vehicle; mode: 
   const [f, setF] = useState({
     manufacturer: old?.manufacturer ?? '', model: old?.model ?? '', size: old?.size ?? '', studded: (old?.studded ?? 'unknown') as Studded, origin: old?.origin ?? '',
     installDate: old?.installDate ?? '', installOdometer: old ? (old.installOdometer === null ? '' : String(old.installOdometer)) : cur ? String(cur.reading) : '', condition: (old?.condition ?? 'unknown') as TireCondition, notes: old?.notes ?? '',
+    expectedLifeKm: old?.expectedLifeKm == null ? '' : String(old.expectedLifeKm), replaceAtMm: old?.replaceAtMm == null ? '' : String(old.replaceAtMm),
   })
   const [classes, setClasses] = useState<TireClass[]>(old?.classes ?? [])
   const [remDate, setRemDate] = useState(today)
   const [remOdo, setRemOdo] = useState(cur ? String(cur.reading) : '')
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
-  const input = (): TireInput => ({ manufacturer: f.manufacturer, model: f.model, size: f.size, classes, studded: f.studded, origin: f.origin, installDate: dateOrNull(f.installDate), installOdometer: numOrNull(f.installOdometer), condition: f.condition, notes: f.notes })
+  const input = (): TireInput => ({ manufacturer: f.manufacturer, model: f.model, size: f.size, classes, studded: f.studded, origin: f.origin, installDate: dateOrNull(f.installDate), installOdometer: numOrNull(f.installOdometer), condition: f.condition, notes: f.notes, expectedLifeKm: numOrNull(f.expectedLifeKm), replaceAtMm: numOrNull(f.replaceAtMm) })
   const save = () => {
     const r = mode.kind === 'add' ? A.addTireSet(vehicle.id, input(), today)
       : mode.kind === 'replace' ? A.replaceTireSet(vehicle.id, input(), { date: dateOrNull(remDate), odometer: numOrNull(remOdo) }, today)
@@ -194,6 +195,11 @@ export function TireModal({ vehicle, mode, onClose }: { vehicle: Vehicle; mode: 
           <Field label="Installation odometer (km)"><Input inputMode="numeric" value={f.installOdometer} onChange={set('installOdometer')} /></Field>
         </div>
         <Field label="Condition"><Select value={f.condition} onChange={set('condition')}>{CONDITIONS.map((c) => <option key={c} value={c}>{TIRE_CONDITION_LABEL[c]}</option>)}</Select></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Expected lifespan (km, optional)"><Input inputMode="numeric" value={f.expectedLifeKm} onChange={set('expectedLifeKm')} placeholder="Not set" /></Field>
+          <Field label="Replace at tread (mm, optional)"><Input inputMode="decimal" value={f.replaceAtMm} onChange={set('replaceAtMm')} placeholder="Not set" /></Field>
+        </div>
+        <p className="text-xs text-muted">Both are your own figures and have no default. Without them Nexus shows remaining tire life as Unknown. Tire age alone is never treated as a safety measure.</p>
         <Field label="Notes"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
         <Button variant="primary" disabled={saving} onClick={save}>{mode.kind === 'replace' ? 'Replace set' : 'Save'}</Button>
       </Body>

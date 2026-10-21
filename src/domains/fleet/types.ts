@@ -116,6 +116,10 @@ export interface TireSet {
   removalDate: ISODate | null
   removalOdometer: number | null
   condition: TireCondition
+  /** Configurable by a person; there is no default. null = no expected lifespan recorded, so no remaining-life figure is shown. */
+  expectedLifeKm: number | null
+  /** Tread depth at or below which the set should be replaced. null = no replacement threshold recorded. */
+  replaceAtMm: number | null
   treads: TreadMeasurement[]
   notes: string
 }

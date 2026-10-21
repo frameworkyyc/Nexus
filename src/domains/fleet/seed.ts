@@ -29,7 +29,7 @@ const t6010Service = (): ServiceTarget => ({
 })
 const t6010Tires = (): TireSet => ({
   id: 'tire-T6010-1', vehicleId: T6010_ID, manufacturer: 'Bridgestone', model: 'Dueler A/T', size: null, classes: [], studded: 'unknown', origin: 'Original factory tires', active: true,
-  installDate: null, installOdometer: 0, removalDate: null, removalOdometer: null, condition: 'unknown', treads: [], notes: '',
+  installDate: null, installOdometer: 0, removalDate: null, removalOdometer: null, condition: 'unknown', expectedLifeKm: null, replaceAtMm: null, treads: [], notes: '',
 })
 const t6010Tank = (): Accessory => ({
   id: 'acc-T6010-tidy-tank', name: '750 L Tidy Tank', category: 'tidy-tank', description: '', specification: '750 L', cost: null, warranty: '', notes: '',

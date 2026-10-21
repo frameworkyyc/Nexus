@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildFleetSeed } from '@/domains/fleet/seed'
+import { readFileSync } from 'node:fs'
+import { oilIndicator, tireIndicator } from '@/domains/fleet/indicators'
 import { activeTireSet, latestOdometer, serviceStatus, tireKm, fleetRow } from '@/domains/fleet/selectors'
 import { fleetFromRows, fleetToRows } from '../repo/fleet'
 import { loadRows, tablesOf } from '../db'
@@ -10,7 +12,7 @@ describe('migrations', () => {
   it('create the schema and seed the real REEF project and fleet', async () => {
     const { d1, raw } = createTestDb()
     const v = (await d1.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>())?.value
-    expect(v).toBe('2')
+    expect(v).toBe('3')
     expect((await d1.prepare('SELECT COUNT(*) AS n FROM vehicles').first<{ n: number }>())?.n).toBe(4)
     expect((await d1.prepare('SELECT name FROM areas ORDER BY sequence').all<{ name: string }>()).results.map((r) => r.name)).toEqual(['Mole Sieve', 'Propane BOG', 'Piperack', 'Locomotive Shelter', 'E-House'])
     expect(raw.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 })
@@ -105,13 +107,37 @@ describe('Fleet persists to the database', () => {
     await command(s, 'fleet', 'transferAccessory', ['acc-T6010-tidy-tank', 'veh-T6005', { date: '2026-10-21', fromOdometer: 13_000, toOdometer: null, note: 'moved' }, TODAY])
     const { body } = await s.call('GET', '/api/state/fleet')
     const f = body.state
-    expect(serviceStatus(f, 'veh-T6010')).toMatchObject({ kmRemaining: 551, state: 'due-soon' })
+    // The oil-change target is its own schedule; the seeded next service (13,551 km, untyped) is unaffected.
+    expect(oilIndicator(f, 'veh-T6010')).toMatchObject({ remaining: 551, status: 'warn' })
+    expect(oilIndicator(f, 'veh-T6010').percent).toBeCloseTo(64.5, 0)
+    expect(serviceStatus(f, 'veh-T6010')).toMatchObject({ kmRemaining: 551, state: 'ok' })
     expect(f.maintenance).toHaveLength(1)
     expect(f.tireSets.filter((t: { vehicleId: string }) => t.vehicleId === 'veh-T6010').map((t: { manufacturer: string; active: boolean }) => [t.manufacturer, t.active])).toEqual([['Bridgestone', false], ['Nokian', true]])
     expect(tireKm(f, f.tireSets.find((t: { manufacturer: string }) => t.manufacturer === 'Bridgestone'))).toBe(13_000)
     expect(f.tireSets.find((t: { manufacturer: string }) => t.manufacturer === 'Nokian').classes).toEqual(['winter', 'all-terrain'])
     expect(f.accessories).toHaveLength(1)
     expect(f.accessories[0].placements.map((p: { vehicleId: string; endReason: string | null }) => [p.vehicleId, p.endReason])).toEqual([['veh-T6010', 'transferred'], ['veh-T6005', null]])
+  })
+
+  it('persists the optional tire lifespan and replacement thresholds, and leaves them empty by default', async () => {
+    const s = session()
+    const before = (await s.call('GET', '/api/state/fleet')).body.state
+    expect(activeTireSet(before, 'veh-T6010')).toMatchObject({ expectedLifeKm: null, replaceAtMm: null })
+    const id = activeTireSet(before, 'veh-T6010')!.id
+    await command(s, 'fleet', 'updateTireSet', [id, { manufacturer: 'Bridgestone', model: 'Dueler A/T', size: '', classes: [], studded: 'unknown', origin: 'Original factory tires', installDate: null, installOdometer: 0, condition: 'unknown', notes: '', expectedLifeKm: 70_000, replaceAtMm: 3.5 }, TODAY])
+    const after = (await s.call('GET', '/api/state/fleet')).body.state
+    expect(activeTireSet(after, 'veh-T6010')).toMatchObject({ expectedLifeKm: 70_000, replaceAtMm: 3.5 })
+    expect(tireIndicator(after, 'veh-T6010')).toMatchObject({ remainingKm: 70_000 - 11_856, status: 'info' })
+  })
+
+  it('the tire-threshold migration upgrades an existing database without changing its rows', () => {
+    const old = createTestDb({ migrate: false })
+    for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql']) old.raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+    const rowBefore = old.raw.prepare("SELECT id, manufacturer, install_odometer FROM tire_sets WHERE vehicle_id = 'veh-T6010'").get()
+    applyMigrationFile(old.raw, '0003_tire_thresholds.sql')
+    expect(old.raw.prepare("SELECT id, manufacturer, install_odometer, expected_life_km, replace_at_mm FROM tire_sets WHERE vehicle_id = 'veh-T6010'").get()).toEqual({ ...rowBefore, expected_life_km: null, replace_at_mm: null })
+    expect(() => old.raw.exec("UPDATE tire_sets SET expected_life_km = -1")).toThrow(/CHECK/)
+    expect(() => old.raw.exec("UPDATE tire_sets SET replace_at_mm = 99")).toThrow(/CHECK/)
   })
 
   it('an inspection never marks a vehicle healthy: condition stays unknown until reviewed', async () => {

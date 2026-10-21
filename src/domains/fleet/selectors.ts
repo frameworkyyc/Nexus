@@ -48,7 +48,19 @@ export const readingsNeedingReview = (state: FleetState, vehicleId?: string) => 
 
 /* ── Service ───────────────────────────────────────────────────────────── */
 
-export const currentServiceTarget = (state: FleetState, vehicleId: string): ServiceTarget | undefined => state.serviceTargets.filter((t) => t.vehicleId === vehicleId).at(-1)
+/**
+ * An oil change is recognised only by what a person wrote as the service type ("Oil change", "Oil & filter"…). Something like
+ * "Oil leak repair" is not an oil change, and a target with no type is never assumed to be one.
+ */
+export const isOilChange = (serviceType: string | null | undefined): boolean => {
+  const t = (serviceType ?? '').trim().toLowerCase()
+  return t === 'oil' || t.includes('oil change') || t.includes('oil & filter') || t.includes('oil and filter') || t.includes('change oil')
+}
+
+/** The next scheduled service: the latest target that is not an oil-change schedule. The oil-change schedule is tracked separately. */
+export const currentServiceTarget = (state: FleetState, vehicleId: string): ServiceTarget | undefined => state.serviceTargets.filter((t) => t.vehicleId === vehicleId && !isOilChange(t.serviceType)).at(-1)
+/** The next oil change, only when someone recorded an oil-change target. */
+export const currentOilTarget = (state: FleetState, vehicleId: string): ServiceTarget | undefined => state.serviceTargets.filter((t) => t.vehicleId === vehicleId && isOilChange(t.serviceType)).at(-1)
 
 export type ServiceState = 'not-set' | 'no-reading' | 'ok' | 'due-soon' | 'overdue'
 export interface ServiceStatus {

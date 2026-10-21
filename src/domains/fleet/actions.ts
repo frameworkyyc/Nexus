@@ -1,6 +1,6 @@
 import type { ISODate } from '@/lib/date'
 import type { Accessory, AccessoryCategory, AccessoryPlacement, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, RatedCondition, Studded, TireClass, TireCondition, TireSet, TreadMeasurement, Vehicle } from './types'
-import { countsAsCurrent, currentAssignment, currentServiceTarget, latestOdometer, odometerHistory } from './selectors'
+import { countsAsCurrent, currentAssignment, currentOilTarget, currentServiceTarget, isOilChange, latestOdometer, odometerHistory } from './selectors'
 
 export type Result = { state: FleetState; error?: undefined } | { error: string; state?: undefined }
 export type Reducer = (s: FleetState) => Result
@@ -78,7 +78,7 @@ export const setServiceTarget = (vehicleId: string, odometer: number, note: stri
   const warn = opts.warnWithinKm ?? null
   if (warn !== null && (!Number.isInteger(warn) || warn <= 0)) return { error: 'The warning window must be a whole number of kilometres greater than zero.' }
   const serviceType = opts.serviceType?.trim() || null
-  const current = currentServiceTarget(s, vehicleId)
+  const current = isOilChange(serviceType) ? currentOilTarget(s, vehicleId) : currentServiceTarget(s, vehicleId)
   if (current && current.odometer === odometer && current.serviceType === serviceType && current.warnWithinKm === warn) return { error: 'That is already the next service.' }
   return { state: { ...s, serviceTargets: [...s.serviceTargets, { id: nextId('svc'), vehicleId, odometer, setDate: today, note: note.trim(), serviceType, warnWithinKm: warn }] } }
 }
@@ -121,6 +121,8 @@ export const updateVehicle = (vehicleId: string, patch: { unitNumber: string; ye
 export interface TireInput {
   manufacturer: string; model: string; size: string; classes: TireClass[]; studded: Studded; origin: string
   installDate: ISODate | null; installOdometer: number | null; condition: TireCondition; notes: string
+  /** Optional thresholds entered by a person. Omitted/null = not recorded. */
+  expectedLifeKm?: number | null; replaceAtMm?: number | null
 }
 const odoOk = (n: number | null) => n === null || (Number.isInteger(n) && n >= 0)
 
@@ -128,13 +130,15 @@ function validateTire(s: FleetState, vehicleId: string, t: TireInput, today: ISO
   if (!t.manufacturer.trim() && !t.model.trim()) return 'Enter the tire manufacturer or model.'
   if (!odoOk(t.installOdometer)) return 'Enter the installation odometer as a whole number of kilometres.'
   if (t.installDate !== null && (!validDate(t.installDate) || t.installDate > today)) return 'Enter a valid installation date that is not in the future.'
+  if (t.expectedLifeKm != null && (!Number.isInteger(t.expectedLifeKm) || t.expectedLifeKm <= 0)) return 'Enter the expected tire lifespan as a whole number of kilometres greater than zero, or leave it blank.'
+  if (t.replaceAtMm != null && (!Number.isFinite(t.replaceAtMm) || t.replaceAtMm < 0 || t.replaceAtMm > 30)) return 'Enter the replacement tread depth in millimetres (0 to 30), or leave it blank.'
   const cur = latestOdometer(s, vehicleId)
   if (t.installOdometer !== null && cur && t.installOdometer > cur.reading) return `The installation odometer is above the current odometer (${fmtKm(cur.reading)}).`
   return null
 }
 const toTire = (vehicleId: string, t: TireInput, id: string, active: boolean): TireSet => ({
   id, vehicleId, manufacturer: t.manufacturer.trim(), model: t.model.trim(), size: t.size.trim() || null, classes: [...new Set(t.classes)], studded: t.studded, origin: t.origin.trim(),
-  active, installDate: t.installDate, installOdometer: t.installOdometer, removalDate: null, removalOdometer: null, condition: t.condition, treads: [], notes: t.notes.trim(),
+  active, installDate: t.installDate, installOdometer: t.installOdometer, removalDate: null, removalOdometer: null, condition: t.condition, expectedLifeKm: t.expectedLifeKm ?? null, replaceAtMm: t.replaceAtMm ?? null, treads: [], notes: t.notes.trim(),
 })
 
 /** Fits a first set (or one when none is active). Use replaceTireSet when a set is already fitted. */

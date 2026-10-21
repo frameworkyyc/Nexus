@@ -30,6 +30,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
     }
     s = applyVerifiedT6010(s)
   }
+  if (from < 4) s = { ...s, tireSets: s.tireSets.map((t) => ({ ...t, expectedLifeKm: t.expectedLifeKm ?? null, replaceAtMm: t.replaceAtMm ?? null })) }
   return s
 }
 
@@ -39,7 +40,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
  */
 const fleetLocal = createPersistedStore({
   key: 'nexus.demo.fleet',
-  version: 3,
+  version: 4,
   seed: buildFleetSeed,
   migrate: migrateFleet,
 })

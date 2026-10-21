@@ -18,10 +18,11 @@
   --color-sidebar-ink: var(--nx-sidebar-ink);
   --color-sidebar-muted: var(--nx-sidebar-muted);
   --color-sidebar-line: var(--nx-sidebar-line);
-  --color-ok: #15803d;
-  --color-warn: #b45309;
-  --color-info: #1d4ed8;
-  --color-bad: #b91c1c;
+  --color-ok: var(--nx-ok);
+  --color-warn: var(--nx-warn);
+  --color-info: var(--nx-info);
+  --color-bad: var(--nx-bad);
+  --color-unknown: var(--nx-unknown);
 
   --radius-nx: 2px;
   --text-micro: 0.6875rem;
@@ -38,6 +39,14 @@
   --nx-sidebar-ink: #ffffff;
   --nx-sidebar-muted: #737373;
   --nx-sidebar-line: #1f1f1f;
+
+  /* Semantic status colours (see components/viz/status.ts). All meet 4.5:1 against the white surface for text. */
+  --nx-ok: #15803d;      /* green: confirmed healthy / within threshold */
+  --nx-warn: #c2410c;    /* orange: approaching a threshold */
+  --nx-bad: #b91c1c;     /* red: overdue / critical */
+  --nx-unknown: #6b7280; /* grey: unknown / insufficient data */
+  --nx-info: #1d4ed8;    /* blue: neutral information */
+  --nx-track: #e5e5e5;   /* empty part of a gauge ring */
 }
 
 html, body, #root { height: 100%; }
