@@ -2,8 +2,8 @@
   // Nexus — ONE Cloudflare Worker (`nexus`), two branches, same architecture as Studio29 and LaNoir.
   //
   //   Branch    Cloudflare build command   Deploy command         Served at
-  //   main      npm run build              npx wrangler deploy    nexus.frameworkco.ca          (production)
-  //   staging   npm run build              npx wrangler preview   staging.nexus.frameworkco.ca  (Worker Preview)
+  //   main      npm run build              npx wrangler deploy    nexus.frameworktools.ca          (production)
+  //   staging   npm run build              npx wrangler preview   staging.nexus.frameworktools.ca  (Worker Preview)
   //
   // `wrangler preview` publishes an isolated Preview named after the git branch ("staging"). It never
   // creates a Worker version or deployment on production, so staging cannot overwrite `nexus`.

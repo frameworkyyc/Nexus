@@ -18,8 +18,8 @@ One Cloudflare Worker (`nexus`), two branches — the same setup as Studio29 and
 
 | Branch    | Cloudflare build command | Deploy command         | URL                          |
 |-----------|--------------------------|------------------------|------------------------------|
-| `main`    | `npm run build`          | `npx wrangler deploy`  | nexus.frameworkco.ca         |
-| `staging` | `npm run build`          | `npx wrangler preview` | staging.nexus.frameworkco.ca |
+| `main`    | `npm run build`          | `npx wrangler deploy`  | nexus.frameworktools.ca         |
+| `staging` | `npm run build`          | `npx wrangler preview` | staging.nexus.frameworktools.ca |
 
 `wrangler preview` publishes an isolated Worker Preview named after the branch (`staging`); it never touches
 the production deployment. `npm run deploy` (production) refuses to run from any branch except `main`.
@@ -65,7 +65,7 @@ There are still no user roles: whoever Cloudflare Access admits can change every
 ### Deployment notes
 
 - One Cloudflare Worker (`nexus`). `main` is production and `staging` is the Worker Preview named `staging`, served at
-  `staging.nexus.frameworkco.ca`. Production is never deployed from `staging`.
+  `staging.nexus.frameworktools.ca`. Production is never deployed from `staging`.
 - **How to confirm a commit deployed:** the commit should show a `Workers Builds: nexus` check run (GitHub → commit → checks),
   and the Preview's newest deployment should carry the commit's short hash as its tag.
 - **Repository history:** this repository (GitHub id 1424538981) was created as `Assetra` and renamed to `Nexus` on 21 Oct 2026.

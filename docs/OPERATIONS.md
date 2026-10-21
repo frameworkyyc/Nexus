@@ -42,7 +42,7 @@ Expected: `0001_core_schema.sql` and `0002_seed_reef_and_fleet.sql` applied. (No
 ### Step 4 — Put Cloudflare Access in front of staging
 
 1. Dashboard → **Zero Trust → Access controls → Applications → Add an application → Self-hosted**.
-2. Name `Nexus staging`. Add public hostname `staging.nexus.frameworkco.ca`.
+2. Name `Nexus staging`. Add public hostname `staging.nexus.frameworktools.ca`.
 3. Policy: **Allow**, selector **Emails** = your email address. (Nobody else.)
 4. Save. Open the application and copy the **Application Audience (AUD) tag**.
 5. Note your Zero Trust **team domain**: `https://<team>.cloudflareaccess.com` (Settings → Custom pages / Team name).
@@ -65,8 +65,8 @@ Optional second lock: `"ALLOWED_EMAILS": "you@example.com"`. Commit and push `st
 ### Step 6 — Verify it is closed
 
 ```sh
-curl -i https://staging.nexus.frameworkco.ca/api/state/fleet     # expect a redirect to the Access login, or 401 — never JSON
-curl -i https://staging.nexus.frameworkco.ca/api/health          # public: {"ok":true,...,"database":true,"access":true}
+curl -i https://staging.nexus.frameworktools.ca/api/state/fleet     # expect a redirect to the Access login, or 401 — never JSON
+curl -i https://staging.nexus.frameworktools.ca/api/health          # public: {"ok":true,...,"database":true,"access":true}
 ```
 
 Then open the site in a browser, sign in through Access, and confirm the top bar says **Saved data · staging** and
