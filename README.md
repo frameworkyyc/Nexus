@@ -49,6 +49,20 @@ The platform never imports from `domains/*` except through the router. A differe
 types, catalogue, seed and pages. There is no backend, authentication or external integration yet; swap `store.ts`
 for an API client later.
 
+### Deployment notes
+
+- One Cloudflare Worker (`nexus`). `main` is production and `staging` is the Worker Preview named `staging`, served at
+  `staging.nexus.frameworkco.ca`. Production is never deployed from `staging`.
+- **How to confirm a commit deployed:** the commit should show a `Workers Builds: nexus` check run (GitHub → commit → checks),
+  and the Preview's newest deployment should carry the commit's short hash as its tag.
+- **Repository history:** this repository (GitHub id 1424538981) was created as `Assetra` and renamed to `Nexus` on 21 Oct 2026.
+  An older Cloudflare Worker named `assetra` is still connected to it and also builds every push
+  (a second `Workers Builds: assetra` check). Review that connection before the first merge to `main`, because both Workers
+  would otherwise build production from this repository.
+- A push can be silently missed if Cloudflare's Git integration drops the event; the commit then shows a Cloudflare check
+  suite that stays `queued` with no check runs. Missed events are not replayed. Re-run the build from the Cloudflare dashboard
+  or push the next change.
+
 ### Information hierarchy
 
 Company → Project → Area → Foundation. Each level shows only what belongs to it; detail is one click deeper.
