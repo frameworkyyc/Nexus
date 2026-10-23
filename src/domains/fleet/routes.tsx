@@ -1,12 +1,12 @@
-import { useParams, type RouteObject } from 'react-router-dom'
+import { type Params, type RouteObject } from 'react-router-dom'
 import type { CrumbHandle } from '@/layout/TopBar'
 import { FleetOverview } from './pages/FleetOverview'
 import { ProjectFleet } from './pages/ProjectFleet'
 import { VehicleDashboard } from './pages/VehicleDashboard'
 import { useFleet } from './store'
 
-function VehicleCrumb() {
-  const { vehicleId } = useParams()
+function VehicleCrumb({ params }: { params: Params<string> }) {
+  const { vehicleId } = params
   const { state } = useFleet()
   return <>{state.vehicles.find((v) => v.id === vehicleId)?.unitNumber ?? 'Vehicle'}</>
 }

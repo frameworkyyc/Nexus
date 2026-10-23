@@ -1,4 +1,4 @@
-import { Outlet, useParams, type RouteObject } from 'react-router-dom'
+import { Outlet, type Params, type RouteObject } from 'react-router-dom'
 import type { CrumbHandle } from '@/layout/TopBar'
 import { AnchoragePage } from './pages/AnchoragePage'
 import { AreaPage, RegisterPage } from './pages/AreaPage'
@@ -16,19 +16,19 @@ import { useConstruction } from './store'
 
 const text = (label: string): CrumbHandle => ({ crumb: () => <>{label}</> })
 
-function ProjectCrumb() {
-  const { projectId } = useParams()
+function ProjectCrumb({ params }: { params: Params<string> }) {
+  const { projectId } = params
   const { state } = useConstruction()
   const project = state.projects.find((p) => p.id === projectId)
   return <>{project ? `${project.name} · Job ${project.jobNumber}` : 'Project'}</>
 }
-function AreaCrumb() {
-  const { areaId } = useParams()
+function AreaCrumb({ params }: { params: Params<string> }) {
+  const { areaId } = params
   const { idx } = useConstruction()
   return <>{idx.area.get(areaId ?? '')?.name ?? 'Area'}</>
 }
-function FoundationCrumb() {
-  const { foundationId } = useParams()
+function FoundationCrumb({ params }: { params: Params<string> }) {
+  const { foundationId } = params
   const { idx } = useConstruction()
   return <>{idx.foundation.get(foundationId ?? '')?.number ?? 'Foundation'}</>
 }

@@ -19,7 +19,7 @@ interface Props<T> {
 export function DataTable<T>({ columns, rows, getKey, onRowClick }: Props<T>) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left">
+      <table className="card-table w-full border-collapse text-left">
         <thead>
           <tr className="border-b border-line">
             {columns.map((c) => (

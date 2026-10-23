@@ -1,5 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from './bundle'
+import { crewRoutes } from '@/domains/crew/routes'
+import { safetyRoutes } from '@/domains/safety/routes'
 import { constructionRoutes } from '@/domains/construction/routes'
 import { dataRoutes } from '@/domains/data/routes'
 import { fleetRoutes } from '@/domains/fleet/routes'
@@ -10,6 +12,6 @@ import { NotFoundPage } from './NotFoundPage'
 export const router = createBrowserRouter([
   {
     element: <AppShell />,
-    children: [...constructionRoutes, ...fleetRoutes, ...(IS_PUBLIC_DEMO ? [] : dataRoutes), { path: '*', element: <NotFoundPage /> }],
+    children: [...constructionRoutes, ...fleetRoutes, ...crewRoutes, ...safetyRoutes, ...(IS_PUBLIC_DEMO ? [] : dataRoutes), { path: '*', element: <NotFoundPage /> }],
   },
 ])

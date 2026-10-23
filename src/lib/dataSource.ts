@@ -103,7 +103,10 @@ export function createModuleStore<S>(module: ModuleName, local: PersistedStore<S
     use() {
       const l = local.use()
       const r = useSyncExternalStore(subscribe, () => remote)
-      void l; void r
+      // The snapshot also depends on the data mode (checking → demo/server). Without this a component rendered before the mode was
+      // known (the top bar, outside DataGate) kept the empty "checking" snapshot, which is why breadcrumbs showed "Project" / "Vehicle".
+      const m = useBackend()
+      void l; void r; void m
       return snapshot()
     },
     version: () => version,

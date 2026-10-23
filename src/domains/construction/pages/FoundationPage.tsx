@@ -52,7 +52,7 @@ export function FoundationPage() {
 
   return (
     <>
-      <Link to={paths.area(projectId, area.id, 'register')} className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
+      <Link to={paths.area(projectId, area.id, 'register')} className="mb-5 phone:hidden inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
         <ArrowLeft size={14} strokeWidth={1.5} />{area.name} register
       </Link>
       <PageHeader title={f.number} description={`${area.name} · ${f.description} · ${plinths.length} plinth${plinths.length === 1 ? '' : 's'}`} actions={<FoundationStateBadge state={fs.state} blocked={fs.blocked} />} />
@@ -205,7 +205,7 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[480px] border-collapse text-left text-[13px]">
+          <table className="card-table w-full min-w-[480px] border-collapse text-left text-[13px]">
             <thead><tr className="border-b border-line">{['Material', 'Required', 'Allocated', 'Remaining'].map((h) => <th key={h} className="t-label py-2 pr-4 font-medium">{h}</th>)}</tr></thead>
             <tbody>
               {reqs.map((r) => <tr key={r.spec.id} className="border-b border-line"><td className="py-2 pr-4">{specLabel(r.spec)} anchor bolt <span className="text-xs text-muted">{r.spec.id} · {r.spec.grade}</span></td><td className="pr-4">{r.qty}</td><td className="pr-4">{r.allocated}</td><td>{Math.max(0, r.qty - r.allocated)}</td></tr>)}
@@ -263,7 +263,7 @@ function Glance({ idx, f, plinths }: { idx: Index; f: Foundation; plinths: Plint
   ]
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-left">
+      <table className="card-table w-full min-w-[640px] border-collapse text-left">
         <thead><tr className="border-b border-line">{['Element', 'Rebar', 'Forming', 'Pouring', 'Survey', 'QA/QC', 'Materials'].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
         <tbody>
           {rows.map((r) => (

@@ -1,12 +1,39 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { ToastProvider } from '@/components/ui/Toast'
+import { useCardTableLabels } from '@/components/mobile/cardTables'
+import { useIsPhone } from '@/lib/useMedia'
+import { BottomNav } from './BottomNav'
 import { DataGate } from './DataGate'
+import { MobileHeader } from './MobileHeader'
+import { MoreSheet } from './MoreSheet'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
+/**
+ * Desktop and tablet: sidebar + top bar, exactly as before. Phone: compact header, the page scrolls as a normal document (so Safari's
+ * toolbar collapses naturally) and a fixed bottom navigation. Both render the same routes and share all application state.
+ */
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false)
+  const phone = useIsPhone()
+  useCardTableLabels(phone)
+  if (phone) {
+    return (
+      <ToastProvider>
+        <div className="min-h-dvh bg-canvas">
+          <MobileHeader onMenu={() => setNavOpen(true)} />
+          <div className="pl-safe pr-safe">
+            <main className="px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-5">
+              <DataGate><Outlet /></DataGate>
+            </main>
+          </div>
+          <BottomNav />
+          {navOpen && <MoreSheet onClose={() => setNavOpen(false)} />}
+        </div>
+      </ToastProvider>
+    )
+  }
   return (
     <ToastProvider>
       <div className="flex h-full">

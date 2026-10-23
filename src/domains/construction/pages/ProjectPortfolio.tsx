@@ -1,6 +1,8 @@
 import { identity } from '@/app/identity'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { CARD, MeterBar, SortBar } from '@/components/mobile/Cards'
+import { useIsPhone } from '@/lib/useMedia'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Field'
@@ -20,6 +22,7 @@ type Filter = ProjectStatus | 'in-delivery' | 'all'
 export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
   const { idx, today } = useConstruction()
   const navigate = useNavigate()
+  const phone = useIsPhone()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'status', dir: 1 })
@@ -52,17 +55,33 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
   return (
     <div>
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Input className="sm:max-w-xs" type="search" placeholder="Search name, job number, client" aria-label="Search projects" value={query} onChange={(e) => reset(() => setQuery(e.target.value))} />
+        <Input data-search className="sm:max-w-xs" type="search" placeholder="Search name, job number, client" aria-label="Search projects" value={query} onChange={(e) => reset(() => setQuery(e.target.value))} />
         <Select className="sm:w-44" aria-label="Filter projects by status" value={filter} onChange={(e) => reset(() => setFilter(e.target.value as Filter))}>
           <option value="all">All projects</option>
           <option value="in-delivery">Active (in delivery)</option>
           {(Object.keys(PROJECT_STATUS_LABEL) as ProjectStatus[]).map((s) => <option key={s} value={s}>{PROJECT_STATUS_LABEL[s]}</option>)}
         </Select>
-        <span className="text-xs text-muted sm:ml-auto">{rows.length} of {all.length} projects</span>
+        {phone && <SortBar options={[{ key: 'status', label: 'Status' }, { key: 'name', label: 'Name' }, { key: 'job', label: 'Job number' }, { key: 'completion', label: 'Completion' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: k === 'completion' ? -1 : 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />}
+        <span className="text-[13px] text-muted sm:ml-auto">{rows.length} of {all.length} projects</span>
       </div>
 
       {rows.length === 0 ? (
         <EmptyState title="No projects match" description="Adjust the search or status filter." />
+      ) : phone ? (
+        <ul className="space-y-3" aria-label="Projects">
+          {rows.slice(0, shown).map((r) => (
+            <li key={r.project.id}>
+              <Link to={paths.project(r.project.id)} className={`${CARD} block p-4 active:bg-hover`}>
+                <span className="flex items-start justify-between gap-3">
+                  <span className="min-w-0 text-[17px] font-medium leading-snug">{r.project.name}</span>
+                  <StatusBadge tone={PROJECT_STATUS_TONE[r.project.status]} label={PROJECT_STATUS_LABEL[r.project.status]} className="mt-0.5 shrink-0 text-[14px]" />
+                </span>
+                <span className="mt-1 block text-[14px] text-muted">Job {r.project.jobNumber} · {r.project.client}</span>
+                <span className="mt-3 flex items-center gap-3"><MeterBar value={r.progress} label={`${r.project.name} completion`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.progress}%</span></span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">

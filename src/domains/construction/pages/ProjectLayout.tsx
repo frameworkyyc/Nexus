@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ChipTabs } from '@/components/mobile/Cards'
 import { NavMenu } from '@/components/ui/Menu'
 import { paths } from '../paths'
 import { useIsServer } from '@/lib/dataSource'
@@ -60,7 +61,6 @@ export function ProjectLayout() {
   // Procurement, fabrication and handover have no saved records yet, so saved-data mode leaves them out rather than showing fiction.
   const sections = server ? allSections.filter((x) => ![paths.fabrication(projectId), paths.anchorage(projectId), paths.handover(projectId)].includes(x.to)) : allSections
   const areaItems = state.areas.map((a) => ({ to: paths.area(projectId, a.id), label: a.name }))
-  const current = currentArea?.name ?? (pathname.endsWith('/issues') ? 'Issues' : sections.find((s) => (s.end ? pathname === s.to : pathname.startsWith(s.to)))?.full ?? `${project.name} overview`)
   const link = (s: (typeof sections)[number]) => (
     <NavLink key={s.to} to={s.to} end={s.end} className={({ isActive }) => `${tab} ${isActive ? on : off}`}>
       <span className="hidden lg:inline">{s.full}</span>
@@ -70,9 +70,13 @@ export function ProjectLayout() {
   return (
     <>
       {/* Phones: one menu holds every destination. */}
-      <nav aria-label="Project sections" className="border-b border-line md:hidden">
-        <NavMenu label={current} active items={[...sections.map((s) => ({ to: s.to, label: s.full })), ...areaItems.map((i, n) => ({ ...i, divider: n === 0 }))]} />
-      </nav>
+      <div className="md:hidden">
+        <ChipTabs label="Project sections">
+          {([...sections.map((s) => ({ to: s.to, label: s.short, end: !!s.end })), ...areaItems.map((a) => ({ to: a.to, label: a.label, end: false }))]).map((i) => (
+            <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => `inline-flex h-11 shrink-0 items-center whitespace-nowrap rounded-full border px-4 text-[15px] font-medium ${isActive ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink'}`}>{i.label}</NavLink>
+          ))}
+        </ChipTabs>
+      </div>
       <nav aria-label="Project sections" className="hidden gap-6 border-b border-line md:flex">
         {link(sections[0])}
         <NavMenu label={currentArea ? currentArea.name : 'Areas'} active={!!currentArea} items={areaItems} />

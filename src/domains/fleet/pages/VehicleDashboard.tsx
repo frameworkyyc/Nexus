@@ -9,6 +9,7 @@ import { Section } from '@/components/ui/Section'
 import { Sparkline } from '@/components/viz'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
+import { useIsPhone } from '@/lib/useMedia'
 import { canReassign, canReview, canUpdate } from '../access'
 import { addDefect, reassignVehicle, removeDemoInspections, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
 import { ServiceCell } from '../FleetTable'
@@ -65,6 +66,7 @@ export function VehicleDashboard() {
   const registry = useProjectRegistry()
   const actor = useFleetActor()
   const { run } = useFleetCommand()
+  const phone = useIsPhone()
   const [target, setTarget] = useState<string | null>(null)
   const [modal, setModal] = useState<Modal>(null)
   const vehicle = state.vehicles.find((v) => v.id === vehicleId)
@@ -101,18 +103,26 @@ export function VehicleDashboard() {
 
   return (
     <>
-      <Link to={back} className="mb-5 inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
+      <Link to={back} className="mb-5 phone:hidden inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
         <ArrowLeft size={14} strokeWidth={1.5} />{backLabel}
       </Link>
       <PageHeader title={vehicle.unitNumber} description={`${vehicleTitle(vehicle)}${project ? ` · ${project.name}` : ' · Unassigned'}`} actions={<><ConditionBadge condition={row.condition} />{editable && <Btn onClick={() => setModal({ kind: 'edit' })}>Edit vehicle</Btn>}</>} />
 
+      {phone && editable && (
+        <section aria-label="Quick actions" className="mb-6 grid grid-cols-2 gap-2">
+          <Button variant="primary" onClick={() => setModal({ kind: 'odometer' })}>Odometer</Button>
+          <Button variant="primary" onClick={() => setModal({ kind: 'inspection' })}>Inspection</Button>
+          <Button onClick={() => setModal({ kind: 'maintenance' })}>Maintenance</Button>
+          <Button onClick={() => setModal({ kind: 'oil-target' })}>Oil change</Button>
+        </section>
+      )}
       <VehicleGauges state={state} vehicle={vehicle} today={today} projectName={project?.name} handlers={{
         jump,
         edit: editable ? { lifespan: () => setModal({ kind: 'planning' }), service: () => setModal({ kind: 'service' }), oilTarget: () => setModal({ kind: 'oil-target' }), oilRecord: () => setModal({ kind: 'oil-record' }), tire: () => setModal({ kind: 'tire', mode: { kind: 'edit', tire: row.tires! } }), tread: () => setModal({ kind: 'tread', tire: row.tires! }), inspection: () => setModal({ kind: 'inspection' }) } : undefined,
       }} />
       {!editable && <p className="mt-3 text-xs text-muted">View only.</p>}
-      <nav aria-label="Dashboard sections" className="mt-4 flex gap-5 overflow-x-auto pb-1 text-[13px]">
-        {SECTIONS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); jump(id) }} className="shrink-0 text-muted transition-colors hover:text-ink">{label}</a>)}
+      <nav aria-label="Dashboard sections" data-compact className="mt-4 flex gap-5 overflow-x-auto pb-1 text-[13px] phone:-mx-4 phone:gap-2 phone:px-4 phone:[scrollbar-width:none]">
+        {SECTIONS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); jump(id) }} className="shrink-0 text-muted transition-colors hover:text-ink phone:inline-flex phone:h-11 phone:items-center phone:rounded-full phone:border phone:border-line phone:bg-surface phone:px-4 phone:text-[15px] phone:text-ink">{label}</a>)}
       </nav>
 
       {/* 1 · Overview and specifications */}

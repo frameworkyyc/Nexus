@@ -38,8 +38,8 @@ export function FleetOverview() {
         <Stat label="Outstanding defects" value={defects} />
         <Stat label="Readings held" value={held} sub="Awaiting review" />
       </dl>
-      <div className="mt-8 grid grid-cols-2 gap-3 md:max-w-xl">
-        <Input type="search" aria-label="Search vehicles" placeholder="Search unit or vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="mt-8 grid grid-cols-2 gap-3 phone:grid-cols-1 md:max-w-xl">
+        <Input data-search type="search" aria-label="Search vehicles" placeholder="Search unit or vehicle" value={search} onChange={(e) => setSearch(e.target.value)} />
         <Select aria-label="Project" value={project} onChange={(e) => setProject(e.target.value)}>
           <option value="">All projects</option><option value="__none">Unassigned</option>
           {registry.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

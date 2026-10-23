@@ -23,7 +23,7 @@ export function BoltTable({ projectId, areaId }: { projectId: string; areaId?: s
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] border-collapse text-left">
+        <table className="card-table w-full min-w-[860px] border-collapse text-left">
           <thead>
             <tr className="border-b border-line">
               <th className="w-6" />
@@ -95,7 +95,7 @@ export function BulkTable({ areaId }: { areaId?: string }) {
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] border-collapse text-left">
+        <table className="card-table w-full min-w-[980px] border-collapse text-left">
           <thead>
             <tr className="border-b border-line">
               <th className="w-6" />

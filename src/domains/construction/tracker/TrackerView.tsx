@@ -149,7 +149,7 @@ function AreaSummary({ lines }: { lines: TrackerLine[] }) {
         <section key={area} className="mb-8">
           <h3 className="t-title mb-2">{area}</h3>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
+            <table className="card-table w-full min-w-[640px] border-collapse text-left text-[13px]">
               <thead><tr className="border-b border-line">{['Component', 'Required', 'Received (verified)', 'Remaining', 'Workbook status'].map((h, i) => <th key={h} className={`t-label py-3 pr-6 font-medium ${i && i < 4 ? 'text-right' : ''}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {groups.filter((g) => g.area === area).map((g) => (
@@ -190,7 +190,7 @@ function AnchorageTypes({ lines }: { lines: TrackerLine[] }) {
       <h3 className="t-title mb-1 mt-10">Anchorage Type sheet</h3>
       <p className="mb-3 max-w-2xl text-xs leading-relaxed text-muted">Reference rows exactly as they appear on the workbook’s “Anchorage Type” sheet. They have no area and use different codes from the Material List, so they are not counted in any requirement or total.</p>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left text-[13px]">
+        <table className="card-table w-full min-w-[760px] border-collapse text-left text-[13px]">
           <thead><tr className="border-b border-line">{['Row', 'Footing', 'Type', 'Ftngs', 'Plinths', 'Bolts', 'Component', 'Qty', 'Grade', 'Status'].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
           <tbody>{state.anchorage.map((a) => (
             <tr key={a.id} className="border-b border-line text-muted">

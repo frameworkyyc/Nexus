@@ -27,7 +27,7 @@ Work happens on `staging`; production changes reach `main` only by approved merg
 
 `main` is currently the **public interactive demo** (fictional data kept in each visitor's browser, no server, no login). How that is
 kept free of real data, how staging must be protected, and how the demo moves to `demo.nexus.frameworktools.ca` are in
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The phone presentation (bottom navigation, cards, sheets) is described in [docs/MOBILE.md](docs/MOBILE.md).
 
 ## Architecture
 

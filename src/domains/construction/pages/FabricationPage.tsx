@@ -47,7 +47,7 @@ export function FabricationPage() {
         <span className="text-xs text-muted">{list.length} request{list.length === 1 ? '' : 's'} · select a row to open</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1100px] border-collapse whitespace-nowrap text-left">
+        <table className="card-table w-full min-w-[1100px] border-collapse whitespace-nowrap text-left">
           <thead><tr className="border-b border-line">{['Request', 'Area · anchorage', 'Supplier', 'Qty', 'Current step', 'Approval', 'Authorization', 'Fabrication', 'Pickup', 'Site', 'Expected'].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
           <tbody>
             {list.map((r) => (

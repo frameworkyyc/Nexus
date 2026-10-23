@@ -16,7 +16,8 @@ export function Button({ variant = 'secondary', className = '', type = 'button',
   return (
     <button
       type={type}
-      className={`inline-flex h-9 items-center justify-center gap-2 rounded-nx px-4 text-[13px] font-medium transition-colors disabled:opacity-40 ${variants[variant]} ${className}`}
+      data-variant={variant}
+      className={`inline-flex h-9 phone:h-11 items-center justify-center gap-2 rounded-nx px-4 text-[13px] phone:text-[15px] font-medium transition-colors disabled:opacity-40 ${variants[variant]} ${className}`}
       {...rest}
     />
   )

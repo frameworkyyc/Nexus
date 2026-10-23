@@ -2,6 +2,7 @@ import { Droplets, Lightbulb, Package, Radio, ShieldHalf, Wrench, type LucideIco
 import type { ReactNode } from 'react'
 import { MaintenanceAlerts, MetricSummary, RadialGauge, Sparkline, StatusMark, type AlertItem, type SparkPoint, type Status } from '@/components/viz'
 import { daysBetween } from '@/lib/date'
+import { useIsPhone } from '@/lib/useMedia'
 import { formatDate } from '@/lib/format'
 import { inspectionIndicator, lifespanIndicator, oilIndicator, pct1, serviceIndicator, tireIndicator, type DistanceIndicator } from './indicators'
 import { accessoriesOf, ACCESSORY_CATEGORY_LABEL, conditionOf, CONDITION_LABEL, latestOdometer, odometerHistory, readingsNeedingReview, TIRE_CONDITION_LABEL } from './selectors'
@@ -14,7 +15,8 @@ const pct = (n: number) => `${pct1(n)}%`
 const CONDITION_STATUS: Record<ConditionStatus, Status> = { 'not-assessed': 'unknown', good: 'ok', fair: 'warn', poor: 'bad', 'out-of-service': 'bad' }
 const ACCESSORY_ICON: Record<AccessoryCategory, LucideIcon> = { 'tidy-tank': Droplets, 'light-bar': Lightbulb, 'job-box': Package, 'headache-rack': ShieldHalf, radio: Radio, other: Wrench }
 
-const act = 'text-xs text-muted underline-offset-4 hover:text-ink hover:underline'
+const act = 'text-xs text-muted underline-offset-4 hover:text-ink hover:underline phone:text-[15px] phone:text-ink phone:underline'
+const ROW_RING = 124
 
 export interface GaugeHandlers {
   jump: (sectionId: string) => void
@@ -23,7 +25,7 @@ export interface GaugeHandlers {
 }
 
 /** Gauge for work that falls due at a mileage (oil change, other scheduled service): remaining share of the interval, else remaining km, else Unknown. */
-function DistanceGauge({ title, ind, noSchedule, onSelect, actions }: { title: string; ind: DistanceIndicator; noSchedule: string; onSelect: () => void; actions?: ReactNode }) {
+function DistanceGauge({ title, ind, noSchedule, onSelect, actions, row }: { title: string; ind: DistanceIndicator; noSchedule: string; onSelect: () => void; actions?: ReactNode; row?: boolean }) {
   const known = ind.remaining !== null
   const value = ind.remainingPercent !== null ? pct(ind.remainingPercent) : ind.consumedPercent !== null ? '0%' : known ? num(Math.abs(ind.remaining!)) : 'Unknown'
   const unit = known ? (ind.remaining! < 0 ? `${km(-ind.remaining!)} overdue` : `${km(ind.remaining!)} remaining`) : ind.schedule ? 'No valid odometer' : noSchedule
@@ -32,13 +34,16 @@ function DistanceGauge({ title, ind, noSchedule, onSelect, actions }: { title: s
   if (ind.baselineCalculated && ind.intervalStart !== null) detail.push(`Interval start ${km(ind.intervalStart)} (calculated)`)
   else if (ind.last) detail.push(`Last done ${ind.lastAt !== null ? `at ${km(ind.lastAt)} · ` : ''}${formatDate(ind.last.date)}`)
   return (
-    <RadialGauge title={title} word={value === 'Unknown'} percent={ind.remainingPercent} status={ind.status} statusLabel={ind.label} value={value} unit={unit} detail={detail.map((d) => <div key={d}>{d}</div>)} onSelect={onSelect} actions={actions} />
+    <RadialGauge title={title} layout={row ? 'row' : 'stack'} size={row ? ROW_RING : undefined} word={value === 'Unknown'} percent={ind.remainingPercent} status={ind.status} statusLabel={ind.label} value={value} unit={unit} detail={detail.map((d) => <div key={d}>{d}</div>)} onSelect={onSelect} actions={actions} />
   )
 }
 
 /** The large, at-a-glance part of the vehicle dashboard. Everything shown is derived from recorded or configured data (see indicators.ts). */
 export function VehicleGauges({ state, vehicle, today, projectName, handlers }: { state: FleetState; vehicle: Vehicle; today: string; projectName?: string; handlers: GaugeHandlers }) {
   const { jump, edit } = handlers
+  const phone = useIsPhone()
+  const row = phone
+  const g = row ? { layout: 'row' as const, size: ROW_RING } : {}
   const life = lifespanIndicator(state, vehicle.id)
   const oil = oilIndicator(state, vehicle.id)
   const service = serviceIndicator(state, vehicle.id)
@@ -74,21 +79,21 @@ export function VehicleGauges({ state, vehicle, today, projectName, handlers }: 
           statusLabel={condition === 'not-assessed' ? 'Awaiting a reviewed inspection' : 'Stated by a reviewer'} onSelect={() => jump('inspections')} />
         <MetricSummary label="Outstanding defects" value={String(insp.defects)} status={insp.defects ? 'warn' : insp.cadence === 'unknown' ? 'unknown' : 'ok'}
           statusLabel={insp.defects ? (insp.unreviewedDefects ? `${insp.unreviewedDefects} not yet reviewed` : 'Verified, open') : insp.cadence === 'unknown' ? 'No verified inspection' : 'None open'} onSelect={() => jump('inspections')} />
-        <MetricSummary label="Project" value={<span>{projectName ?? 'Unassigned'}</span>} onSelect={() => jump('overview')} />
+        <MetricSummary label="Project" value={<span className="block truncate text-[22px] leading-10 sm:text-[2rem]">{projectName ?? 'Unassigned'}</span>} onSelect={() => jump('overview')} />
       </div>
 
       <MaintenanceAlerts items={alerts} />
 
-      <section aria-label="Vehicle gauges" className="mt-10 grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 xl:grid-cols-4">
-        <RadialGauge title="Vehicle Lifespan" word={life.remainingPercent === null} percent={life.remainingPercent} status={life.status} statusLabel={life.label}
+      <section aria-label="Vehicle gauges" className={`mt-10 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 ${row ? 'mt-6 gap-3' : 'gap-x-8 gap-y-12'}`}>
+        <RadialGauge {...g} title="Vehicle Lifespan" word={life.remainingPercent === null} percent={life.remainingPercent} status={life.status} statusLabel={life.label}
           value={life.remainingPercent !== null ? pct(life.remainingPercent) : 'Unknown'}
           unit={life.remainingKm !== null ? (life.remainingKm >= 0 ? `${km(life.remainingKm)} remaining` : `${km(-life.remainingKm)} beyond`) : life.expectedKm === null ? 'No estimate set' : 'No valid odometer'}
           detail={life.expectedKm !== null && <div>Planning estimate: {km(life.expectedKm)}</div>} onSelect={() => jump('overview')}
           actions={edit && <button className={act} onClick={edit.lifespan}>{life.expectedKm === null ? 'Set estimate' : 'Edit estimate'}</button>} />
-        <DistanceGauge title="Oil Change" ind={oil} noSchedule="No schedule recorded" onSelect={() => jump('maintenance')}
+        <DistanceGauge row={row} title="Oil Change" ind={oil} noSchedule="No schedule recorded" onSelect={() => jump('maintenance')}
           actions={edit && <><button className={act} onClick={edit.oilTarget}>{oil.schedule ? 'Update next oil change' : 'Set next oil change'}</button><button className={act} onClick={edit.oilRecord}>Record oil change</button></>} />
-        {service.schedule && <DistanceGauge title="Scheduled Service" ind={service} noSchedule="No service scheduled" onSelect={() => jump('maintenance')} actions={edit && <button className={act} onClick={edit.service}>Update next service</button>} />}
-        <RadialGauge title="Tire Lifespan" word={!tire.set || (tire.remainingPercent === null && tire.km === null)} percent={tire.remainingPercent} status={tire.status} statusLabel={tire.label}
+        {service.schedule && <DistanceGauge row={row} title="Scheduled Service" ind={service} noSchedule="No service scheduled" onSelect={() => jump('maintenance')} actions={edit && <button className={act} onClick={edit.service}>Update next service</button>} />}
+        <RadialGauge {...g} title="Tire Lifespan" word={!tire.set || (tire.remainingPercent === null && tire.km === null)} percent={tire.remainingPercent} status={tire.status} statusLabel={tire.label}
           value={tire.set ? (tire.remainingPercent !== null ? pct(tire.remainingPercent) : tire.km !== null ? num(tire.km) : 'Unknown') : 'None'}
           unit={tire.set ? (tire.remainingKm !== null ? (tire.remainingKm >= 0 ? `${km(tire.remainingKm)} remaining` : `${km(-tire.remainingKm)} beyond`) : tire.km !== null ? 'km on this set' : 'Distance unknown') : 'No tire set fitted'}
           detail={tire.set && <>
@@ -97,7 +102,7 @@ export function VehicleGauges({ state, vehicle, today, projectName, handlers }: 
           </>}
           onSelect={() => jump('tires')}
           actions={edit && tire.set && <><button className={act} onClick={edit.tire}>{tire.expectedLifeKm === null ? 'Set estimate' : 'Edit estimate'}</button><button className={act} onClick={edit.tread}>Record tread depth</button></>} />
-        <RadialGauge title="Weekly Inspection" word percent={null} status={insp.status} statusLabel={insp.label}
+        <RadialGauge {...g} title="Weekly Inspection" word percent={null} status={insp.status} statusLabel={insp.label}
           value={insp.cadence === 'unknown' ? 'Unknown' : insp.cadence === 'current' ? 'Current' : insp.cadence === 'due' ? 'Due' : 'Overdue'}
           unit={insp.daysSince === null ? 'None verified' : `${insp.daysSince} day${insp.daysSince === 1 ? '' : 's'} since last`}
           detail={insp.demoCount > 0 && <div>{insp.demoCount} demo record{insp.demoCount === 1 ? '' : 's'} not counted</div>}

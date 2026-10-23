@@ -44,10 +44,10 @@ export function Ring({ percent, status, size = RING_SIZE, children, label }: Rin
 
 /** The big figure inside a ring, sized from the ring so every gauge has the same typography. */
 /** `word` shrinks the figure for a status word (Unknown, Overdue) so it sits inside the ring like a number does. */
-export function RingValue({ value, unit, size = RING_SIZE, word = false }: { value: ReactNode; unit?: ReactNode; size?: number; word?: boolean }) {
+export function RingValue({ value, unit, size = RING_SIZE, word = false, scale }: { value: ReactNode; unit?: ReactNode; size?: number; word?: boolean; scale?: number }) {
   return (
     <>
-      <div className="font-light leading-none tracking-tight tabular-nums" style={{ fontSize: Math.round(size * (word ? 0.14 : 0.2)) }}>{value}</div>
+      <div className="font-light leading-none tracking-tight tabular-nums" style={{ fontSize: Math.round(size * (scale ?? (word ? 0.14 : 0.2))) }}>{value}</div>
       {unit && <div className="mt-1.5 text-xs leading-tight text-muted">{unit}</div>}
     </>
   )

@@ -1,6 +1,8 @@
 import { ChevronRight } from 'lucide-react'
 import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CARD, MeterBar, Segmented, SortBar } from '@/components/mobile/Cards'
+import { useIsPhone } from '@/lib/useMedia'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Field'
 import { ProgressBar } from '@/components/ui/Progress'
@@ -32,6 +34,7 @@ const STATE_RANK: Record<FoundationStateId, number> = { 'not-started': 0, 'in-pr
 
 export function FoundationRegister({ projectId, areaId }: { projectId: string; areaId?: string }) {
   const { state, idx } = useConstruction()
+  const phone = useIsPhone()
   const [view, setView] = useState<'foundations' | 'plinths'>('foundations')
   const [query, setQuery] = useState('')
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
@@ -83,25 +86,27 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
   return (
     <div>
       <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <Input className="lg:max-w-xs" type="search" placeholder="Search foundation, anchorage, area" aria-label="Search register" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div className="flex flex-wrap gap-3">
-          <Select className="w-40" aria-label="Filter by status" value={stateFilter} onChange={(e) => setStateFilter(e.target.value as StateFilter)}>
+        <Input data-search className="lg:max-w-xs" type="search" placeholder="Search foundation, anchorage, area" aria-label="Search register" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <div className="flex flex-wrap gap-3 phone:grid phone:grid-cols-2">
+          <Select className="w-40 phone:w-full" aria-label="Filter by status" value={stateFilter} onChange={(e) => setStateFilter(e.target.value as StateFilter)}>
             <option value="all">All statuses</option>
             {(Object.keys(FOUNDATION_STATE_LABEL) as FoundationStateId[]).map((s) => <option key={s} value={s}>{FOUNDATION_STATE_LABEL[s]}</option>)}
             <option value="blocked">Blocked</option>
           </Select>
-          <Select className="w-36" aria-label="Filter by anchorage type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+          <Select className="w-36 phone:w-full" aria-label="Filter by anchorage type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
             <option value="all">All anchorage</option>
             {state.anchorageTypes.map((t) => <option key={t.id} value={t.code}>{t.code}</option>)}
           </Select>
           {!areaId && (
-            <Select className="w-44" aria-label="Filter by area" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
+            <Select className="w-44 phone:w-full phone:col-span-2" aria-label="Filter by area" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
               <option value="all">All areas</option>
               {state.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Select>
           )}
         </div>
-        <div className="flex items-center gap-3 lg:ml-auto"><AddFoundationButton projectId={projectId} areaId={areaId} />
+        {phone && <SortBar options={[{ key: 'number', label: 'Foundation' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />}
+        {phone && <Segmented label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />}
+        <div className="flex items-center gap-3 lg:ml-auto phone:[&>div[role=group]]:hidden"><AddFoundationButton projectId={projectId} areaId={areaId} />
         <div className="flex gap-1 text-[13px]" role="group" aria-label="Register view">
           {(['foundations', 'plinths'] as const).map((v) => (
             <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-nx px-3 py-1.5 capitalize transition-colors ${view === v ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{v}</button>
@@ -114,6 +119,8 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
 
       {!visible.length ? (
         <EmptyState title="No foundations match" description="Adjust the search or filters." />
+      ) : phone ? (
+        <RegisterCards view={view} visible={visible} plinthRows={plinthRows} open={open} toggleOpen={toggleOpen} projectId={projectId} areaId={areaId} />
       ) : view === 'foundations' ? (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left">
@@ -224,16 +231,73 @@ function PlinthDetail({ projectId, f, plinths, footingStatsLine }: { projectId: 
         const acts = plinthActivities(idx, p)
         const ps = plinthState(idx, p)
         return (
-          <div key={p.id} className="flex flex-wrap items-center gap-x-6 gap-y-1">
-            <Link to={paths.foundation(projectId, f, p.id)} className="w-24 font-medium underline-offset-4 hover:underline">Plinth {p.index}</Link>
+          <div key={p.id} className="flex flex-wrap items-center gap-x-6 gap-y-1 phone:gap-x-3 phone:border-t phone:border-line phone:py-3">
+            <Link to={paths.foundation(projectId, f, p.id)} className="w-24 font-medium underline-offset-4 hover:underline phone:flex phone:min-h-11 phone:items-center">Plinth {p.index}</Link>
             <span className="w-16">{p.anchorageTypeId ?? '—'}</span>
-            <span className="w-44 text-muted">{plinthStep(idx, p)}</span>
-            <span className="w-20 tabular-nums text-muted">{progressOf(idx, acts)}%</span>
+            <span className="w-44 text-muted phone:w-auto">{plinthStep(idx, p)}</span>
+            <span className="w-20 tabular-nums text-muted phone:w-auto">{progressOf(idx, acts)}%</span>
             <span className="text-muted">{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</span>
             <StatusBadge tone={ps.blocked ? 'bad' : ps.state === 'in-progress' ? 'info' : ps.state === 'not-started' ? 'muted' : 'ok'} label={ps.blocked ? 'Blocked' : FOUNDATION_STATE_LABEL[ps.state]} />
           </div>
         )
       })}
     </div>
+  )
+}
+
+
+/** Phone presentation of the register: one card per foundation (or plinth) with progress, status and the key counts; plinths expand in place. */
+function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId, areaId }: {
+  view: 'foundations' | 'plinths'; visible: Row[]; plinthRows: { r: Row; p: Plinth }[]; open: Set<string>; toggleOpen: (id: string) => void; projectId: string; areaId?: string
+}) {
+  const { idx } = useConstruction()
+  if (view === 'plinths') {
+    return (
+      <ul className="space-y-3" aria-label="Plinths">
+        {plinthRows.map(({ r, p }) => {
+          const acts = plinthActivities(idx, p)
+          const ps = plinthState(idx, p)
+          const progress = progressOf(idx, acts)
+          return (
+            <li key={p.id} className={`${CARD} p-4`}>
+              <div className="flex items-start justify-between gap-3">
+                <Link to={paths.foundation(projectId, r.f, p.id)} className="min-w-0 text-[18px] font-semibold">{r.f.number} · P{p.index}</Link>
+                <FoundationStateBadge state={ps.state} blocked={ps.blocked} />
+              </div>
+              <p className="mt-0.5 text-[14px] text-muted">{!areaId && `${r.area.name} · `}{p.anchorageTypeId ?? '—'} · {plinthStep(idx, p)}</p>
+              <div className="mt-3 flex items-center gap-3"><MeterBar value={progress} label={`${r.f.number} plinth ${p.index} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{progress}%</span></div>
+              <p className="mt-2 text-[13px] text-muted">Survey {fraction(tallyCategory(idx, acts, 'survey'))} · QA/QC {fraction(tallyCategory(idx, acts, 'qaqc'))} · {BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</p>
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+  return (
+    <ul className="space-y-3" aria-label="Foundations">
+      {visible.map((r) => {
+        const isOpen = open.has(r.f.id)
+        return (
+          <li key={r.f.id} className={`${CARD} p-4`}>
+            <div className="flex items-start justify-between gap-3">
+              <Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}</Link>
+              <FoundationStateBadge state={r.state.state} blocked={r.state.blocked} />
+            </div>
+            <p className="mt-0.5 text-[14px] text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}{!areaId && ` · ${r.area.name}`}</p>
+            <p className="text-[14px] text-muted">Anchorage {r.types.join(', ')} · {r.step}</p>
+            <div className="mt-3 flex items-center gap-3"><MeterBar value={r.stats.progress} label={`${r.f.number} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.stats.progress}%</span></div>
+            <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
+              {[['Survey', fraction(r.stats.survey)], ['QA/QC', fraction(r.stats.qaqc)], ['Bolts ready', `${r.stats.materialsReady.ready}/${r.stats.materialsReady.total}`]].map(([l, v]) => (
+                <div key={l} className="rounded-xl bg-canvas px-1 py-2"><dt className="text-[12px] text-muted">{l}</dt><dd className="text-[16px] font-medium tabular-nums">{v}</dd></div>
+              ))}
+            </dl>
+            <button type="button" onClick={() => toggleOpen(r.f.id)} aria-expanded={isOpen} className="mt-2 flex h-11 w-full items-center justify-between text-[15px] text-muted">
+              <span>Plinths ({r.plinths.length})</span><ChevronRight size={18} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {isOpen && <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />}
+          </li>
+        )
+      })}
+    </ul>
   )
 }

@@ -8,7 +8,7 @@ export function Section({ title, description, actions, children, className = '' 
           <h2 className="t-title">{title}</h2>
           {description && <p className="mt-0.5 max-w-2xl text-xs leading-snug text-muted">{description}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {children}
     </section>

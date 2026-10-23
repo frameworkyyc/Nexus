@@ -29,7 +29,7 @@ export function PurchaseOrders({ areaId }: { areaId?: string }) {
     <>
       <div className="mb-3 flex justify-end"><Button variant="primary" onClick={() => setReceiving('')}>Receive delivery</Button></div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] border-collapse text-left">
+        <table className="card-table w-full min-w-[860px] border-collapse text-left">
           <thead><tr className="border-b border-line"><th className="w-6" />{['PO', 'Supplier', 'Status', 'Issued', 'Expected', 'Ordered', 'Received', 'Receipt'].map((h) => <th key={h} className={th}>{h}</th>)}<th /></tr></thead>
           <tbody>
             {orders.map((po) => {
@@ -81,7 +81,7 @@ export function Deliveries() {
   const list = [...state.deliveries].sort((a, b) => b.receivedDate.localeCompare(a.receivedDate))
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-collapse text-left">
+      <table className="card-table w-full min-w-[760px] border-collapse text-left">
         <thead><tr className="border-b border-line"><th className="w-6" />{['Delivery', 'PO', 'Supplier', 'Received', 'Reference', 'Lines', 'Discrepancies'].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
         <tbody>
           {list.map((d) => {

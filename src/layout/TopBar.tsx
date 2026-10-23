@@ -1,12 +1,13 @@
 import { Menu } from 'lucide-react'
-import { Link, useMatches } from 'react-router-dom'
+import { Link, useMatches, type Params } from 'react-router-dom'
 import { tenant } from '@/app/tenant'
 import type { ComponentType } from 'react'
 import { SyncIndicator } from './SyncIndicator'
 
 /** Routes declare `handle: { crumb: Component }`; the top bar renders the chain. */
 export interface CrumbHandle {
-  crumb?: ComponentType
+  /** Receives the route's own params: a crumb must not rely on useParams(), which depends on where the top bar is rendered. */
+  crumb?: ComponentType<{ params: Params<string> }>
 }
 
 export function TopBar({ onMenu }: { onMenu: () => void }) {
@@ -24,7 +25,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
             return (
               <span key={m.id} className="flex items-center gap-2">
                 {i > 0 && <span className="text-neutral-300">/</span>}
-                {last ? <span className="font-medium"><Crumb /></span> : <Link to={m.pathname} className="text-muted transition-colors hover:text-ink"><Crumb /></Link>}
+                {last ? <span className="font-medium"><Crumb params={m.params} /></span> : <Link to={m.pathname} className="text-muted transition-colors hover:text-ink"><Crumb params={m.params} /></Link>}
               </span>
             )
           })}

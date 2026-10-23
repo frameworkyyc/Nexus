@@ -9,7 +9,7 @@ import type { Status } from '@/components/viz/status'
 export function Donut({ value, label, size = RING_SIZE, status = 'info' }: { value: number | null; label: string; size?: number; status?: Status }) {
   return (
     <Ring percent={value} status={value === null ? 'unknown' : status} size={size} label={value === null ? `${label}: not tracked` : `${label}: ${value}%`}>
-      {value === null ? <span className="text-xs text-muted">Not tracked</span> : <RingValue size={size} value={<>{value}<span className="text-[0.5em] text-muted">%</span></>} />}
+      {value === null ? <span className="text-xs text-muted">Not tracked</span> : <RingValue size={size} value={<>{value}<span className="text-[0.62em] text-muted">%</span></>} />}
     </Ring>
   )
 }

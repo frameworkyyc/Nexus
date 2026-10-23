@@ -114,7 +114,7 @@ export function ActivityTable({ activities }: { activities: Activity[] }) {
   const groups = CATEGORY_ORDER.map((c) => ({ c, items: activities.filter((a) => getDef(a.scope, a.key).category === c) })).filter((g) => g.items.length)
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[640px] border-collapse text-left">
+      <table className="card-table w-full min-w-[640px] border-collapse text-left">
         <thead>
           <tr className="border-b border-line">
             {['Activity', 'Status', 'Planned', 'Actual'].map((h) => <th key={h} className="t-label py-2 pr-4 font-medium">{h}</th>)}

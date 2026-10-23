@@ -18,7 +18,7 @@ export function AnchoragePage() {
     <>
       <PageHeader title="Anchorage type library" description="Each anchorage specification is defined once and referenced by any number of plinths. Values are demonstration data, not design data." />
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-left">
+        <table className="card-table w-full min-w-[720px] border-collapse text-left">
           <thead><tr className="border-b border-line"><th className="w-6" />{['Type', 'Anchor bolts per plinth', 'Hardware per plinth', 'Used by'].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
           <tbody>
             {state.anchorageTypes.map((t) => {

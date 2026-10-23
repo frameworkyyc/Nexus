@@ -16,7 +16,7 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 export function Input({ className = '', ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={`h-9 ${fill(className)} ${control} ${className}`} {...rest} />
+  return <input className={`h-9 phone:h-11 ${fill(className)} ${control} ${className}`} {...rest} />
 }
 
 export function Textarea({ className = '', ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -24,7 +24,7 @@ export function Textarea({ className = '', ...rest }: TextareaHTMLAttributes<HTM
 }
 
 export function Select({ className = '', ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={`h-9 ${fill(className)} ${control} ${className}`} {...rest} />
+  return <select className={`h-9 phone:h-11 ${fill(className)} ${control} ${className}`} {...rest} />
 }
 
 const compact =

@@ -218,7 +218,7 @@ function Quality({ projectId, areaId }: { projectId: string; areaId: string }) {
     <>
       <p className="mb-3 max-w-2xl text-xs leading-relaxed text-muted">Survey and QA/QC are separate processes: a completed survey does not mean an inspection is approved. Each cell counts the footing and every plinth for that activity.</p>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-left">
+        <table className="card-table w-full min-w-[720px] border-collapse text-left">
           <thead>
             <tr className="border-b border-line"><th className="t-label py-3 pr-4 font-medium">Foundation</th>
               {QUALITY_COLUMNS.map((c, i) => <th key={c.key} className={`t-label py-3 pr-4 font-medium ${i === 3 ? 'border-l border-line pl-4' : ''}`}>{c.label}</th>)}

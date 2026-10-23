@@ -1,6 +1,16 @@
 @import 'tailwindcss';
 
 /*
+ * "phone" = the mobile presentation: phones in portrait (<768px) and phones in landscape (short + touch). Tablets and desktops keep the
+ * existing layout. The same query drives the JS hook `useIsPhone` (lib/useMedia.ts), so CSS and component choices always agree.
+ */
+@custom-variant phone {
+  @media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+    @slot;
+  }
+}
+
+/*
  * Design tokens. Semantic names map to CSS variables so a future dark theme
  * only needs to override the :root values (e.g. under [data-theme='dark']).
  */
@@ -70,3 +80,115 @@ body {
 .t-title { font-size: 1.125rem; line-height: 1.5rem; font-weight: 500; letter-spacing: -0.01em; }
 .t-label { font-size: var(--text-micro); line-height: 1rem; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--nx-muted); }
 .t-metric { font-size: 2.25rem; line-height: 2.5rem; font-weight: 300; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+
+/* ── Phone presentation ─────────────────────────────────────────────────────────────────────────────────────────────────
+ * One mobile type scale and touch-target rule, applied to the existing utility classes so every screen inherits it. Desktop and
+ * tablet are untouched. Unlayered CSS intentionally wins over Tailwind's layered utilities.
+ *   body 16 · rows/secondary text 15 · supporting text 13 · labels 12 · page title 28 · card/section titles 18 · touch targets ≥44.
+ */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  :root { --nx-gutter: 16px; --nx-tap: 44px; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { font-size: 16px; line-height: 1.5; overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
+
+  .text-xs, .text-\[11px\], .text-\[12px\], .text-micro { font-size: 13px; line-height: 1.45; }
+  .text-\[13px\] { font-size: 15px; line-height: 1.45; }
+  .text-\[15px\] { font-size: 16px; }
+  .t-label { font-size: 12px; line-height: 1.3; letter-spacing: 0.06em; }
+  .t-display { font-size: 28px; line-height: 34px; }
+  .t-title { font-size: 18px; line-height: 24px; }
+  .t-metric { font-size: 32px; line-height: 38px; }
+
+  /* iOS Safari zooms the page when a focused field is under 16px, so fields are 16px and 44px tall. */
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px !important; min-height: var(--nx-tap); }
+  textarea { line-height: 1.4; }
+  input[type='checkbox'], input[type='radio'] { width: 22px; height: 22px; }
+  label:has(> input[type='checkbox']), label:has(> input[type='radio']) { min-height: var(--nx-tap); display: flex; align-items: center; gap: 10px; }
+
+  /* Touch targets: every button, tab, summary and menu item is at least 44px tall. Inline text links keep their line height. */
+  button, summary, [role='tab'], [role='menuitem'] { min-height: var(--nx-tap); }
+  button:not(.inline-flex):not(.flex):not(.grid):not(.block) { display: inline-flex; align-items: center; justify-content: center; }
+  [data-compact] button, button[data-compact] { min-height: 0; }
+}
+
+/* Safe areas (iPhone notch, Dynamic Island, home indicator). viewport-fit=cover is set in index.html. */
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.pl-safe { padding-left: env(safe-area-inset-left); }
+.pr-safe { padding-right: env(safe-area-inset-right); }
+
+/* Sheet motion (disabled for people who ask for reduced motion). */
+@keyframes nx-sheet-in { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@keyframes nx-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.nx-sheet { animation: nx-sheet-in 0.18s ease-out; }
+.nx-fade { animation: nx-fade-in 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .nx-sheet, .nx-fade { animation: none; } }
+
+/* Forms in a phone sheet: the primary action is a large floating button that stays reachable while the form scrolls. */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  [data-sheet-scroll] button[data-variant='primary']:last-child {
+    position: sticky; bottom: calc(12px + env(safe-area-inset-bottom)); width: 100%; min-height: 48px; font-size: 16px;
+    box-shadow: 0 8px 20px rgba(10, 10, 10, 0.28); z-index: 1;
+  }
+  [data-sheet-scroll] > div[class*='space-y'] { padding: 16px; }
+}
+
+/* Tables on a phone: each row is a card, each cell a "Label  value" line (labels come from the column headers, see cardTables.ts). */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  table.card-table, table.card-table > tbody { display: block; width: 100%; min-width: 0 !important; }
+  table.card-table > thead { display: none; }
+  table.card-table > tbody > tr {
+    display: block; margin: 0 0 12px; padding: 6px 16px; border: 0 !important; border-radius: 14px; background: var(--nx-surface);
+    box-shadow: 0 0 0 1px var(--nx-line);
+  }
+  table.card-table > tbody > tr:hover { background: var(--nx-surface); }
+  table.card-table > tbody > tr > td, table.card-table > tbody > tr > th {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; width: auto !important;
+    padding: 8px 0 !important; border: 0 !important; text-align: right; word-break: break-word;
+  }
+  table.card-table > tbody > tr > td + td { border-top: 1px solid var(--nx-line) !important; }
+  table.card-table > tbody > tr > td[data-label]::before {
+    content: attr(data-label); flex: 0 0 34%; max-width: 40%; text-align: left; font-size: 13px; line-height: 1.3; color: var(--nx-muted);
+  }
+  table.card-table > tbody > tr > td[data-empty] { display: none; }
+  /* The first cell is the card's title: full width, no label. */
+  table.card-table > tbody > tr > td:first-child { display: block; text-align: left; font-size: 16px; font-weight: 500; padding-top: 12px !important; }
+  table.card-table > tbody > tr > td:first-child::before { display: none; }
+  table.card-table > tbody > tr[data-wide] { padding: 0; background: transparent; box-shadow: none; }
+  table.card-table > tbody > tr[data-wide] > td { display: block; text-align: left; }
+  table.card-table input, table.card-table select { max-width: 60%; }
+}
+
+/* Stat rows on a phone: the divided desktop strip becomes a grid of readable summary cards. Detected by structure (a <dl> whose items
+ * hold a .t-metric), so every page that uses <Stat> or the same markup gets it without changes. */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  dl:has(> div > dd.t-metric) {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px !important; border: 0 !important; padding: 0 !important; margin-top: 0;
+  }
+  dl:has(> div:nth-child(3):last-child > dd.t-metric) { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px !important; }
+  dl:has(> div > dd.t-metric) > div {
+    min-width: 0; padding: 14px 16px !important; border: 0 !important; border-radius: 14px; background: var(--nx-surface); box-shadow: 0 0 0 1px var(--nx-line);
+  }
+  dl:has(> div:nth-child(3):last-child > dd.t-metric) > div { padding: 12px !important; }
+  dl:has(> div > dd.t-metric) > div > dd.t-metric { margin-top: 6px; }
+  dl:has(> div:nth-child(3):last-child > dd.t-metric) > div > dd.t-metric { font-size: 28px; line-height: 34px; }
+  dl:has(> div > dd.t-metric) > div:only-child, dl:has(> div > dd.t-metric) > div:nth-child(odd):last-child { grid-column: 1 / -1; }
+  dl:has(> div:nth-child(3):last-child > dd.t-metric) > div:nth-child(3) { grid-column: auto; }
+}
+
+/* Gauge cards on a phone (row layout): each gauge sits on its own card surface. */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  section[aria-label='Vehicle gauges'] > figure { padding: 14px 16px; border-radius: 16px; background: var(--nx-surface); box-shadow: 0 0 0 1px var(--nx-line); }
+}
+
+/* In-page jumps land below the sticky phone header. */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  main [id], main section { scroll-margin-top: calc(72px + env(safe-area-inset-top)); }
+}
+
+/* Stand-alone links (card titles, "All issues", unit numbers) are touch targets too. Links inside sentences, table cells and definition
+ * lists keep their line height so running text is not broken up. */
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  main a:not(:where(p, dd, dt, td, th, summary, label, [data-compact]) a) { min-height: var(--nx-tap); }
+  main a:not(:where(p, dd, dt, td, th, summary, label, [data-compact]) a):not(.block):not(.flex):not(.grid):not(.inline-flex):not(.inline-block):not(.hidden) { display: inline-flex; align-items: center; }
+}
