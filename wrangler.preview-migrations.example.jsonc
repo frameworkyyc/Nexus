@@ -1,0 +1,10 @@
+{
+  // Copy to wrangler.preview-migrations.jsonc (not committed) and fill in the STAGING database id, then:
+  //   npx wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc
+  // Must name the same database as previews.d1_databases in wrangler.jsonc. Never put a production id here.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nexus-migrations",
+  "d1_databases": [
+    { "binding": "PREVIEW_DB", "database_name": "nexus-staging", "database_id": "<STAGING_DATABASE_ID>", "migrations_dir": "migrations" }
+  ]
+}
