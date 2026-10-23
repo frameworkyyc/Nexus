@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { Check, X } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -90,7 +91,7 @@ export function AreaHandover({ areaId }: { areaId: string }) {
         </div>
       </div>
 
-      <Section title="Handover requirements" description="Placeholder checklist — the actual REEF handover requirements are not yet defined. Rename, remove or add items. Automatic items are calculated from the records.">
+      <Section title="Handover requirements" description={`Placeholder checklist — the actual ${identity.trackerName} handover requirements are not yet defined. Rename, remove or add items. Automatic items are calculated from the records.`}>
         <ul>
           {ev.items.map((i) => {
             const req = record.requirements.find((r) => r.id === i.id)!

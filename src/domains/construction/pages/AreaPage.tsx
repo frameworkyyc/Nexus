@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Disclosure } from '@/components/ui/Disclosure'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -194,7 +195,7 @@ function AreaMaterials({ projectId, areaId }: { projectId: string; areaId: strin
         </ul>
         <p className="mt-2 text-xs"><TextLink to={paths.anchorage(projectId)}>Open anchorage library</TextLink></p>
       </Section>
-      <Section title="Demonstration procurement data" description="Fictional bolt, hardware and purchase-order records, kept apart from the REEF tracker above and not included in its totals.">
+      <Section title="Demonstration procurement data" description={`Fictional bolt, hardware and purchase-order records, kept apart from the ${identity.trackerName} tracker above and not included in its totals.`}>
         <Disclosure summary={<span className="text-xs text-muted">Show demonstration data</span>}>
           <Section title="Anchor bolts" className="mt-0"><BoltTable projectId={projectId} areaId={areaId} /></Section>
           <Section title="Bulk hardware"><BulkTable areaId={areaId} /></Section>

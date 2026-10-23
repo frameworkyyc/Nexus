@@ -1,5 +1,6 @@
 import { Lock, X } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { MODULES } from '@/app/modules'
 import { useBackend } from '@/lib/dataSource'
 
@@ -65,7 +66,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           </ul>
         </nav>
-        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : 'Demonstration data · fictional records'}</div>
+        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'}</div>
       </aside>
     </>
   )

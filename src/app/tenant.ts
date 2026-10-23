@@ -1,5 +1,7 @@
 /** Organisation-level configuration for this demonstration tenant. */
+import { identity } from './identity'
+
 export const tenant = {
-  organization: 'Progressive',
-  userInitials: 'PC',
+  organization: identity.organization,
+  userInitials: identity.userInitials,
 }

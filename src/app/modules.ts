@@ -9,6 +9,8 @@ export interface NexusModule {
 }
 
 /** Single source of truth for navigation; enable a module by giving it a path and a route. */
+import { IS_PUBLIC_DEMO } from './bundle'
+
 export const MODULES: NexusModule[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid, path: '/' },
   { id: 'projects', label: 'Projects', icon: FolderKanban, path: '/projects' },
@@ -20,5 +22,6 @@ export const MODULES: NexusModule[] = [
   { id: 'operations', label: 'Operations', icon: Settings2 },
   { id: 'quality', label: 'Quality', icon: ClipboardCheck },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'data', label: 'Data & backups', icon: Database, path: '/data' },
+  // Saved-data tools (backups, moving browser data to a server) mean nothing in the public demo.
+  ...(IS_PUBLIC_DEMO ? [] : [{ id: 'data', label: 'Data & backups', icon: Database, path: '/data' }]),
 ]

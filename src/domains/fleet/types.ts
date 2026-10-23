@@ -155,7 +155,7 @@ export interface Accessory {
   name: string
   category: AccessoryCategory
   description: string
-  specification: string // capacity or specification, e.g. "750 L"
+  specification: string // capacity or specification, e.g. "500 L"
   cost: number | null
   warranty: string
   notes: string

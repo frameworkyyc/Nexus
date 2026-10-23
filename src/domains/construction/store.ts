@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { useCallback, useMemo } from 'react'
 import { useToast } from '@/components/ui/Toast'
 import { createPersistedStore } from '@/lib/createPersistedStore'
@@ -28,7 +29,7 @@ export function migrateConstruction(data: unknown, from: number): ConstructionSt
  * and activity records people have entered (nothing demonstrative). In demonstration mode they are the fictional seed, in this browser.
  */
 const constructionLocal = createPersistedStore({
-  key: 'nexus.demo.construction',
+  key: identity.storageKeys.construction,
   version: 2,
   seed: () => buildSeed(todayISO()),
   migrate: migrateConstruction,

@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { RotateCcw } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -9,7 +10,7 @@ import { resetDemoData, useConstruction } from '../store'
 
 export function ResetDemoButton() {
   const reset = () => {
-    if (window.confirm('Reset all REEF demonstration data to its original state? Your edits will be lost.')) resetDemoData()
+    if (window.confirm(`Reset all ${identity.trackerName} demonstration data to its original state? Your edits will be lost.`)) resetDemoData()
   }
   return (
     <Button variant="ghost" onClick={reset} className="h-8 whitespace-nowrap px-2">

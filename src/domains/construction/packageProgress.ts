@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { getDef, isConstructionCategory } from './config'
 import { effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
 import { linesForArea, materialsProgress } from './tracker/selectors'
@@ -34,7 +35,7 @@ export function materialsIndicator(idx: Index, areaId: string, tracker: TrackerS
   const lines = linesForArea(tracker, idx.state.areas, areaId)
   const basis = 'Verified received quantity against required quantity, averaged across the area’s material lines. Only receipts recorded in Nexus count: a “Delivered” status in the workbook is shown but does not raise the percentage. Ordered quantities are procurement only.'
   if (!lines.length) {
-    return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material tracker', value: tracker.meta ? 'No lines for this area' : 'Not imported' }], gaps: ['Import the REEF material tracker workbook to track materials. Demonstration material data is not counted.'] }
+    return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material tracker', value: tracker.meta ? 'No lines for this area' : 'Not imported' }], gaps: [`Import the ${identity.trackerName} material tracker workbook to track materials. Demonstration material data is not counted.`] }
   }
   const p = materialsProgress(lines)
   return {

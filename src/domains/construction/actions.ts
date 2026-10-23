@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { addDays, type ISODate } from '@/lib/date'
 import { blankActivitiesFor } from './blankActivities'
 import { getDef, isDone } from './config'
@@ -142,7 +143,7 @@ export const setBoltsReady = (plinthId: string, ready: boolean, today: ISODate):
 
 export const createPurchaseOrder = (supplierId: string, expectedDate: ISODate | null, notes: string, onCreate?: (id: string) => void): Reducer => (s) => {
   const id = nextId('po')
-  const number = `PO-928-${String(100 + s.purchaseOrders.length + 1).padStart(4, '0')}`
+  const number = `PO-${identity.numberStem}-${String(100 + s.purchaseOrders.length + 1).padStart(4, '0')}`
   const po: PurchaseOrder = { id, number, supplierId, status: 'draft', issuedDate: null, expectedDate, notes, lines: [] }
   onCreate?.(id)
   return ok({ ...s, purchaseOrders: [...s.purchaseOrders, po] })
@@ -254,7 +255,7 @@ export const setFabricationPlinths = (id: string, plinthIds: string[], today: IS
 
 export const createFabrication = (input: { areaId: string; anchorageTypeId: string; supplierId: string; quantity: number; plinthIds: string[] }, today: ISODate, onCreate?: (id: string) => void): Reducer => (s) => {
   const id = nextId('fab')
-  const number = `FAB-928-${String(s.fabrication.length + 1).padStart(3, '0')}`
+  const number = `FAB-${identity.numberStem}-${String(s.fabrication.length + 1).padStart(3, '0')}`
   const area = s.areas.find((a) => a.id === input.areaId)
   const designId = `DOC-${String(s.documents.length + 1).padStart(3, '0')}-${id.slice(-3)}`
   const request: FabricationRequest = {

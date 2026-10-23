@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
@@ -44,7 +45,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Import material tracker" onClose={onClose}>
       <div className="space-y-5 p-6 text-[13px]">
-        <p className="text-muted">Choose the REEF material tracker workbook (.xlsx). It is read in this browser and stored on this device only — it is not uploaded anywhere. The workbook needs a “Material List” sheet and an “Anchorage Type” sheet.</p>
+        <p className="text-muted">Choose the {identity.trackerName} material tracker workbook (.xlsx). It is read in this browser and stored on this device only — it is not uploaded anywhere. The workbook needs a “Material List” sheet and an “Anchorage Type” sheet.</p>
         <input ref={input} type="file" accept=".xlsx" className="sr-only" aria-label="Workbook file" onChange={(e) => choose(e.target.files?.[0])} />
         <Button onClick={() => input.current?.click()} disabled={busy}>{busy ? 'Reading…' : found ? 'Choose a different file' : 'Choose workbook'}</Button>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}

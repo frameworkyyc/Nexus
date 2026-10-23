@@ -1,3 +1,5 @@
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
+
 /** Thin client for the Nexus API. Errors say whether the outcome of the request is known. */
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code: string, /** true when the request may or may not have been applied (network loss, timeout, 5xx). */ public outcomeUnknown: boolean) { super(message) }
@@ -7,6 +9,8 @@ export class ApiError extends Error {
 const TIMEOUT_MS = 30_000
 
 export async function api<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  // The public demo has no server: it must never send a request, so visitors cannot reach (or be mistaken for) saved records.
+  if (IS_PUBLIC_DEMO) throw new ApiError('The public demo does not use a server.', 0, 'demo', false)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   let res: Response

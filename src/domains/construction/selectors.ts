@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
 import { formatShortDate } from '@/lib/format'
 import { FOOTING_ACTIVITIES, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
@@ -560,7 +561,7 @@ export function activityTitle(idx: Index, a: Activity): string {
 
 export const foundationPath = (projectId: string, f: Foundation) => `/projects/${projectId}/areas/${f.areaId}/foundations/${f.id}`
 
-export function deriveIssues(idx: Index, today: ISODate, projectId = 'reef'): Issue[] {
+export function deriveIssues(idx: Index, today: ISODate, projectId = identity.project.id): Issue[] {
   const issues: Issue[] = []
   const s = idx.state
   const soon = addDays(today, 14)

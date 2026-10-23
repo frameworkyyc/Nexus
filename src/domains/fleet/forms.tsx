@@ -299,7 +299,7 @@ export function AccessoryModal({ vehicle, accessory, onClose }: { vehicle: Vehic
         </div>
         <Field label="Description"><Input value={f.description} onChange={set('description')} /></Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Specification / capacity"><Input value={f.specification} onChange={set('specification')} placeholder="e.g. 750 L" /></Field>
+          <Field label="Specification / capacity"><Input value={f.specification} onChange={set('specification')} placeholder="e.g. 500 L" /></Field>
           <Field label="Cost (if known)"><Input inputMode="decimal" value={f.cost} onChange={set('cost')} placeholder="Not recorded" /></Field>
         </div>
         <Field label="Warranty"><Input value={f.warranty} onChange={set('warranty')} placeholder="Not recorded" /></Field>

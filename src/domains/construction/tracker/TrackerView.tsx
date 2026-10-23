@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -47,7 +48,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
     return (
       <EmptyState
         title="No material tracker imported"
-        description="Import the REEF material tracker workbook to track requirements, deliveries and receipts. It is read in this browser and stored on this device only."
+        description={`Import the ${identity.trackerName} material tracker workbook to track requirements, deliveries and receipts. It is read in this browser and stored on this device only.`}
         action={<ImportButton />}
       />
     )

@@ -2,7 +2,7 @@
   // Nexus — ONE Cloudflare Worker (`nexus`), two branches, same architecture as Studio29 and LaNoir.
   //
   //   Branch    Cloudflare build command   Deploy command         Served at
-  //   main      npm run build              npx wrangler deploy    nexus.frameworktools.ca          (production)
+  //   main      npm run build              npx wrangler deploy    nexus.frameworktools.ca          (public demo, fictional data)
   //   staging   npm run build              npx wrangler preview   staging.nexus.frameworktools.ca  (Worker Preview)
   //
   // `wrangler preview` publishes an isolated Preview named after the git branch ("staging"). It never
@@ -29,7 +29,10 @@
     // Only API calls reach the Worker.
     "run_worker_first": ["/api/*"]
   },
-  "vars": { "NEXUS_ENV": "production" },
+  // The main deployment is currently the PUBLIC DEMO: NEXUS_ENV "demo" switches the API off entirely (src/worker/api.ts), and there is no
+  // database binding or Access config here. When the main domain becomes the authenticated app, set this back to "production" and
+  // move the demo to demo.nexus.frameworktools.ca (docs/DEPLOYMENT.md).
+  "vars": { "NEXUS_ENV": "demo" },
   // Staging (Worker Preview) settings. Never point these at the production database.
   "previews": {
     "vars": {

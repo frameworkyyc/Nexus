@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -92,7 +93,7 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
       {rows.length > shown && (
         <div className="mt-4 flex justify-center"><Button onClick={() => setShown(shown + pageSize)}>Show {Math.min(pageSize, rows.length - shown)} more</Button></div>
       )}
-      <p className="mt-4 text-xs text-muted">Completion is calculated from activity records for projects with detailed tracking (such as REEF) and is the reported figure for the others. Status is always recorded by a person.</p>
+      <p className="mt-4 text-xs text-muted">Completion is calculated from activity records for projects with detailed tracking (such as {identity.trackerName}) and is the reported figure for the others. Status is always recorded by a person.</p>
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -20,7 +21,7 @@ function assignees(people: Person[], category: string): Person[] {
 function ActivityRow({ a }: { a: Activity }) {
   const { state, idx, today } = useConstruction()
   const { run } = useConstructionCommand()
-  const { projectId = 'reef' } = useParams()
+  const { projectId = identity.project.id } = useParams()
   const [open, setOpen] = useState(false)
   const [notes, setNotes] = useState(a.notes)
   const def = getDef(a.scope, a.key)

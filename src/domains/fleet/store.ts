@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { useMemo } from 'react'
 import { createPersistedStore } from '@/lib/createPersistedStore'
 import { createModuleStore, useSaver } from '@/lib/dataSource'
@@ -49,7 +50,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
  * it is shown as saved. Without one (demonstration mode, local development) they stay in this browser, as before.
  */
 const fleetLocal = createPersistedStore({
-  key: 'nexus.demo.fleet',
+  key: identity.storageKeys.fleet,
   version: 5,
   seed: buildFleetSeed,
   migrate: migrateFleet,

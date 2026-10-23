@@ -18,12 +18,16 @@ One Cloudflare Worker (`nexus`), two branches — the same setup as Studio29 and
 
 | Branch    | Cloudflare build command | Deploy command         | URL                          |
 |-----------|--------------------------|------------------------|------------------------------|
-| `main`    | `npm run build`          | `npx wrangler deploy`  | nexus.frameworktools.ca         |
+| `main`    | `npm run build`          | `npx wrangler deploy`  | nexus.frameworktools.ca (public demo, fictional data) |
 | `staging` | `npm run build`          | `npx wrangler preview` | staging.nexus.frameworktools.ca |
 
 `wrangler preview` publishes an isolated Worker Preview named after the branch (`staging`); it never touches
 the production deployment. `npm run deploy` (production) refuses to run from any branch except `main`.
 Work happens on `staging`; production changes reach `main` only by approved merge.
+
+`main` is currently the **public interactive demo** (fictional data kept in each visitor's browser, no server, no login). How that is
+kept free of real data, how staging must be protected, and how the demo moves to `demo.nexus.frameworktools.ca` are in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Architecture
 

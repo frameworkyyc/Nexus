@@ -1,47 +1,43 @@
+import { identity } from '@/app/identity'
+import { todayISO } from '@/lib/date'
+import { addSampleHistory } from './sampleHistory'
 import type { Accessory, FleetState, InspectionRecord, OdometerReading, ServiceTarget, TireSet, Vehicle, VehicleAssignment } from './types'
 
 /**
- * Demonstration seed. Only the four REEF vehicles supplied by the project coordinator are included.
- * VINs, plates, drivers, inspections and maintenance are intentionally empty (not recorded) rather than invented, and
- * assignment dates are null because they were not provided.
+ * Seed fleet. The units and the detailed figures for the primary unit come from `@/app/identity`: the real, supplied values in the
+ * authenticated app, and clearly fictional ones in the public demo build. Nothing beyond those figures is invented for real data
+ * (VINs, plates, drivers, inspections and maintenance stay empty); the public demo adds sample history relative to today.
  *
- * T6010 additionally carries the verified information supplied for it, and nothing beyond that: the odometer reading and
- * next-service mileage are undated, the tire size/condition/tread/studded status and the oil-change history are unrecorded,
- * and the next service is not assumed to be an oil change.
+ * The primary unit's next scheduled service is an oil change on a configured interval; its implied interval start is a calculated
+ * baseline only and no completed oil-change record is created for it. The next service is never assumed to be an oil change unless
+ * the identity says so.
  */
-const COMPANY_ID = 'progressive'
+const COMPANY_ID = identity.companyId
+const PRIMARY = identity.fleet.primary
 
-const UNITS: [unit: string, year: number, make: string, model: string][] = [
-  ['T6010', 2026, 'Ford', 'F-350'],
-  ['T6005', 2026, 'Ford', 'F-350'],
-  ['LV167', 2024, 'GMC', '3500'],
-  ['LV174', 2024, 'GMC', '3500'],
-]
+const UNITS = identity.fleet.units
+const PROJECT_ID = identity.project.id
 
-export const T6010_ID = 'veh-T6010'
-const VERIFIED_NOTE = 'Verified information supplied for this unit; date not recorded.'
+/** Kept under its original name: the primary unit has always been T6010 in the real data. */
+export const T6010_ID = `veh-${PRIMARY.unit}`
+const VERIFIED_NOTE = PRIMARY.note
 
 const t6010Odometer = (): OdometerReading => ({
-  id: 'odo-T6010-verified', vehicleId: T6010_ID, date: null, reading: 11_856, unit: 'km', review: 'valid', flag: null, correctsId: null, note: VERIFIED_NOTE, reviewNote: '', reviewedDate: null,
+  id: `odo-${PRIMARY.unit}-verified`, vehicleId: T6010_ID, date: null, reading: PRIMARY.odometerKm, unit: 'km', review: 'valid', flag: null, correctsId: null, note: VERIFIED_NOTE, reviewNote: '', reviewedDate: null,
 })
-/**
- * The next scheduled service for T6010 (13,551 km) is an oil change, with a 5,000 km interval; the 2,000 km warning window is the
- * configured threshold for the "approaching" (orange) state. The implied interval start (8,551 km) is a calculated baseline only:
- * no completed oil-change record is created for it.
- */
 const t6010Service = (): ServiceTarget => ({
-  id: 'svc-T6010-verified', vehicleId: T6010_ID, odometer: 13_551, setDate: null, note: VERIFIED_NOTE, serviceType: 'Oil change', warnWithinKm: 2_000, intervalKm: 5_000,
+  id: `svc-${PRIMARY.unit}-verified`, vehicleId: T6010_ID, odometer: PRIMARY.nextOilAtKm, setDate: null, note: VERIFIED_NOTE, serviceType: 'Oil change', warnWithinKm: PRIMARY.oilWarnWithinKm, intervalKm: PRIMARY.oilIntervalKm,
 })
 const t6010Tires = (): TireSet => ({
-  id: 'tire-T6010-1', vehicleId: T6010_ID, manufacturer: 'Bridgestone', model: 'Dueler A/T', size: null, classes: [], studded: 'unknown', origin: 'Original factory tires', active: true,
-  installDate: null, installOdometer: 0, removalDate: null, removalOdometer: null, condition: 'unknown', expectedLifeKm: 60_000, replaceAtMm: null, treads: [], notes: '',
+  id: `tire-${PRIMARY.unit}-1`, vehicleId: T6010_ID, manufacturer: PRIMARY.tire.manufacturer, model: PRIMARY.tire.model, size: null, classes: [], studded: 'unknown', origin: PRIMARY.tire.origin, active: true,
+  installDate: null, installOdometer: 0, removalDate: null, removalOdometer: null, condition: 'unknown', expectedLifeKm: PRIMARY.tire.lifeKm, replaceAtMm: null, treads: [], notes: '',
 })
 const t6010Tank = (): Accessory => ({
-  id: 'acc-T6010-tidy-tank', name: '750 L Tidy Tank', category: 'tidy-tank', description: '', specification: '750 L', cost: null, warranty: '', notes: '',
+  id: `acc-${PRIMARY.unit}-tidy-tank`, name: PRIMARY.accessory.name, category: 'tidy-tank', description: '', specification: PRIMARY.accessory.specification, cost: null, warranty: '', notes: '',
   placements: [{ vehicleId: T6010_ID, installDate: null, installOdometer: null, endDate: null, endOdometer: null, endReason: null, toVehicleId: null, note: '' }],
 })
 
-export const T6010_LIFESPAN_KM = 180_000
+export const T6010_LIFESPAN_KM = PRIMARY.lifespanKm
 
 /** The four Sunday sample inspections. Unverified by definition: no inspector, no results, no condition, no defects. */
 export const DEMO_INSPECTION_DATES = ['2026-09-27', '2026-10-04', '2026-10-11', '2026-10-18'] as const
@@ -57,14 +53,15 @@ export const demoInspections = (vehicleId: string): InspectionRecord[] => DEMO_I
 export function applyVerifiedT6010(s: FleetState): FleetState {
   if (!s.vehicles.some((v) => v.id === T6010_ID)) return s
   const mine = <T extends { vehicleId: string }>(xs: T[]) => xs.some((x) => x.vehicleId === T6010_ID)
-  const untouchedService = (t: ServiceTarget) => t.id === 'svc-T6010-verified' && t.serviceType === null && t.warnWithinKm === null && !t.intervalKm
+  const untouchedService = (t: ServiceTarget) => t.id === `svc-${PRIMARY.unit}-verified` && t.serviceType === null && t.warnWithinKm === null && !t.intervalKm
   return {
     ...s,
     vehicles: s.vehicles.map((v) => (v.id === T6010_ID && v.expectedLifeKm == null ? { ...v, expectedLifeKm: T6010_LIFESPAN_KM } : v)),
     odometer: mine(s.odometer) ? s.odometer : [...s.odometer, t6010Odometer()],
     serviceTargets: mine(s.serviceTargets) ? s.serviceTargets.map((t) => (t.vehicleId === T6010_ID && untouchedService(t) ? { ...t, ...t6010Service() } : t)) : [...s.serviceTargets, t6010Service()],
-    tireSets: mine(s.tireSets) ? s.tireSets.map((t) => (t.id === 'tire-T6010-1' && t.expectedLifeKm == null ? { ...t, expectedLifeKm: 60_000 } : t)) : [...s.tireSets, t6010Tires()],
-    inspections: mine(s.inspections) ? s.inspections : [...s.inspections, ...demoInspections(T6010_ID)],
+    tireSets: mine(s.tireSets) ? s.tireSets.map((t) => (t.id === `tire-${PRIMARY.unit}-1` && t.expectedLifeKm == null ? { ...t, expectedLifeKm: PRIMARY.tire.lifeKm } : t)) : [...s.tireSets, t6010Tires()],
+    // Real data: four labelled placeholder inspections for testing the interface. The public demo has full sample history instead.
+    inspections: mine(s.inspections) || identity.fleet.extras ? s.inspections : [...s.inspections, ...demoInspections(T6010_ID)],
     accessories: s.accessories.some((a) => a.placements.some((p) => p.vehicleId === T6010_ID)) ? s.accessories : [...s.accessories, t6010Tank()],
   }
 }
@@ -74,7 +71,8 @@ export function buildFleetSeed(): FleetState {
     id: `veh-${unitNumber}`, companyId: COMPANY_ID, unitNumber, year, make, model, vin: null, licencePlate: null, notes: '', expectedLifeKm: null, inspectionIntervalDays: null,
   }))
   const assignments: VehicleAssignment[] = vehicles.map((v) => ({
-    id: `asg-${v.unitNumber}-1`, vehicleId: v.id, projectId: 'reef', startDate: null, endDate: null,
+    id: `asg-${v.unitNumber}-1`, vehicleId: v.id, projectId: PROJECT_ID, startDate: null, endDate: null,
   }))
-  return applyVerifiedT6010({ vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [] })
+  const base = applyVerifiedT6010({ vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [] })
+  return identity.fleet.extras ? addSampleHistory(base, T6010_ID, todayISO()) : base
 }

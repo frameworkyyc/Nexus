@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useToast } from '@/components/ui/Toast'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { api, ApiError } from './api'
 import { commandOf } from './commandTag'
 import { todayISO } from './date'
@@ -35,6 +36,7 @@ const stores: ModuleStore<never>[] = []
 
 /** Decides the mode once at start-up, then loads the saved records. Never falls back to demo data silently while signed out. */
 export async function startBackend(): Promise<void> {
+  if (IS_PUBLIC_DEMO) { setBackend({ mode: 'demo', serverAvailable: false, reason: 'Public demo: sample data is kept in this browser only.' }); return }
   setBackend({ mode: 'checking', serverAvailable: false })
   const health = await api<{ database?: boolean; access?: boolean; environment?: string }>('GET', '/api/health').catch(() => null)
   if (!health || !health.database || !health.access) {

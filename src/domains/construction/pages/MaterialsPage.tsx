@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -17,11 +18,11 @@ export function MaterialsPage() {
   const server = useIsServer()
   return (
     <>
-      <PageHeader title="Materials" description="REEF material tracker: requirements by area, footing type and anchorage type, with delivery verified by recorded receipts." />
+      <PageHeader title="Materials" description={`${identity.trackerName} material tracker: requirements by area, footing type and anchorage type, with delivery verified by recorded receipts.`} />
       <MaterialTracker />
       {!server && (
         <div className="mt-16 border-t border-line">
-          <Disclosure summary={<span className="text-xs text-muted">Demonstration procurement data (fictional) — not part of the REEF tracker or its totals</span>}>
+          <Disclosure summary={<span className="text-xs text-muted">Demonstration procurement data (fictional) — not part of the {identity.trackerName} tracker or its totals</span>}>
             <DemoMaterials />
           </Disclosure>
         </div>

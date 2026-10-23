@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { constructionLocalStore } from '@/domains/construction/store'
 import { trackerLocalStore } from '@/domains/construction/tracker/store'
 import { fleetLocalStore } from '@/domains/fleet/store'
@@ -8,7 +9,7 @@ import type { MigrationBundle } from '@/worker/migrate'
  * be kept as a backup and, if it is real, moved to the server. The construction records in this browser are demonstration data:
  * they are included in the backup file for completeness but are never part of a migration.
  */
-export const LOCAL_KEYS = ['nexus.demo.fleet', 'nexus.reef.materialTracker', 'nexus.demo.construction'] as const
+export const LOCAL_KEYS = [identity.storageKeys.fleet, identity.storageKeys.tracker, identity.storageKeys.construction] as const
 
 export interface LocalSummary { fleet: { vehicles: number; odometer: number; inspections: number; tireSets: number; accessories: number; maintenance: number }; tracker: { lines: number; receipts: number; fileName: string | null }; hasData: boolean }
 
@@ -19,7 +20,7 @@ export function summarizeLocal(): LocalSummary {
   return {
     fleet: { vehicles: f.vehicles.length, odometer: f.odometer.length, inspections: f.inspections.length, tireSets: f.tireSets.length, accessories: f.accessories.length, maintenance: f.maintenance.length },
     tracker: { lines: t.lines.length, receipts: t.lines.reduce((s, l) => s + l.receipts.length, 0), fileName: t.meta?.fileName ?? null },
-    hasData: stored('nexus.demo.fleet') || stored('nexus.reef.materialTracker'),
+    hasData: stored(identity.storageKeys.fleet) || stored(identity.storageKeys.tracker),
   }
 }
 
@@ -41,8 +42,8 @@ export function fullBrowserBackup() {
 }
 
 export function clearBrowserCopy(modules: { fleet: boolean; materials: boolean }) {
-  if (modules.fleet) localStorage.removeItem('nexus.demo.fleet')
-  if (modules.materials) localStorage.removeItem('nexus.reef.materialTracker')
+  if (modules.fleet) localStorage.removeItem(identity.storageKeys.fleet)
+  if (modules.materials) localStorage.removeItem(identity.storageKeys.tracker)
 }
 
 export function download(filename: string, data: unknown) {

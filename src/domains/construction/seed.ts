@@ -1,3 +1,4 @@
+import { identity } from '@/app/identity'
 import { addDays } from '@/lib/date'
 import { DEFAULT_HANDOVER_REQUIREMENTS, FOOTING_ACTIVITIES, PLINTH_ACTIVITIES, getDef } from './config'
 import { effectiveStatus, getIndex } from './selectors'
@@ -10,8 +11,8 @@ import type {
 
 /**
  * Fictional demonstration data. Nothing here is verified project information.
- * From the brief: Mole Sieve 21-01 / 21-03 / 21-05 plinth 1 use OP1-02, and OP1-01 exists.
- * All other foundations, plinths, quantities, suppliers and dates are invented for the demo.
+ * Foundations, plinths, quantities, suppliers and dates are invented for the demo. Names, tags and codes that identify a real project
+ * come from `@/app/identity`, which the public demo build replaces with fictional equivalents.
  */
 
 const FOOT_SEQ = FOOTING_ACTIVITIES.map((d) => d.key) // layout … postInspection
@@ -19,62 +20,63 @@ const PLINTH_SEQ = PLINTH_ACTIVITIES.filter((d) => d.category !== 'materials').m
 
 type FoundationSeed = [number: string, description: string, plinths: string[], fStep: number, pSteps: number[]]
 
-const LAYOUT: Record<string, FoundationSeed[]> = {
-  'mole-sieve': [
-    ['21-01', 'Vessel pedestal', ['OP1-02'], 9, [8]],
-    ['21-02', 'Vessel pedestal', ['OP1-01', 'OP1-01'], 9, [8, 6]],
-    ['21-03', 'Skid support', ['OP1-02'], 9, [7]],
-    ['21-04', 'Piping support', ['OP1-01', 'OP1-03'], 8, [3, 1]],
-    ['21-05', 'Skid support', ['OP1-02'], 7, [0]],
-    ['21-06', 'Piping support', ['OP1-01'], 6, [0]],
-    ['21-07', 'Equipment support', ['OP1-03', 'OP1-03'], 5, [0, 0]],
-    ['21-08', 'Equipment support', ['OP1-02', 'OP1-01'], 3, [0, 0]],
-  ],
-  'propane-bog': [
-    ['22-01', 'Compressor foundation', ['OP2-01'], 9, [5]],
-    ['22-02', 'Compressor foundation', ['OP2-01', 'OP2-01'], 8, [2, 1]],
-    ['22-03', 'Vessel support', ['OP1-02'], 6, [0]],
-    ['22-04', 'Cooler support', ['OP2-02'], 4, [0]],
-    ['22-05', 'Pump foundation', ['OP2-01'], 3, [0]],
-    ['22-06', 'Piping support', ['OP1-02', 'OP2-02'], 2, [0, 0]],
-  ],
-  piperack: [
-    ['31-01', 'Pipe rack column', ['OP1-01'], 9, [6]],
-    ['31-02', 'Pipe rack column', ['OP1-01'], 9, [5]],
-    ['31-03', 'Pipe rack column', ['OP2-01'], 8, [3]],
-    ['31-04', 'Pipe rack column', ['OP2-01'], 7, [0]],
-    ['31-05', 'Braced frame column', ['OP2-02'], 6, [0]],
-    ['31-06', 'Braced frame column', ['OP2-02'], 6, [0]],
-    ['31-07', 'Braced frame column', ['OP2-02', 'OP1-01'], 5, [0, 0]],
-    ['31-08', 'Braced frame column', ['OP2-02'], 4, [0]],
-    ['31-09', 'Pipe rack column', ['OP2-01'], 3, [0]],
-    ['31-10', 'Braced frame column', ['OP2-02'], 2, [0]],
-    ['31-11', 'Pipe rack column', ['OP1-01', 'OP1-01'], 1, [0, 0]],
-    ['31-12', 'Braced frame column', ['OP2-02'], 0, [0]],
-  ],
-  'locomotive-shelter': [
-    ['41-01', 'Shelter column', ['OP3-01'], 6, [0]],
-    ['41-02', 'Shelter column', ['OP3-01'], 5, [0]],
-    ['41-03', 'Shelter column', ['OP3-01', 'OP3-01'], 3, [0, 0]],
-    ['41-04', 'Door frame support', ['OP1-01'], 2, [0]],
-    ['41-05', 'Door frame support', ['OP1-01'], 1, [0]],
-    ['41-06', 'Shelter column', ['OP3-01'], 0, [0]],
-  ],
-  'e-house': [
-    ['51-01', 'Building pier', ['OP3-01'], 2, [0]],
-    ['51-02', 'Cable tray support', ['OP1-01'], 1, [0]],
-    ['51-03', 'Building pier', ['OP3-01', 'OP1-01'], 0, [0, 0]],
-    ['51-04', 'Transformer pad support', ['OP1-01'], 0, [0]],
-  ],
-}
+/** Anchorage codes by role (see identity). */
+const [OP1_01, OP1_02, OP1_03, OP2_01, OP2_02, OP3_01] = identity.anchorageCodes
 
-const AREAS: [id: string, name: string][] = [
-  ['mole-sieve', 'Mole Sieve'],
-  ['propane-bog', 'Propane BOG'],
-  ['piperack', 'Piperack'],
-  ['locomotive-shelter', 'Locomotive Shelter'],
-  ['e-house', 'E-House'],
+/** One entry per area, in the same order as `identity.areas`. Tags are written with the first area's prefix style and re-prefixed per area below. */
+const LAYOUT: FoundationSeed[][] = [
+  [
+    ['21-01', 'Vessel pedestal', [OP1_02], 9, [8]],
+    ['21-02', 'Vessel pedestal', [OP1_01, OP1_01], 9, [8, 6]],
+    ['21-03', 'Skid support', [OP1_02], 9, [7]],
+    ['21-04', 'Piping support', [OP1_01, OP1_03], 8, [3, 1]],
+    ['21-05', 'Skid support', [OP1_02], 7, [0]],
+    ['21-06', 'Piping support', [OP1_01], 6, [0]],
+    ['21-07', 'Equipment support', [OP1_03, OP1_03], 5, [0, 0]],
+    ['21-08', 'Equipment support', [OP1_02, OP1_01], 3, [0, 0]],
+  ],
+  [
+    ['22-01', 'Compressor foundation', [OP2_01], 9, [5]],
+    ['22-02', 'Compressor foundation', [OP2_01, OP2_01], 8, [2, 1]],
+    ['22-03', 'Vessel support', [OP1_02], 6, [0]],
+    ['22-04', 'Cooler support', [OP2_02], 4, [0]],
+    ['22-05', 'Pump foundation', [OP2_01], 3, [0]],
+    ['22-06', 'Piping support', [OP1_02, OP2_02], 2, [0, 0]],
+  ],
+  [
+    ['31-01', 'Pipe rack column', [OP1_01], 9, [6]],
+    ['31-02', 'Pipe rack column', [OP1_01], 9, [5]],
+    ['31-03', 'Pipe rack column', [OP2_01], 8, [3]],
+    ['31-04', 'Pipe rack column', [OP2_01], 7, [0]],
+    ['31-05', 'Braced frame column', [OP2_02], 6, [0]],
+    ['31-06', 'Braced frame column', [OP2_02], 6, [0]],
+    ['31-07', 'Braced frame column', [OP2_02, OP1_01], 5, [0, 0]],
+    ['31-08', 'Braced frame column', [OP2_02], 4, [0]],
+    ['31-09', 'Pipe rack column', [OP2_01], 3, [0]],
+    ['31-10', 'Braced frame column', [OP2_02], 2, [0]],
+    ['31-11', 'Pipe rack column', [OP1_01, OP1_01], 1, [0, 0]],
+    ['31-12', 'Braced frame column', [OP2_02], 0, [0]],
+  ],
+  [
+    ['41-01', 'Shelter column', [OP3_01], 6, [0]],
+    ['41-02', 'Shelter column', [OP3_01], 5, [0]],
+    ['41-03', 'Shelter column', [OP3_01, OP3_01], 3, [0, 0]],
+    ['41-04', 'Door frame support', [OP1_01], 2, [0]],
+    ['41-05', 'Door frame support', [OP1_01], 1, [0]],
+    ['41-06', 'Shelter column', [OP3_01], 0, [0]],
+  ],
+  [
+    ['51-01', 'Building pier', [OP3_01], 2, [0]],
+    ['51-02', 'Cable tray support', [OP1_01], 1, [0]],
+    ['51-03', 'Building pier', [OP3_01, OP1_01], 0, [0, 0]],
+    ['51-04', 'Transformer pad support', [OP1_01], 0, [0]],
+  ],
 ]
+
+const AREAS = identity.areas
+const STEM = identity.numberStem
+/** `21-01` style tag for area `i`: the prefix comes from identity, the running number from the layout. */
+const tagOf = (areaIndex: number, layoutNumber: string) => `${identity.foundationPrefixes[areaIndex]}-${layoutNumber.slice(3)}`
 
 const SUPPLIERS: Supplier[] = [
   { id: 'sup-fast', name: 'Northcoast Fastener Co.', category: 'Fasteners' },
@@ -106,12 +108,12 @@ function anchorage(code: string, specId: string, bolts: number, size: string, nu
 }
 
 const ANCHORAGE_TYPES: AnchorageType[] = [
-  anchorage('OP1-01', 'BS-01', 8, '3/4"', 16, 8),
-  anchorage('OP1-02', 'BS-02', 12, '3/4"', 24, 12),
-  anchorage('OP1-03', 'BS-03', 8, '1"', 16, 8),
-  anchorage('OP2-01', 'BS-03', 12, '1"', 24, 12),
-  anchorage('OP2-02', 'BS-04', 12, '1"', 24, 12),
-  anchorage('OP3-01', 'BS-05', 8, '1-1/4"', 16, 8),
+  anchorage(OP1_01, 'BS-01', 8, '3/4"', 16, 8),
+  anchorage(OP1_02, 'BS-02', 12, '3/4"', 24, 12),
+  anchorage(OP1_03, 'BS-03', 8, '1"', 16, 8),
+  anchorage(OP2_01, 'BS-03', 12, '1"', 24, 12),
+  anchorage(OP2_02, 'BS-04', 12, '1"', 24, 12),
+  anchorage(OP3_01, 'BS-05', 8, '1-1/4"', 16, 8),
 ]
 
 const CREWS: Crew[] = [
@@ -148,7 +150,7 @@ export function buildSeed(today: ISODate): ConstructionState {
   let counter = 0
   const uid = (p: string) => `${p}-${++counter}`
 
-  const areas: Area[] = AREAS.map(([id, name], i) => ({ id, projectId: 'reef', name, sequence: i + 1 }))
+  const areas: Area[] = AREAS.map(([id, name], i) => ({ id, projectId: identity.project.id, name, sequence: i + 1 }))
   const foundations: Foundation[] = []
   const plinths: Plinth[] = []
   const activities: Activity[] = []
@@ -165,8 +167,9 @@ export function buildSeed(today: ISODate): ConstructionState {
   const footingSteps = new Map<string, number>()
   let n = 0
 
-  for (const area of areas) {
-    for (const [number, description, plinthTypes, fStep, pSteps] of LAYOUT[area.id]) {
+  for (const [areaIndex, area] of areas.entries()) {
+    for (const [layoutNumber, description, plinthTypes, fStep, pSteps] of LAYOUT[areaIndex]) {
+      const number = tagOf(areaIndex, layoutNumber)
       n++
       const off = n % 7
       const stagger = n * 2 // later foundations are scheduled further out
@@ -229,14 +232,14 @@ export function buildSeed(today: ISODate): ConstructionState {
   const fStepOf = (p: Plinth) => footingSteps.get(p.foundationId)!
 
   // One demonstration block: forming held by an unresolved site condition.
-  const blocked = activities.find((a) => a.id === 'f-21-08:formed')
+  const blocked = activities.find((a) => a.id === `f-${tagOf(0, '21-08')}:formed`)
   if (blocked) {
     blocked.status = 'blocked'
     blocked.notes = 'Forming held — underground utility locate not yet confirmed (demonstration note).'
   }
 
   // Placeholder inspection records for the most advanced area.
-  for (const f of foundations.filter((x) => x.areaId === 'mole-sieve')) {
+  for (const f of foundations.filter((x) => x.areaId === areas[0].id)) {
     const pre = activities.find((a) => a.id === `${f.id}:preInspection`)
     if (pre && pre.status === 'approved' && pre.actualDate) {
       const d = doc(`Pre-pour inspection record — ${f.number}`, 'inspection', '0', pre.actualDate)
@@ -252,9 +255,9 @@ export function buildSeed(today: ISODate): ConstructionState {
   const deliveries: Delivery[] = []
   const poLine = (poId: string, kind: POLine['kind'], itemId: string, qty: number): POLine => ({ id: `${poId}-L${itemId}`, kind, itemId, qtyOrdered: qty })
 
-  const po1: PurchaseOrder = { id: 'po-0101', number: 'PO-928-0101', supplierId: 'sup-fast', status: 'issued', issuedDate: addDays(today, -45), expectedDate: addDays(today, -21), notes: 'Anchor bolts — set 1 (demonstration)', lines: [] }
-  const po2: PurchaseOrder = { id: 'po-0102', number: 'PO-928-0102', supplierId: 'sup-steel', status: 'issued', issuedDate: addDays(today, -30), expectedDate: addDays(today, -6), notes: 'Anchor bolts — set 2 (demonstration)', lines: [] }
-  const po3: PurchaseOrder = { id: 'po-0103', number: 'PO-928-0103', supplierId: 'sup-steel', status: 'draft', issuedDate: null, expectedDate: null, notes: 'Top-up of 1" × 30" bolts — not yet issued', lines: [] }
+  const po1: PurchaseOrder = { id: 'po-0101', number: `PO-${STEM}-0101`, supplierId: 'sup-fast', status: 'issued', issuedDate: addDays(today, -45), expectedDate: addDays(today, -21), notes: 'Anchor bolts — set 1 (demonstration)', lines: [] }
+  const po2: PurchaseOrder = { id: 'po-0102', number: `PO-${STEM}-0102`, supplierId: 'sup-steel', status: 'issued', issuedDate: addDays(today, -30), expectedDate: addDays(today, -6), notes: 'Anchor bolts — set 2 (demonstration)', lines: [] }
+  const po3: PurchaseOrder = { id: 'po-0103', number: `PO-${STEM}-0103`, supplierId: 'sup-steel', status: 'draft', issuedDate: null, expectedDate: null, notes: 'Top-up of 1" × 30" bolts — not yet issued', lines: [] }
   purchaseOrders.push(po1, po2, po3)
 
   const received: Record<string, number> = {}
@@ -317,9 +320,9 @@ export function buildSeed(today: ISODate): ConstructionState {
   /* ── Bulk hardware (nuts & washers) ───────────────────────────────── */
   const bulkMaterials: BulkMaterial[] = []
   const bulkProfile: Record<string, { order: number; recv: number; poNo: string; expected: number }> = {
-    'mole-sieve': { order: 1, recv: 0.6, poNo: '0110', expected: 8 },
-    'propane-bog': { order: 1, recv: 0, poNo: '0111', expected: 3 },
-    piperack: { order: 1, recv: 1, poNo: '0112', expected: -10 },
+    [AREAS[0][0]]: { order: 1, recv: 0.6, poNo: '0110', expected: 8 },
+    [AREAS[1][0]]: { order: 1, recv: 0, poNo: '0111', expected: 3 },
+    [AREAS[2][0]]: { order: 1, recv: 1, poNo: '0112', expected: -10 },
   }
   for (const area of areas) {
     const areaPlinths = plinths.filter((p) => areaOfPlinth(p) === area.id)
@@ -335,11 +338,11 @@ export function buildSeed(today: ISODate): ConstructionState {
     }
     const profile = bulkProfile[area.id]
     const po: PurchaseOrder | null = profile
-      ? { id: `po-${profile.poNo}`, number: `PO-928-${profile.poNo}`, supplierId: 'sup-hw', status: 'issued', issuedDate: addDays(today, -28), expectedDate: addDays(today, profile.expected), notes: `${area.name} nuts and washers (demonstration)`, lines: [] }
+      ? { id: `po-${profile.poNo}`, number: `PO-${STEM}-${profile.poNo}`, supplierId: 'sup-hw', status: 'issued', issuedDate: addDays(today, -28), expectedDate: addDays(today, profile.expected), notes: `${area.name} nuts and washers (demonstration)`, lines: [] }
       : null
     const del: Delivery | null = po ? { id: `del-${po.id.slice(3)}`, number: `DEL-${po.id.slice(3)}`, poId: po.id, receivedDate: addDays(today, -14), reference: `HW-${po.id.slice(3)}`, receivedBy: 'Project Coordinator', notes: '', lines: [] } : null
     for (const c of combos.values()) {
-      const sample = area.id === 'mole-sieve' && c.kind === 'nut' && c.size === '3/4"'
+      const sample = area.id === AREAS[0][0] && c.kind === 'nut' && c.size === '3/4"'
       const requiredQty = sample ? 700 : Math.ceil((c.demand * 1.15) / 10) * 10
       const item: BulkMaterial = {
         id: `bm-${area.id}-${c.kind}-${c.size.replace(/\W/g, '')}`, areaId: area.id, kind: c.kind, size: c.size, requiredQty, sample,
@@ -387,7 +390,7 @@ export function buildSeed(today: ISODate): ConstructionState {
     const profile = advanced ? 'received' : rotation[nonReceived++ % rotation.length]
     const area = areas.find((a) => a.id === areaId)!
     const supplierId = seq % 2 ? 'sup-cnc' : 'sup-cnc2'
-    const number = `FAB-928-${String(seq).padStart(3, '0')}`
+    const number = `FAB-${STEM}-${String(seq).padStart(3, '0')}`
     const reusable = seq % 5 === 0 && members.length > 2
     const history: HistoryEntry[] = []
     const log = (daysAgo: number, text: string) => history.push({ id: `${number}-h${history.length + 1}`, date: addDays(today, -daysAgo), by: 'Project Coordinator', text })
@@ -434,22 +437,22 @@ export function buildSeed(today: ISODate): ConstructionState {
     return { id: uid('def'), areaId: f.areaId, foundationId: f.id, plinthId: null, title, severity, status, raised: addDays(today, -ago), closed: status === 'closed' ? addDays(today, -Math.max(1, ago - 5)) : null }
   }
   const deficiencies: Deficiency[] = [
-    defect('21-01', 'Minor surface honeycombing on east face — patch required', 'minor', 'open', 12),
-    defect('21-03', 'Anchor bolt projection outside tolerance — re-survey required', 'major', 'open', 6),
-    defect('22-01', 'Possible cold joint at pour interface — QC to confirm', 'minor', 'open', 9),
-    defect('31-01', 'Grout pad rework at column base', 'minor', 'closed', 20),
+    defect(tagOf(0, '21-01'), 'Minor surface honeycombing on east face — patch required', 'minor', 'open', 12),
+    defect(tagOf(0, '21-03'), 'Anchor bolt projection outside tolerance — re-survey required', 'major', 'open', 6),
+    defect(tagOf(1, '22-01'), 'Possible cold joint at pour interface — QC to confirm', 'minor', 'open', 9),
+    defect(tagOf(2, '31-01'), 'Grout pad rework at column base', 'minor', 'closed', 20),
   ]
 
   const handover: HandoverRecord[] = areas.map((a) => ({
     areaId: a.id,
     requirements: DEFAULT_HANDOVER_REQUIREMENTS.map((r, i) => ({ id: `${a.id}-req-${i + 1}`, label: r.label, metric: r.metric, done: false, doneDate: null, note: '' })),
     acceptance: 'not-submitted', submittedDate: null, acceptedDate: null, acceptedBy: '',
-    notes: 'Handover checklist is a placeholder until the REEF requirements are defined.',
+    notes: `Handover checklist is a placeholder until the ${identity.project.name} requirements are defined.`,
   }))
 
   const portfolio = buildPortfolio(today)
   const state: ConstructionState = {
-    company: { id: 'progressive', name: 'Progressive' },
+    company: { id: identity.companyId, name: identity.organization },
     projects: [REEF_PROJECT, ...portfolio.projects],
     projectIssues: portfolio.issues,
     areas, foundations, plinths, boltSpecs: BOLT_SPECS, anchorageTypes: ANCHORAGE_TYPES, bulkMaterials, suppliers: SUPPLIERS,
@@ -482,10 +485,10 @@ export function buildSeed(today: ISODate): ConstructionState {
 /* ── Company portfolio (fictional) ─────────────────────────────────────── */
 
 export const REEF_PROJECT: Project = {
-  id: 'reef', companyId: 'progressive', name: 'REEF', jobNumber: '928', client: 'Ridley Terminals Partners',
-  location: 'Ridley Island, British Columbia', scope: 'Concrete Foundations',
+  id: identity.project.id, companyId: identity.companyId, name: identity.project.name, jobNumber: identity.project.jobNumber, client: identity.project.client,
+  location: identity.project.location, scope: identity.project.scope,
   // Recorded status. Detailed issues are derived from the project's own records.
-  status: 'at-risk', statusNote: 'Anchor bolt delivery is late and one footing is blocked (recorded).',
+  status: 'at-risk', statusNote: identity.project.statusNote,
   tracking: 'detailed', reportedProgress: null,
 }
 
@@ -508,12 +511,12 @@ export function buildPortfolio(today: ISODate, count = STATUSES.length): { proje
   let job = 900
   for (let i = 0; i < count; i++) {
     job++
-    if (job === 928) job++
+    if (job === Number(identity.project.jobNumber)) job++
     const status = STATUSES[i % STATUSES.length]
     const reported = status === 'complete' ? 100 : status === 'planning' ? (i * 3) % 5 : status === 'on-hold' ? 38 : 15 + ((i * 17) % 62)
     const notes = NOTES[status]
     projects.push({
-      id: `p-${job}`, companyId: 'progressive', name: `${PLACES[i % PLACES.length]} ${WORKS[(i * 5) % WORKS.length]}`, jobNumber: String(job),
+      id: `p-${job}`, companyId: identity.companyId, name: `${PLACES[i % PLACES.length]} ${WORKS[(i * 5) % WORKS.length]}`, jobNumber: String(job),
       client: CLIENTS[(i * 3) % CLIENTS.length], location: `${PLACES[(i + 3) % PLACES.length]}, British Columbia`, scope: SCOPES[(i * 7) % SCOPES.length],
       status, statusNote: notes ? notes[i % notes.length] : '', tracking: 'summary', reportedProgress: reported,
     })
