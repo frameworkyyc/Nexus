@@ -3,7 +3,7 @@ import { addDays, type ISODate } from '@/lib/date'
 import { blankActivitiesFor } from './blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS, getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
-import { applyGroups, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
+import { applyBolts, applyGroups, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
 import type { TrackerState } from './tracker/types'
 import type {
   ProjectIssue, ProjectStatus, Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
@@ -411,7 +411,8 @@ export const createFoundation = (areaId: string, number: string, description: st
   const fresh = made.foundations.find((f) => f.id === foundation.id)!
   const withDims = { ...made, foundations: made.foundations.map((f) => (f.id === foundation.id ? { ...f, ...(config.footing ? { footing: config.footing } : {}), ...(config.plinthBase ? { plinthBase: config.plinthBase } : {}) } : f)) }
   const applied = config.groups ? applyGroups(withDims, { ...fresh }, config.groups) : withDims
-  return typeof applied === 'string' ? fail(applied) : ok(applied)
+  if (typeof applied === 'string') return fail(applied)
+  return ok(config.bolts ? applyBolts(applied, applied.foundations.find((f) => f.id === foundation.id)!, config.bolts) : applied)
 }
 
 /** Renames a foundation. Its id, plinths, activities and every material, survey and QA/QC record that points at it are unaffected. */

@@ -1,4 +1,4 @@
-import type { AnchorageComponent, ConstructionState } from '../types'
+import type { AnchorageComponent, ConstructionState, FoundationBolt } from '../types'
 import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, RequirementPart, TrackerLine, TrackerState } from './types'
 
 /**
@@ -8,7 +8,7 @@ import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, Requirement
  * anchorage, and a foundation design stands for `quantity` physical foundations, so a design with 3 plinths of type A and a quantity of 12
  * has 36 anchorages of type A. Totals are grouped by area and specification: the same item on many foundations is one requirement.
  */
-export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents'>>
+export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts'>>
 
 export interface Requirement {
   key: string
@@ -62,6 +62,9 @@ export function itemsOf(c: AnchorageComponent): Item[] {
   return [{ category, name: c.label.trim() || base, spec: [c.spec.trim(), hole, studs].filter(Boolean).join(', '), size: c.size.trim(), each: c.qty }]
 }
 
+/** A footing bolt as the anchorage component it is equivalent to (no anchorage type), so nuts, washers and the specification come out the same way. */
+export const boltAsComponent = (b: FoundationBolt): AnchorageComponent => ({ ...b, anchorageTypeId: '', kind: 'bolt', label: '', size: '' })
+
 /** Physical anchorages of each type on each foundation: the foundation's quantity times its plinths of that type. */
 export function anchorageInstances(c: RefSource) {
   const out: { foundationId: string; areaId: string; number: string; typeId: string; instances: number }[] = []
@@ -99,10 +102,26 @@ export function deriveRequirements(c: RefSource): Requirement[] {
       }
     }
   }
+  // Bolts installed directly in footings: footing quantity × bolts per footing. They join the same requirement as an identical specification from
+  // the Anchorage Library (same key), so a material is never listed twice.
+  for (const fb of c.foundationBolts ?? []) {
+    const f = c.foundations.find((x) => x.id === fb.foundationId)
+    const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
+    if (!f || !area) continue
+    const footings = f.quantity ?? 1
+    for (const it of itemsOf(boltAsComponent(fb))) {
+      const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+      const part = g.parts.find((p) => p.anchorageTypeId === '' && p.each === it.each)
+      if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: '', code: 'Footing', instances: footings, each: it.each })
+      g.required += it.each * footings
+      groups.set(key, g)
+    }
+  }
   return [...groups.values()].map((g) => {
     g.parts.sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true }))
     g.anchorageCodes = g.parts.map((p) => p.code)
-    g.expression = `${g.parts.map((p) => `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
+    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
     return g
   }).sort((a, b) => a.areaName.localeCompare(b.areaName, 'en') || a.category.localeCompare(b.category) || a.name.localeCompare(b.name) || a.spec.localeCompare(b.spec))
 }
@@ -205,7 +224,7 @@ export function refreshRequirements(s: TrackerState, c: RefSource | undefined, o
       id: r.id, origin: 'anchorage', deriveKey: r.key, breakdown: r.parts, source: { sheet: 'Anchorage library', row: 0 }, area: r.areaName, footingType: '', anchorageType: r.anchorageCodes.join(', '), footings: 0, plinths: 0, bolts: 0,
       component: r.name, category: r.category, requiredQty: r.required, calc: { kind: 'derived', formula: null, expression: r.expression, recomputed: r.required }, sourceStatus: '', sourceNotes: [],
       orderedQty: null, receipts: [], confirmedNoReceipts: false, notes: '', description: '', specification: r.spec, size: r.size, unit: 'ea', poRef: '', expectedDate: null, archived: false,
-      areaId: r.areaId, foundationId: null, anchorageTypeId: r.parts.length === 1 ? r.parts[0].anchorageTypeId : null, supplierId: null, supplier: '', createdAt: at, createdBy: '',
+      areaId: r.areaId, foundationId: null, anchorageTypeId: r.parts.length === 1 ? r.parts[0].anchorageTypeId || null : null, supplierId: null, supplier: '', createdAt: at, createdBy: '',
     }
     if (opts.log) log.push(entry(at, line, 'created', `Calculated from the anchorage library: ${r.required.toLocaleString('en-CA')} required (${r.expression})`))
     next.push(line)
@@ -230,6 +249,12 @@ export function expectedTotals(c: RefSource): Map<string, number> {
           const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
           out.set(key, (out.get(key) ?? 0) + footings * 1 * it.each)
         }
+      }
+    }
+    for (const b of (c.foundationBolts ?? []).filter((x) => x.foundationId === f.id)) {
+      for (const it of itemsOf(boltAsComponent(b))) {
+        const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+        out.set(key, (out.get(key) ?? 0) + footings * it.each)
       }
     }
   }

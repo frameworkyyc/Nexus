@@ -4,13 +4,25 @@ import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
 import { hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import type { AnchorageGroup, AnchorageType, Dims, Foundation, LengthUnit, Plinth } from '../types'
-import type { FoundationConfig, GroupInput } from '../configActions'
+import type { AnchorageGroup, AnchorageType, Dims, Foundation, FoundationBolt, LengthUnit, Plinth } from '../types'
+import type { FoundationConfig, FootingBoltInput, GroupInput } from '../configActions'
 
 /** Text-box state for a set of dimensions. */
 export interface DimsDraft { length: string; width: string; height: string; unit: LengthUnit }
 export interface GroupDraft { id?: string; typeId: string; count: string; dims: DimsDraft }
-export interface ConfigDraft { footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[] }
+/** Text-box state for one set of anchor bolts installed in each footing. */
+export interface BoltDraft {
+  id?: string; qty: string; diameter: string; length: string; lengthUnit: 'mm' | 'in'; thread: 'both-ends' | 'all-thread'; topThread: string; bottomThread: string; spec: string
+  nutsPerBolt: string; nutSize: string; washersPerBolt: string; washerSize: string
+}
+export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '' })
+const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize })
+const numOrNull = (t: string) => (t.trim() === '' ? null : Number(t))
+const boltInput = (d: BoltDraft): FootingBoltInput => ({
+  id: d.id, qty: Number(d.qty), diameter: d.diameter, length: numOrNull(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? numOrNull(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? numOrNull(d.bottomThread) : null,
+  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize,
+})
+export interface ConfigDraft { footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[]; bolts: BoltDraft[] }
 
 const num = (v: number | null) => (v === null ? '' : String(v))
 export const dimsDraft = (d: Dims | null | undefined, unit: LengthUnit = 'mm'): DimsDraft => ({ length: num(d?.length ?? null), width: num(d?.width ?? null), height: num(d?.height ?? null), unit: d?.unit ?? unit })
@@ -23,12 +35,12 @@ export function dimsFrom(d: DimsDraft, label: string): { dims: Dims | null } | {
 }
 
 /** A draft from what is stored. Plinths that predate groups are shown as one group per anchorage assignment. */
-export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: AnchorageGroup[]): ConfigDraft {
+export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: AnchorageGroup[], bolts: FoundationBolt[] = []): ConfigDraft {
   const mine = plinths.filter((p) => p.foundationId === f.id)
   const list: GroupDraft[] = groups.length
     ? groups.map((g) => ({ id: g.id, typeId: g.anchorageTypeId ?? '', count: String(g.count), dims: dimsDraft(g.dims) }))
     : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ typeId: t, count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null) }))
-  return { footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list }
+  return { footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, bolts: bolts.filter((b) => b.foundationId === f.id).map(boltDraft) }
 }
 
 /** Draft → the command's configuration, or what is wrong with it. */
@@ -43,7 +55,7 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
     if ('error' in dims) return dims
     groups.push({ id: g.id, anchorageTypeId: g.typeId || null, count, dims: dims.dims })
   }
-  return { config: { footing: foot.dims, plinthBase: d.plinthBase, groups } }
+  return { config: { footing: foot.dims, plinthBase: d.plinthBase, groups, bolts: (d.bolts ?? []).map(boltInput) } }
 }
 
 export const totalPlinthsOf = (d: ConfigDraft) => d.groups.reduce((t, g) => t + (Number.isInteger(Number(g.count)) && Number(g.count) > 0 ? Number(g.count) : 0), 0)
@@ -90,6 +102,7 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
   const setGroup = (i: number, patch: Partial<GroupDraft>) => onChange({ ...draft, groups: draft.groups.map((g, j) => (j === i ? { ...g, ...patch } : g)) })
   const taken = (i: number) => new Set(draft.groups.filter((_, j) => j !== i).map((g) => g.typeId))
   const total = totalPlinthsOf(draft)
+  const boltsPerFooting = (draft.bolts ?? []).reduce((t, b) => t + (Number.isInteger(Number(b.qty)) && Number(b.qty) > 0 ? Number(b.qty) : 0), 0)
   const norm = (c: string) => c.trim().replace(/\s+/g, ' ').toLowerCase()
   /** Picks the existing type with that code, or adds it to the project's library; the new type is selected in this group. Duplicates are never created. */
   const createType = async (i: number, code: string) => {
@@ -151,10 +164,50 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
         )}
       </fieldset>
 
+      <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
+        <legend className="t-label mb-1 p-0">Footing anchor bolts</legend>
+        <p className="text-xs text-muted">Bolts installed directly in each footing. No plinth or anchorage type is needed, and quantities are per footing. A foundation can have these, plinths, both or neither.</p>
+        {(draft.bolts ?? []).map((b, i) => <BoltCard key={b.id ?? `bolt-${i}`} index={i} value={b} onChange={(v) => onChange({ ...draft, bolts: draft.bolts.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...draft, bolts: draft.bolts.filter((_, j) => j !== i) })} />)}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Button onClick={() => onChange({ ...draft, bolts: [...(draft.bolts ?? []), blankBolt()] })}><Plus size={14} strokeWidth={1.5} />Add anchor bolts</Button>
+          {(draft.bolts ?? []).length > 0 && <p className="text-xs text-muted" aria-live="polite">Bolts per footing: <span className="font-medium text-ink">{boltsPerFooting}</span> · Total bolts: <span className="font-medium text-ink">{(boltsPerFooting * quantity).toLocaleString('en-CA')}</span> ({quantity.toLocaleString('en-CA')} × {boltsPerFooting})</p>}
+        </div>
+      </fieldset>
+
       <div aria-live="polite" className="rounded-nx bg-hover px-4 py-3 text-xs">
         <p className="t-label mb-1">Concrete</p>
         {preview === null ? <p className="text-muted">Enter dimensions to calculate concrete.</p> : typeof preview === 'string' ? <p className="text-muted">{preview}</p> : <ConcreteSummary c={preview} compact />}
       </div>
+    </div>
+  )
+}
+
+/** One set of anchor bolts per footing: size, thread layout, and the nuts and washers each bolt takes. */
+function BoltCard({ index, value: b, onChange, onRemove }: { index: number; value: BoltDraft; onChange: (v: BoltDraft) => void; onRemove: () => void }) {
+  const n = index + 1
+  const set = (patch: Partial<BoltDraft>) => onChange({ ...b, ...patch })
+  const grid = 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4'
+  return (
+    <div role="group" aria-label={`Anchor bolts ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
+      <div className={grid}>
+        <Field label="Bolts per footing *"><Input aria-label={`Bolts per footing ${n}`} inputMode="numeric" value={b.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
+        <Field label="Diameter *"><Input aria-label={`Bolt diameter ${n}`} value={b.diameter} onChange={(e) => set({ diameter: e.target.value })} placeholder={'e.g. M25 or 3/4"'} /></Field>
+        <Field label="Total length *"><Input aria-label={`Bolt length ${n}`} inputMode="decimal" value={b.length} onChange={(e) => set({ length: e.target.value })} placeholder="e.g. 900" /></Field>
+        <Field label="Length unit"><Select aria-label={`Length unit ${n}`} value={b.lengthUnit} onChange={(e) => set({ lengthUnit: e.target.value as 'mm' | 'in' })}><option value="mm">mm</option><option value="in">inches</option></Select></Field>
+      </div>
+      <div className={grid}>
+        <Field label="Thread"><Select aria-label={`Thread ${n}`} value={b.thread} onChange={(e) => set({ thread: e.target.value as BoltDraft['thread'] })}><option value="both-ends">Threaded both ends</option><option value="all-thread">All-thread</option></Select></Field>
+        {b.thread === 'both-ends' && <Field label={`Top thread (${b.lengthUnit})`}><Input aria-label={`Top thread ${n}`} inputMode="decimal" value={b.topThread} onChange={(e) => set({ topThread: e.target.value })} /></Field>}
+        {b.thread === 'both-ends' && <Field label={`Bottom thread (${b.lengthUnit})`}><Input aria-label={`Bottom thread ${n}`} inputMode="decimal" value={b.bottomThread} onChange={(e) => set({ bottomThread: e.target.value })} /></Field>}
+        <Field label="Grade / material"><Input aria-label={`Bolt grade ${n}`} value={b.spec} onChange={(e) => set({ spec: e.target.value })} placeholder="e.g. ASTM F1554 Gr.55" /></Field>
+      </div>
+      <div className={grid}>
+        <Field label="Nuts per bolt"><Input aria-label={`Nuts per bolt ${n}`} inputMode="numeric" value={b.nutsPerBolt} onChange={(e) => set({ nutsPerBolt: e.target.value })} /></Field>
+        <Field label="Nut size"><Input aria-label={`Nut size ${n}`} value={b.nutSize} onChange={(e) => set({ nutSize: e.target.value })} placeholder={b.diameter || 'Same as the bolt'} /></Field>
+        <Field label="Washers per bolt"><Input aria-label={`Washers per bolt ${n}`} inputMode="numeric" value={b.washersPerBolt} onChange={(e) => set({ washersPerBolt: e.target.value })} /></Field>
+        <Field label="Washer size"><Input aria-label={`Washer size ${n}`} value={b.washerSize} onChange={(e) => set({ washerSize: e.target.value })} placeholder={b.diameter || 'Same as the bolt'} /></Field>
+      </div>
+      <div className="flex justify-end"><Button variant="ghost" aria-label={`Remove anchor bolts ${n}`} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button></div>
     </div>
   )
 }

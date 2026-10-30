@@ -1,7 +1,7 @@
 import { blankActivitiesFor } from './blankActivities'
 import { dimsProblem, hasAnyDim } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, FoundationBolt, Plinth } from './types'
 
 const fail = (error: string) => ({ error }) as const
 const ok = (state: ConstructionState) => ({ state }) as const
@@ -10,7 +10,10 @@ export const MAX_PLINTHS = 100
 
 /** One kind of plinth as entered on the form. `id` names an existing group (so its plinths and records are kept); absent = a new group. */
 export interface GroupInput { id?: string; anchorageTypeId: string | null; count: number; dims?: Dims | null }
-export interface FoundationConfig { footing?: Dims | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[] }
+/** Anchor bolts installed in each footing, as entered on the form (a ComponentInput that is always a bolt). `id` names an existing entry; absent = new. */
+export type FootingBoltInput = Omit<ComponentInput, 'kind'>
+export const MAX_FOOTING_BOLTS = 10
+export interface FoundationConfig { footing?: Dims | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[] }
 
 export const groupsOf = (s: ConstructionState, foundationId: string): AnchorageGroup[] => (s.anchorageGroups ?? []).filter((g) => g.foundationId === foundationId)
 
@@ -29,6 +32,14 @@ export function configProblem(s: ConstructionState, f: Foundation, cfg: Foundati
   const bad = dimsProblem(cfg.footing, 'Footing')
   if (bad) return bad
   if (cfg.plinthBase !== undefined && cfg.plinthBase !== 'above-footing' && cfg.plinthBase !== 'from-footing-base') return 'Choose how plinth height is measured.'
+  if (cfg.bolts !== undefined) {
+    if (!Array.isArray(cfg.bolts) || cfg.bolts.length > MAX_FOOTING_BOLTS) return `A foundation can have up to ${MAX_FOOTING_BOLTS} anchor bolt configurations.`
+    for (const [i, b] of cfg.bolts.entries()) {
+      const p = componentProblem({ ...b, kind: 'bolt' }, i + 1)
+      if (p) return p.replace(/^Component \d+:/, `Anchor bolts ${i + 1}:`).replace('per anchorage', 'per footing')
+      if (b.id && !(s.foundationBolts ?? []).some((x) => x.id === b.id && x.foundationId === f.id)) return `Anchor bolts ${i + 1} no longer exist. Reload and try again.`
+    }
+  }
   if (!cfg.groups) return null
   const types = new Set<string | null>()
   let total = 0
@@ -124,6 +135,24 @@ export function applyGroups(s: ConstructionState, f: Foundation, inputs: GroupIn
   }
 }
 
+/** Sets a foundation's footing bolts to exactly `inputs`, keeping the id of any entry that is edited in place. */
+export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingBoltInput[]): ConstructionState {
+  const mine = (s.foundationBolts ?? []).filter((b) => b.foundationId === f.id)
+  const used = new Set((s.foundationBolts ?? []).map((b) => b.id))
+  const text = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
+  const next: FoundationBolt[] = []
+  for (const [i, b] of inputs.entries()) {
+    let id = b.id ?? ''
+    if (!id) { let n = mine.length + i + 1; id = `${f.id}-b${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-b${++n}` }
+    next.push({
+      id, foundationId: f.id, qty: b.qty, spec: text(b.spec, 120), diameter: text(b.diameter, 30), length: b.length as number, lengthUnit: b.lengthUnit === 'in' ? 'in' : 'mm',
+      thread: b.thread as 'both-ends' | 'all-thread', topThread: b.thread === 'both-ends' ? (b.topThread as number) : null, bottomThread: b.thread === 'both-ends' ? (b.bottomThread as number) : null,
+      nutsPerBolt: b.nutsPerBolt ?? 0, washersPerBolt: b.washersPerBolt ?? 0, nutSize: text(b.nutSize, 30), washerSize: text(b.washerSize, 30),
+    })
+  }
+  return { ...s, foundationBolts: [...(s.foundationBolts ?? []).filter((b) => b.foundationId !== f.id), ...next] }
+}
+
 /** Quantity can only fall to the highest physical foundation that has no pour records. */
 export function quantityBelowPours(s: ConstructionState, foundationId: string, quantity: number): string | null {
   const top = Math.max(0, ...(s.pourItems ?? []).filter((i) => i.foundationId === foundationId).map((i) => i.unit))
@@ -159,6 +188,7 @@ export const configureFoundation = (id: string, cfg: FoundationConfig & { descri
     if (typeof r === 'string') return fail(r)
     next = r
   }
+  if (cfg.bolts) next = applyBolts(next, next.foundations.find((x) => x.id === id)!, cfg.bolts)
   return ok(next)
 }
 

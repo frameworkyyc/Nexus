@@ -220,3 +220,44 @@ describe('migration 0015', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '15' })
   })
 })
+
+describe('footing anchor bolts on the server', () => {
+  it('are saved with the foundation, need no plinths, feed Materials and Procurement, and survive a backup', async () => {
+    const { db, aid } = await setup()
+    const fb = { qty: 4, diameter: '3/4"', length: 460, lengthUnit: 'mm', thread: 'all-thread', nutsPerBolt: 6, washersPerBolt: 2 }
+    expect((await cmd(db, 'editor@example.com', 'construction', 'createFoundation', [aid, 'FB-1', '', null, 7, { bolts: [fb] }])).status).toBe(403) // structure is admin-only, as before
+    expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'FB-1', '', null, 7, { bolts: [{ ...fb, diameter: '' }] }])).status).toBe(422)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'FB-1', '', null, 7, { bolts: [fb] }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT qty, diameter, length, thread, nuts_per_bolt, washers_per_bolt FROM foundation_bolts').all()).toEqual([{ qty: 4, diameter: '3/4"', length: 460, thread: 'all-thread', nuts_per_bolt: 6, washers_per_bolt: 2 }])
+    const fid = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'FB-1'").get() as { id: string }).id
+    expect((db.raw.prepare('SELECT COUNT(*) AS n FROM plinths WHERE foundation_id = ?').get(fid) as { n: number }).n).toBe(0) // no artificial plinth records
+    expect(count(db, 'plinths')).toBe(3) // OP-1's own three, unchanged
+    const m = await get(db, 'materials'); const c = await get(db, 'construction')
+    const rows = procurementRows(refreshRequirements(m, c, { log: false }), c)
+    expect(rows.find((r) => r.name === 'Anchor bolt' && /3\/4/.test(r.specification))).toMatchObject({ required: 28, status: 'pending' })
+    expect(rows.find((r) => r.name === 'Nut' && /3\/4/.test(r.specification))).toMatchObject({ required: 168 })
+    expect(rows.find((r) => r.name === 'Washer' && /3\/4/.test(r.specification))).toMatchObject({ required: 56 })
+    // editing the footing quantity moves the requirement; clearing the bolts removes it
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { quantity: 10 }])).status).toBe(200)
+    expect(procurementRows(refreshRequirements(m, await get(db, 'construction'), { log: false }), await get(db, 'construction')).find((r) => r.name === 'Anchor bolt' && /3\/4/.test(r.specification))!.required).toBe(40)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+    const backup = (await as(db, 'admin@example.com', 'GET', '/api/backup')).body
+    expect(backup.tables.foundation_bolts).toHaveLength(1)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [] }])).status).toBe(200)
+    expect(count(db, 'foundation_bolts')).toBe(0)
+  })
+})
+
+describe('migration 0016', () => {
+  it('adds the footing bolts table without touching foundations or materials', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql', '0013_sole_plate_center_hole.sql', '0014_embed_plate_headed_studs.sql', '0015_procurement.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    const before = [db.raw.prepare('SELECT * FROM foundations').all(), db.raw.prepare('SELECT * FROM manual_materials').all()]
+    applyMigrationFile(db.raw, '0016_footing_anchor_bolts.sql')
+    expect([db.raw.prepare('SELECT * FROM foundations').all(), db.raw.prepare('SELECT * FROM manual_materials').all()]).toEqual(before)
+    expect(count(db, 'foundation_bolts')).toBe(0)
+    expect(() => db.raw.exec("INSERT INTO foundation_bolts (id, foundation_id, qty, seq) VALUES ('b', 'missing', 1, 0)")).toThrow()
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '16' })
+  })
+})

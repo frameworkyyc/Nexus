@@ -326,3 +326,77 @@ describe('material labels', () => {
     void A1
   })
 })
+
+describe('anchor bolts installed directly in footings', () => {
+  const fbolt = (o: Record<string, unknown> = {}) => ({ qty: 4, diameter: '3/4"', length: 460, lengthUnit: 'mm' as const, thread: 'all-thread' as const, nutsPerBolt: 6, washersPerBolt: 2, ...o })
+  const find = (c: ConstructionState, area: string, cat: string, re?: RegExp) => consolidate(tracked(c), c).find((g) => g.area === area && g.category === cat && (!re || re.test(g.specification)))!
+
+  it('7 footings × 4 bolts = 28 bolts, with their nuts and washers, and no plinths or anchorage type', () => {
+    let { c, area } = staging()
+    const before = { plinths: c.plinths.length, groups: c.anchorageGroups?.length }
+    c = build(c, K.createFoundation(area, 'FB-1', '', null, 7, { bolts: [fbolt()] }))
+    const f = c.foundations.find((x) => x.number === 'FB-1')!
+    expect(c.plinths.length).toBe(before.plinths) // no artificial plinth records
+    expect(c.anchorageGroups?.length).toBe(before.groups)
+    expect(c.foundationBolts).toHaveLength(1)
+    // the identical 3/4" all-thread bolt in the staging OP1-D2 type merges into the same requirement
+    const bolts = find(c, 'E-House', 'bolt', /3\/4/)
+    expect(bolts.contributions.find((x) => x.foundationId === f.id)).toMatchObject({ qty: 28, anchorage: 'Footing', source: 'calculated' })
+    expect(bolts.required).toBe(36 + 28)
+    expect(find(c, 'E-House', 'nut', /3\/4/).required).toBe((36 + 28) * 6)
+    expect(find(c, 'E-House', 'washer', /3\/4/).required).toBe((36 + 28) * 2)
+    expect(consolidate(tracked(c), c).filter((g) => g.area === 'E-House' && g.category === 'bolt' && /3\/4/.test(g.specification))).toHaveLength(1) // one line, no duplicate
+    expect(bolts.lines[0].calc.expression).toMatch(/4 per footing × 7 footings/)
+    expect(bolts.lines[0].calc.expression).toMatch(/4 per anchorage × 9 OP1-D2/)
+  })
+
+  it('a foundation can have plinths, footing bolts, both or neither; several bolt configurations are kept', () => {
+    let { c, area } = staging()
+    c = build(c, K.createFoundation(area, 'NONE', '', null, 3, {}))
+    c = build(c, K.createFoundation(area, 'BOLTS', '', null, 2, { bolts: [fbolt(), fbolt({ qty: 2, diameter: '1"' })] }))
+    const both = c.anchorageTypes.find((t) => t.code === 'OP1-D2')!.id
+    c = build(c, K.createFoundation(area, 'BOTH', '', null, 5, { groups: [{ anchorageTypeId: both, count: 1 }], bolts: [fbolt({ qty: 1 })] }))
+    expect(c.foundationBolts!.filter((b) => b.foundationId === c.foundations.find((f) => f.number === 'BOLTS')!.id)).toHaveLength(2)
+    expect(c.plinths.filter((p) => p.foundationId === c.foundations.find((f) => f.number === 'BOLTS')!.id)).toHaveLength(0)
+    expect(find(c, 'E-House', 'bolt', /^1"/).required).toBe(2 * 2 + 4) // BOLTS 2 footings × 2, plus the OP1-D3 anchorage bolt
+    expect(find(c, 'E-House', 'bolt', /3\/4/).required).toBe(36 + 2 * 4 + 5 * 4 + 5 * 1) // OP1-D2 36, BOLTS 8, BOTH: 5 footings × (1 D2 anchorage × 4 + 1 footing bolt)
+    expect(find(c, 'E-House', 'nut').required).toBeGreaterThan(0)
+  })
+
+  it('is validated, and editing keeps ids, can clear bolts, and never touches plinths', () => {
+    let { c, area } = staging()
+    c = build(c, K.createFoundation(area, 'FB-2', '', null, 2, { bolts: [fbolt()] }))
+    const f = c.foundations.find((x) => x.number === 'FB-2')!
+    const err = (cfg: Record<string, unknown>) => K.configureFoundation(f.id, cfg as never)(c, {}).error
+    expect(err({ bolts: [fbolt({ diameter: '' })] })).toMatch(/Anchor bolts 1: .*diameter/)
+    expect(err({ bolts: [fbolt({ length: null })] })).toMatch(/length/)
+    expect(err({ bolts: [fbolt({ qty: 0 })] })).toMatch(/per footing/)
+    expect(err({ bolts: [fbolt({ thread: 'both-ends', topThread: 400, bottomThread: 100 })] })).toMatch(/longer than the bolt/)
+    expect(err({ bolts: Array.from({ length: 11 }, () => fbolt()) })).toMatch(/up to 10/)
+    const id = c.foundationBolts![0].id
+    c = build(c, K.configureFoundation(f.id, { bolts: [{ ...fbolt({ qty: 6 }), id }] }))
+    expect(c.foundationBolts!.find((b) => b.foundationId === f.id)).toMatchObject({ id, qty: 6 })
+    expect(find(c, 'E-House', 'bolt', /3\/4/).contributions.find((x) => x.foundationId === f.id)!.qty).toBe(12)
+    const plinths = c.plinths.length
+    c = build(c, K.configureFoundation(f.id, { quantity: 5 }))
+    expect(find(c, 'E-House', 'bolt', /3\/4/).contributions.find((x) => x.foundationId === f.id)!.qty).toBe(30) // follows the footing quantity
+    c = build(c, K.configureFoundation(f.id, { bolts: [] }))
+    expect(c.foundationBolts!.some((b) => b.foundationId === f.id)).toBe(false)
+    expect(c.plinths.length).toBe(plinths)
+  })
+
+  it('an independent recount agrees, Procurement matches, and orders survive a bolt change', () => {
+    let { c, area } = staging()
+    c = build(c, K.createFoundation(area, 'FB-3', '', null, 7, { bolts: [fbolt()] }))
+    let t = tracked(c)
+    const expected = expectedTotals(c)
+    for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
+    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && /3\/4/.test(r.specification))!
+    expect(row().required).toBe(64)
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-FB', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 64 }] }, TODAY))
+    const f = c.foundations.find((x) => x.number === 'FB-3')!
+    c = build(c, K.configureFoundation(f.id, { quantity: 10 }))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    expect(row()).toMatchObject({ required: 76, ordered: 64, toOrder: 12 })
+  })
+})

@@ -39,7 +39,7 @@ function previewOf(draft: ConfigDraft, run: (cfg: FoundationConfig) => { state?:
   const cfg = configFromDraft(draft)
   if ('error' in cfg) return cfg.error
   if (!cfg.config.footing && (cfg.config.groups ?? []).every((g) => !g.dims)) return null
-  const r = run(cfg.config)
+  const r = run({ ...cfg.config, bolts: undefined }) // bolts do not affect concrete; an unfinished bolt entry must not hide the calculation
   if (r.error !== undefined || !r.state) return r.error ?? null
   const f = pick(r.state)
   return f ? foundationConcrete(f, r.state.plinths, (r.state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)) : null
@@ -71,7 +71,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
   const [number, setNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [description, setDescription] = useState('')
-  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [] })
+  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], bolts: [] })
   const [bulk, setBulk] = useState('')
   const types = state.anchorageTypes.filter((t) => t.projectId === projectId)
   const [problem, setProblem] = useState('')
@@ -225,8 +225,8 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [description, setDescription] = useState(f?.description ?? '')
   const [notes, setNotes] = useState(f?.notes ?? '')
   const [quantity, setQuantity] = useState(String(f ? foundationQuantity(f) : 1))
-  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)) : null))
-  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id))
+  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? []) : null))
+  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   if (!f || !draft) return null

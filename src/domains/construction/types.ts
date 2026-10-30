@@ -178,6 +178,26 @@ export interface AnchorageComponent {
   studLength?: number | null
 }
 
+/** Anchor bolts installed directly in each footing of a foundation: no plinth or anchorage type involved. Quantities are per footing. */
+export interface FoundationBolt {
+  id: string
+  foundationId: string
+  /** Bolts per footing. */
+  qty: number
+  /** Grade / material. */
+  spec: string
+  diameter: string
+  length: number | null
+  lengthUnit: 'mm' | 'in'
+  thread: 'both-ends' | 'all-thread' | null
+  topThread: number | null
+  bottomThread: number | null
+  nutsPerBolt: number
+  washersPerBolt: number
+  nutSize: string
+  washerSize: string
+}
+
 /* ── Anchorage library & material specifications ───────────────────────── */
 
 export interface BoltSpec {
@@ -411,6 +431,7 @@ export interface ConstructionState {
   plinths: Plinth[]
   /** Optional so older saved data and the demo still load; treat absent as empty. */
   anchorageGroups?: AnchorageGroup[]
+  foundationBolts?: FoundationBolt[]
   /** Components and specifications of each anchorage type. Optional so older data still loads. */
   anchorageComponents?: AnchorageComponent[]
   pours?: Pour[]

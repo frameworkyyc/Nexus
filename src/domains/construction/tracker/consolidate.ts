@@ -1,6 +1,6 @@
 import type { ConstructionState } from '../types'
 import { areaIdFor, CATEGORY_LABEL, CATEGORY_ORDER, allLines } from './selectors'
-import { anchorageInstances, itemsOf, type RefSource } from './requirements'
+import { anchorageInstances, boltAsComponent, itemsOf, type RefSource } from './requirements'
 import type { ComponentCategory, GroupRef, TrackerLine, TrackerState } from './types'
 
 /**
@@ -52,6 +52,17 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
         if (existing) existing.qty += qty
         else out.push({ lineId: l.id, source: 'calculated', foundationId: i.foundationId, foundation: foundationOf.get(i.foundationId)?.number ?? i.number, anchorageTypeId: i.typeId, anchorage: typeOf.get(i.typeId)?.code ?? '', qty })
       }
+    }
+  }
+  for (const fb of c.foundationBolts ?? []) {
+    const f = foundationOf.get(fb.foundationId)
+    if (!f || f.archived) continue
+    for (const it of itemsOf(boltAsComponent(fb))) {
+      if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
+      const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === null)
+      const qty = it.each * (f.quantity ?? 1)
+      if (existing) existing.qty += qty
+      else out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: f.number, anchorageTypeId: null, anchorage: 'Footing', qty })
     }
   }
   return out
