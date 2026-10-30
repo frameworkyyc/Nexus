@@ -210,10 +210,33 @@ export function PlanningModal({ vehicle, onClose }: { vehicle: Vehicle; onClose:
 }
 
 export function VehicleEditModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
-  const { run, saving } = useFleetCommand()
+  const { state } = useFleet()
   const [f, setF] = useState({ unitNumber: vehicle.unitNumber, year: String(vehicle.year), make: vehicle.make, model: vehicle.model, vin: vehicle.vin ?? '', licencePlate: vehicle.licencePlate ?? '', notes: vehicle.notes })
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
-  const save = () => { run(A.updateVehicle(vehicle.id, { ...f, year: Number(f.year) }), onClose)}
+  const unit = meterUnitOf(state, vehicle.id)
+  const locked = state.odometer.some((r) => r.vehicleId === vehicle.id) || state.serviceTargets.some((t) => t.vehicleId === vehicle.id)
+  const cats = categoriesOf(state).filter((c) => !c.archived || c.id === vehicle.categoryId)
+  const [category, setCategory] = useState(vehicle.categoryId ?? '')
+  const [meter, setMeter] = useState<MeterUnit>(unit)
+  const chosen = categoriesOf(state).find((c) => c.id === category)
+  const defaultLife = chosen && chosen.defaultLife !== null && chosen.meterUnit === meter ? chosen.defaultLife : null
+  const [custom, setCustom] = useState(vehicle.expectedLifeKm !== null || defaultLife === null)
+  const [life, setLife] = useState(vehicle.expectedLifeKm === null ? '' : String(vehicle.expectedLifeKm))
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const useCustom = custom || defaultLife === null
+  const save = async () => {
+    setBusy(true); setError('')
+    const steps = [
+      () => fleetStore.run(A.updateVehicle(vehicle.id, { ...f, year: Number(f.year) })),
+      ...(meter !== unit ? [() => fleetStore.run(A.setVehicleMeterUnit(vehicle.id, meter))] : []),
+      ...(category !== (vehicle.categoryId ?? '') ? [() => fleetStore.run(A.setVehicleCategory(vehicle.id, category || null))] : []),
+      // Using the category default stores no estimate on the asset, so it follows the default if that changes. The inspection interval is kept as it is.
+      () => fleetStore.run(A.setVehiclePlanning(vehicle.id, { expectedLifeKm: useCustom ? numOrNull(life) : null, inspectionIntervalDays: vehicle.inspectionIntervalDays })),
+    ]
+    for (const step of steps) { const e = await step(); if (e) { setError(e); setBusy(false); return } }
+    setBusy(false); onClose()
+  }
   return (
     <Modal title={`Edit ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
@@ -226,7 +249,33 @@ export function VehicleEditModal({ vehicle, onClose }: { vehicle: Vehicle; onClo
           <Field label="Licence plate"><Input value={f.licencePlate} onChange={set('licencePlate')} placeholder="Not recorded" /></Field>
         </div>
         <Field label="Notes"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
-        <Button variant="primary" disabled={saving} onClick={save}>Save changes</Button>
+
+        <fieldset className="space-y-3 border-t border-line pt-4">
+          <legend className="t-label">Lifespan</legend>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Category">
+              <Select aria-label="Category" value={category} onChange={(e) => { setCategory(e.target.value); const c = categoriesOf(state).find((x) => x.id === e.target.value); if (c && !locked) setMeter(c.meterUnit) }}>
+                <option value="">No category</option>
+                {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Counts">
+              <Select aria-label="Meter unit" value={meter} disabled={locked} onChange={(e) => setMeter(e.target.value as MeterUnit)}><option value="km">Kilometres</option><option value="h">Operating hours</option></Select>
+            </Field>
+          </div>
+          {locked && <p className="-mt-1 text-xs text-muted">The unit is fixed once readings or schedules are recorded.</p>}
+          <div role="radiogroup" aria-label="Lifespan source" className="space-y-1 text-[13px]">
+            <label className={`flex min-h-9 items-center gap-2 phone:min-h-11 ${defaultLife === null ? 'text-muted' : ''}`}>
+              <input type="radio" name="life-source" className="h-4 w-4 phone:h-6 phone:w-6" checked={!useCustom} disabled={defaultLife === null} onChange={() => setCustom(false)} />
+              {defaultLife !== null ? `Use the ${chosen!.name} default (${fmtMeter(defaultLife, meter)})` : category ? `No default set for ${chosen?.name ?? 'this category'}` : 'Use the category default (choose a category)'}
+            </label>
+            <label className="flex min-h-9 items-center gap-2 phone:min-h-11"><input type="radio" name="life-source" className="h-4 w-4 phone:h-6 phone:w-6" checked={useCustom} onChange={() => setCustom(true)} />Enter a custom lifespan for this vehicle</label>
+          </div>
+          {useCustom && <Field label={`Estimated lifespan (${meter === 'h' ? 'operating hours' : 'km'})`}><Input aria-label="Estimated lifespan" inputMode="numeric" value={life} onChange={(e) => setLife(e.target.value)} placeholder="Not set" /></Field>}
+          <p className="text-xs text-muted">A planning estimate only: reaching it never marks the vehicle unsafe. Category defaults are managed in Fleet settings.</p>
+        </fieldset>
+        {error && <p role="alert" className="text-status-bad">{error}</p>}
+        <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</Button>
       </Body>
     </Modal>
   )

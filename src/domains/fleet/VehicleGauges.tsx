@@ -88,10 +88,10 @@ export function VehicleGauges({ state, vehicle, today, projectName, handlers, qu
       <MaintenanceAlerts items={alerts} />
 
       <section aria-label="Vehicle gauges" className={`mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 ${row ? 'mt-6 gap-3' : 'gap-x-6 gap-y-10 lg:gap-x-4 xl:gap-x-8'} [&>*]:min-w-0`}>
-        <RadialGauge {...g} title="Vehicle Lifespan" word={life.remainingPercent === null} percent={life.remainingPercent} status={life.status} statusLabel={life.label}
-          value={life.remainingPercent !== null ? pct(life.remainingPercent) : 'Unknown'}
-          unit={life.remainingKm !== null ? (life.remainingKm >= 0 ? `${km(life.remainingKm)} remaining` : `${km(-life.remainingKm)} beyond`) : life.expectedKm === null ? 'No estimate set' : `No valid ${unit === 'h' ? 'hour reading' : 'odometer'}`}
-          detail={life.expectedKm !== null && <div>Planning estimate: {km(life.expectedKm)} · {life.source === 'asset' ? 'set for this asset' : `${life.categoryName ?? 'category'} default`}</div>} onSelect={() => jump('overview')}
+        <RadialGauge {...g} title="Vehicle Lifespan" word={life.consumedPercent === null} percent={life.consumedPercent} status={life.status} statusLabel={life.label}
+          value={life.consumedPercent !== null ? pct(life.consumedPercent) : 'Unknown'}
+          unit={life.remainingKm !== null ? (life.remainingKm >= 0 ? `used · ${km(life.remainingKm)} remaining` : `used · ${km(-life.remainingKm)} beyond`) : life.expectedKm === null ? 'No estimate set' : `No valid ${unit === 'h' ? 'hour reading' : 'odometer'}`}
+          detail={life.expectedKm !== null && <div>Estimate: {km(life.expectedKm)} · {life.source === 'asset' ? 'set for this vehicle' : `${life.categoryName ?? 'category'} default`}</div>} onSelect={() => jump('overview')}
           actions={edit && <button className={act} onClick={edit.lifespan}>Lifespan settings</button>} />
         <DistanceGauge row={row} title="Oil Change" ind={oil} noSchedule="No schedule recorded" onSelect={() => jump('maintenance')}
           actions={edit && <><button className={act} onClick={edit.oilTarget}>{oil.schedule ? 'Update next oil change' : 'Set next oil change'}</button><button className={act} onClick={edit.oilRecord}>Record oil change</button></>} />
