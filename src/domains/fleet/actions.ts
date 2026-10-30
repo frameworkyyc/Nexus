@@ -1,6 +1,7 @@
 import type { ISODate } from '@/lib/date'
 import { accessoryTypeKey, cleanTypeName, typesOf } from './accessoryTypes'
-import type { Accessory, AccessoryType, AccessoryPlacement, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, RatedCondition, Studded, TireClass, TireCondition, TireSet, TreadMeasurement, Vehicle } from './types'
+import { categoriesOf, categoryKey, cleanCategoryName, fmtMeter, meterUnitOf, UNIT_NAME, validMeter } from './meter'
+import type { Accessory, AccessoryType, MeterUnit, AccessoryPlacement, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, RatedCondition, Studded, TireClass, TireCondition, TireSet, TreadMeasurement, Vehicle } from './types'
 import { countsAsCurrent, currentAssignment, currentOilTarget, currentServiceTarget, isOilChange, latestOdometer, odometerHistory } from './selectors'
 
 export type Result = { state: FleetState; error?: undefined } | { error: string; state?: undefined }
@@ -30,7 +31,7 @@ export const reassignVehicle = (vehicleId: string, projectId: string | null, val
 /* ── Odometer ──────────────────────────────────────────────────────────── */
 
 const validDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T00:00:00`).getTime())
-const fmtKm = (n: number) => `${n.toLocaleString('en-CA')} km`
+const fmtKm = (n: number, unit: MeterUnit = 'km') => fmtMeter(n, unit)
 
 /**
  * Records a dated odometer reading in kilometres. Impossible values are refused. A reading that contradicts the history
@@ -39,8 +40,9 @@ const fmtKm = (n: number) => `${n.toLocaleString('en-CA')} km`
  */
 export const recordOdometer = (vehicleId: string, input: { date: ISODate; reading: number; note: string; correctsId?: string | null }, today: ISODate): Reducer => (s) => {
   if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
-  if (!Number.isFinite(input.reading) || input.reading <= 0) return { error: 'Enter an odometer reading greater than zero.' }
-  if (!Number.isInteger(input.reading)) return { error: 'Enter the odometer reading as a whole number of kilometres.' }
+  const unit = meterUnitOf(s, vehicleId)
+  if (!Number.isFinite(input.reading) || input.reading <= 0) return { error: `Enter a ${unit === 'h' ? 'meter' : 'odometer'} reading greater than zero.` }
+  if (!validMeter(input.reading, unit)) return { error: unit === 'h' ? 'Enter the hour-meter reading in hours, with at most one decimal.' : 'Enter the odometer reading as a whole number of kilometres.' }
   if (!validDate(input.date)) return { error: 'Enter a valid date.' }
   if (input.date > today) return { error: 'A reading cannot be dated in the future.' }
   const history = odometerHistory(s, vehicleId)
@@ -53,11 +55,11 @@ export const recordOdometer = (vehicleId: string, input: { date: ISODate; readin
   if (input.correctsId) {
     const target = history.find((r) => r.id === input.correctsId)
     if (!target) return { error: 'The reading being corrected was not found.' }
-    flag = `Stated as a correction of the ${fmtKm(target.reading)} reading${target.date ? ` on ${target.date}` : ''}.`
-  } else if (before && input.reading < before.reading) flag = `Lower than the ${fmtKm(before.reading)} reading${before.date ? ` on ${before.date}` : ' (date not recorded)'}.`
-  else if (after && input.reading > after.reading) flag = `Higher than the later ${fmtKm(after.reading)} reading on ${after.date}.`
+    flag = `Stated as a correction of the ${fmtKm(target.reading, unit)} reading${target.date ? ` on ${target.date}` : ''}.`
+  } else if (before && input.reading < before.reading) flag = `Lower than the ${fmtKm(before.reading, unit)} reading${before.date ? ` on ${before.date}` : ' (date not recorded)'}.`
+  else if (after && input.reading > after.reading) flag = `Higher than the later ${fmtKm(after.reading, unit)} reading on ${after.date}.`
   const reading: OdometerReading = {
-    id: nextId('odo'), vehicleId, date: input.date, reading: input.reading, unit: 'km', review: flag ? 'needs-review' : 'valid', flag,
+    id: nextId('odo'), vehicleId, date: input.date, reading: input.reading, unit, review: flag ? 'needs-review' : 'valid', flag,
     correctsId: input.correctsId ?? null, note: input.note.trim(), reviewNote: '', reviewedDate: null,
   }
   return { state: { ...s, odometer: [...s.odometer, reading] } }
@@ -79,7 +81,7 @@ export const reviewOdometer = (readingId: string, decision: 'accepted' | 'reject
  */
 export const setServiceTarget = (vehicleId: string, odometer: number, note: string, today: ISODate, opts: { serviceType?: string; warnWithinKm?: number | null; intervalKm?: number | null } = {}): Reducer => (s) => {
   if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
-  if (!Number.isFinite(odometer) || !Number.isInteger(odometer) || odometer <= 0) return { error: 'Enter the next service mileage as a whole number of kilometres greater than zero.' }
+  if (!Number.isFinite(odometer) || !Number.isInteger(odometer) || odometer <= 0) return { error: `Enter the next service ${meterUnitOf(s, vehicleId) === 'h' ? 'hour-meter value as a whole number of hours' : 'mileage as a whole number of kilometres'} greater than zero.` }
   const warn = opts.warnWithinKm ?? null
   if (warn !== null && (!Number.isInteger(warn) || warn <= 0)) return { error: 'The warning window must be a whole number of kilometres greater than zero.' }
   const interval = opts.intervalKm ?? null
@@ -101,9 +103,10 @@ export const recordMaintenance = (vehicleId: string, input: { date: ISODate; ser
   if (!validDate(input.date)) return { error: 'Enter a valid date.' }
   if (input.date > today) return { error: 'Maintenance cannot be dated in the future.' }
   if (input.odometer !== null) {
-    if (!Number.isInteger(input.odometer) || input.odometer < 0) return { error: 'Enter the service odometer as a whole number of kilometres.' }
+    const unit = meterUnitOf(s, vehicleId)
+    if (!validMeter(input.odometer, unit) || input.odometer < 0) return { error: unit === 'h' ? 'Enter the service hour-meter reading in hours.' : 'Enter the service odometer as a whole number of kilometres.' }
     const cur = latestOdometer(s, vehicleId)
-    if (cur && input.odometer > cur.reading) return { error: `That is above the current odometer (${fmtKm(cur.reading)}). Record the newer odometer reading first.` }
+    if (cur && input.odometer > cur.reading) return { error: `That is above the current ${unit === 'h' ? 'hour meter' : 'odometer'} (${fmtKm(cur.reading, unit)}). Record the newer reading first.` }
   }
   const rec: MaintenanceRecord = { id: nextId('mnt'), vehicleId, date: input.date, serviceType: input.serviceType.trim(), odometer: input.odometer, description: input.description.trim(), notes: input.notes.trim() }
   return { state: { ...s, maintenance: [...s.maintenance, rec] } }
@@ -111,7 +114,7 @@ export const recordMaintenance = (vehicleId: string, input: { date: ISODate; ser
 
 /* ── Adding assets ─────────────────────────────────────────────────────── */
 
-export interface NewAsset { unitNumber: string; kind: 'vehicle' | 'equipment'; year: number; make: string; model: string; vin: string; licencePlate: string; notes: string }
+export interface NewAsset { unitNumber: string; kind: 'vehicle' | 'equipment'; year: number; make: string; model: string; vin: string; licencePlate: string; notes: string; /** Absent = kilometres. */ meterUnit?: MeterUnit }
 
 /**
  * Adds a vehicle or piece of equipment to the organization's fleet, optionally assigning it to a project. It starts with no odometer,
@@ -132,7 +135,7 @@ export const addVehicle = (input: NewAsset, projectId: string | null, today: ISO
   for (let n = 2; s.vehicles.some((x) => x.id === id); n++) id = `veh-${slug}-${n}`
   const vehicle: Vehicle = {
     id, companyId: org, unitNumber: unit, kind: input.kind, year: input.year, make: String(input.make).trim(), model: String(input.model).trim(), vin: String(input.vin ?? '').trim() || null,
-    licencePlate: String(input.licencePlate ?? '').trim() || null, notes: String(input.notes ?? '').trim(), expectedLifeKm: null, inspectionIntervalDays: null,
+    licencePlate: String(input.licencePlate ?? '').trim() || null, notes: String(input.notes ?? '').trim(), expectedLifeKm: null, inspectionIntervalDays: null, meterUnit: input.meterUnit === 'h' ? 'h' : 'km', categoryId: null,
   }
   const assignments = projectId ? [...s.assignments, { id: nextId('asg'), vehicleId: id, projectId, startDate: today, endDate: null }] : s.assignments
   return { state: { ...s, vehicles: [...s.vehicles, vehicle], assignments } }
@@ -161,9 +164,78 @@ export const setVehiclePlanning = (vehicleId: string, input: { expectedLifeKm: n
   const v = s.vehicles.find((x) => x.id === vehicleId)
   if (!v) return { error: 'Vehicle not found.' }
   const { expectedLifeKm: life, inspectionIntervalDays: days } = input
-  if (life !== null && (!Number.isInteger(life) || life <= 0)) return { error: 'Enter the estimated vehicle lifespan as a whole number of kilometres greater than zero, or leave it blank.' }
+  if (life !== null && (!Number.isInteger(life) || life <= 0)) return { error: 'Enter the estimated lifespan as a whole number (kilometres or hours) greater than zero, or leave it blank.' }
   if (days !== null && (!Number.isInteger(days) || days <= 0 || days > 366)) return { error: 'Enter the inspection interval as a whole number of days (1 to 366), or leave it blank.' }
   return { state: { ...s, vehicles: s.vehicles.map((x) => (x === v ? { ...v, expectedLifeKm: life, inspectionIntervalDays: days } : x)) } }
+}
+
+/* ── Fleet categories and lifespan settings ────────────────────────────── */
+
+const lifeProblem = (v: unknown, unit: MeterUnit) => (v === null || (typeof v === 'number' && Number.isInteger(v) && v > 0 && v <= 100_000_000) ? null : `Enter the default lifespan as a whole number of ${UNIT_NAME[unit]} greater than zero, or leave it blank.`)
+const categoryNameProblem = (s: FleetState, name: string, exceptId?: string) => {
+  const n = cleanCategoryName(name)
+  if (n.length < 2 || n.length > 60) return 'Enter a category name of 2 to 60 characters.'
+  const dup = categoriesOf(s).find((c) => c.id !== exceptId && categoryKey(c.name) === categoryKey(n))
+  return dup ? `“${dup.name}” already exists${dup.archived ? ' (archived — restore it instead)' : ''}.` : null
+}
+
+/** Adds an asset category (for example Truck, 180,000 km) to the organization's fleet settings. */
+export const addFleetCategory = (name: string, meterUnit: MeterUnit, defaultLife: number | null): Reducer => (s) => {
+  if (meterUnit !== 'km' && meterUnit !== 'h') return { error: 'Choose kilometres or operating hours.' }
+  const bad = categoryNameProblem(s, name) ?? lifeProblem(defaultLife, meterUnit)
+  if (bad) return { error: bad }
+  const slug = cleanCategoryName(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'category'
+  let id = `cat-${slug}`
+  for (let n = 2; categoriesOf(s).some((c) => c.id === id); n++) id = `cat-${slug}-${n}`
+  return { state: { ...s, categories: [...categoriesOf(s), { id, name: cleanCategoryName(name), meterUnit, defaultLife, archived: false }] } }
+}
+
+/** Renames a category and/or changes its default lifespan. Assets point at the category itself, so every asset follows. */
+export const updateFleetCategory = (id: string, patch: { name?: string; defaultLife?: number | null }): Reducer => (s) => {
+  const c = categoriesOf(s).find((x) => x.id === id)
+  if (!c) return { error: 'Category not found.' }
+  const bad = (patch.name !== undefined ? categoryNameProblem(s, patch.name, id) : null) ?? (patch.defaultLife !== undefined ? lifeProblem(patch.defaultLife, c.meterUnit) : null)
+  if (bad) return { error: bad }
+  return { state: { ...s, categories: categoriesOf(s).map((x) => (x.id === id ? { ...x, ...(patch.name !== undefined ? { name: cleanCategoryName(patch.name) } : {}), ...(patch.defaultLife !== undefined ? { defaultLife: patch.defaultLife } : {}) } : x)) } }
+}
+
+/** Archived categories stay on the assets that use them but cannot be chosen for more. Categories are never deleted. */
+export const setFleetCategoryArchived = (id: string, archived: boolean): Reducer => (s) =>
+  categoriesOf(s).some((c) => c.id === id) ? { state: { ...s, categories: categoriesOf(s).map((c) => (c.id === id ? { ...c, archived } : c)) } } : { error: 'Category not found.' }
+
+/**
+ * Puts an asset in a category (or none). The category's default lifespan then applies unless the asset has its own estimate. An asset that has
+ * no meter readings yet takes the category's unit (kilometres or hours); one that does must already count in the same unit.
+ */
+export const setVehicleCategory = (vehicleId: string, categoryId: string | null): Reducer => (s) => {
+  const v = s.vehicles.find((x) => x.id === vehicleId)
+  if (!v) return { error: 'Vehicle not found.' }
+  let next: Vehicle = { ...v, categoryId }
+  if (categoryId !== null) {
+    const c = categoriesOf(s).find((x) => x.id === categoryId)
+    if (!c) return { error: 'Choose a category from the fleet settings.' }
+    if (c.archived && c.id !== v.categoryId) return { error: `“${c.name}” is archived and cannot be chosen.` }
+    const unit = meterUnitOf(s, vehicleId)
+    if (c.meterUnit !== unit) {
+      if (unitLocked(s, vehicleId)) return { error: `${c.name} counts in ${UNIT_NAME[c.meterUnit]}, but this asset already has ${UNIT_NAME[unit]} readings or schedules. Its unit cannot change once they exist.` }
+      next = { ...next, meterUnit: c.meterUnit, expectedLifeKm: null } // an estimate entered in the old unit is not carried over
+    }
+  }
+  return { state: { ...s, vehicles: s.vehicles.map((x) => (x === v ? next : x)) } }
+}
+
+/** True once an asset has anything recorded in its current meter unit, so the unit can no longer change. */
+const unitLocked = (s: FleetState, vehicleId: string) =>
+  s.odometer.some((r) => r.vehicleId === vehicleId) || s.serviceTargets.some((t) => t.vehicleId === vehicleId) || s.maintenance.some((m) => m.vehicleId === vehicleId && m.odometer !== null) || s.tireSets.some((t) => t.vehicleId === vehicleId && (t.installOdometer !== null || t.removalOdometer !== null))
+
+/** Switches an asset between kilometres and operating hours. Only possible while it has no meter readings, service schedule or lifespan figures in the old unit. */
+export const setVehicleMeterUnit = (vehicleId: string, meterUnit: MeterUnit): Reducer => (s) => {
+  const v = s.vehicles.find((x) => x.id === vehicleId)
+  if (!v) return { error: 'Vehicle not found.' }
+  if (meterUnit !== 'km' && meterUnit !== 'h') return { error: 'Choose kilometres or operating hours.' }
+  if (meterUnitOf(s, vehicleId) === meterUnit) return { state: s }
+  if (unitLocked(s, vehicleId)) return { error: 'This asset already has meter readings or schedules recorded in its current unit, so the unit cannot be changed.' }
+  return { state: { ...s, vehicles: s.vehicles.map((x) => (x === v ? { ...v, meterUnit, expectedLifeKm: null } : x)) } }
 }
 
 /* ── Tires ─────────────────────────────────────────────────────────────── */
@@ -385,16 +457,61 @@ const patchInspection = (s: FleetState, id: string, fn: (i: InspectionRecord) =>
   return typeof next === 'string' ? { error: next } : { state: { ...s, inspections: s.inspections.map((x) => (x === i ? next : x)) } }
 }
 
-/** Records a weekly inspection submission. It is stored as "submitted": no condition is implied and defects start outstanding. */
-export const submitInspection = (vehicleId: string, input: { date: ISODate; submittedBy: string; notes: string; defects: string[] }, today: ISODate): Reducer => (s) => {
-  if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
+export interface InspectionInput {
+  date: ISODate; submittedBy: string; notes: string; defects: string[]
+  /** Current odometer (km) or hour-meter reading (h). Recorded in the meter history; it never overwrites a newer reading. */
+  meterReading?: number | null
+  /** Next oil change due, in the asset's meter unit. Sets the schedule only; it never records an oil change as done. */
+  nextOilDue?: number | null
+  /** What the submitter judged the overall condition to be. A report only: the reviewer's condition is the one that counts. */
+  reportedCondition?: RatedCondition | null
+}
+
+/**
+ * Records a weekly inspection submission. It is stored as "submitted": no condition is verified and defects start outstanding. With it:
+ *  - the meter reading goes into the meter history like any other reading, dated the inspection date: an older inspection can never replace
+ *    a newer reading (a reading that contradicts the history is held for review and does not change the current figure);
+ *  - a next-oil-change-due value updates the oil schedule (not when a newer schedule was already set), and never marks an oil change done.
+ * Lifespan and tire estimates follow from the meter history, so they recalculate on their own.
+ */
+export const submitInspection = (vehicleId: string, input: InspectionInput, today: ISODate): Reducer => (s, ctx) => {
+  const v = s.vehicles.find((x) => x.id === vehicleId)
+  if (!v) return { error: 'Vehicle not found.' }
   if (!validDate(input.date)) return { error: 'Enter a valid date.' }
   if (input.date > today) return { error: 'An inspection cannot be dated in the future.' }
   const clash = s.inspections.find((i) => i.vehicleId === vehicleId && i.date === input.date)
   if (clash) return { error: clash.demo ? 'A demonstration record exists on that date. Remove the demonstration records first, then record the real inspection.' : 'An inspection is already recorded for that date.' }
+  const unit = meterUnitOf(s, vehicleId)
+  const reading = input.meterReading ?? null
+  const nextDue = input.nextOilDue ?? null
+  const rated = input.reportedCondition ?? null
+  if (rated !== null && !['good', 'fair', 'poor', 'out-of-service'].includes(rated)) return { error: 'Choose an overall condition, or leave it blank.' }
+  if (reading !== null && (!Number.isFinite(reading) || reading <= 0 || !validMeter(reading, unit))) return { error: unit === 'h' ? 'Enter the current hour-meter reading in hours (at most one decimal), or leave it blank.' : 'Enter the current odometer as a whole number of kilometres, or leave it blank.' }
+  if (nextDue !== null && (!Number.isInteger(nextDue) || nextDue <= 0)) return { error: `Enter the next oil change due as a whole number of ${UNIT_NAME[unit]} greater than zero, or leave it blank.` }
   const defects = input.defects.map((d) => d.trim()).filter(Boolean).map((description): Defect => ({ id: nextId('def'), description, status: 'outstanding', resolvedDate: null, resolutionNote: '' }))
-  const rec: InspectionRecord = { id: nextId('insp'), vehicleId, date: input.date, submittedBy: input.submittedBy.trim(), notes: input.notes.trim(), defects, review: 'submitted', reviewedBy: '', reviewedDate: null, reviewNote: '', condition: null, demo: false }
-  return { state: { ...s, inspections: [...s.inspections, rec] } }
+  const rec: InspectionRecord = {
+    id: nextId('insp'), vehicleId, date: input.date, submittedBy: input.submittedBy.trim(), notes: input.notes.trim(), defects, review: 'submitted', reviewedBy: '', reviewedDate: null, reviewNote: '', condition: null, demo: false,
+    meterReading: reading, reportedCondition: rated, nextOilDue: nextDue,
+  }
+  let next: FleetState = { ...s, inspections: [...s.inspections, rec] }
+  if (reading !== null) {
+    const r = recordOdometer(vehicleId, { date: input.date, reading, note: `Recorded with the ${input.date} inspection.` }, today)(next, ctx)
+    if (r.error === undefined) next = r.state
+    else if (!/already recorded/.test(r.error)) return { error: r.error }
+  }
+  if (nextDue !== null) {
+    const cur = latestOdometer(next, vehicleId)
+    if (cur && nextDue <= cur.reading) return { error: `The next oil change due (${fmtKm(nextDue, unit)}) must be above the current reading (${fmtKm(cur.reading, unit)}).` }
+    const existing = currentOilTarget(next, vehicleId)
+    // A later-set schedule is newer information than an inspection dated before it; keep it.
+    if (!(existing && existing.setDate !== null && existing.setDate > input.date)) {
+      const keepInterval = existing?.intervalKm && existing.intervalKm <= nextDue ? existing.intervalKm : null
+      const r = setServiceTarget(vehicleId, nextDue, `From the ${input.date} inspection.`, today, { serviceType: 'Oil change', warnWithinKm: existing?.warnWithinKm ?? null, intervalKm: keepInterval })(next, ctx)
+      if (r.error === undefined) next = r.state
+      else if (!/already the next service/.test(r.error)) return { error: r.error }
+    }
+  }
+  return { state: next }
 }
 
 /** A reviewer marks the submission as reviewed and may state a condition. Defects are unaffected: they are resolved separately. */

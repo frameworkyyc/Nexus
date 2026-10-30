@@ -68,11 +68,11 @@ export function applyVerifiedT6010(s: FleetState): FleetState {
 
 export function buildFleetSeed(): FleetState {
   const vehicles: Vehicle[] = UNITS.map(([unitNumber, year, make, model]) => ({
-    id: `veh-${unitNumber}`, companyId: COMPANY_ID, unitNumber, year, make, model, vin: null, licencePlate: null, notes: '', expectedLifeKm: null, inspectionIntervalDays: null,
+    id: `veh-${unitNumber}`, companyId: COMPANY_ID, unitNumber, year, make, model, vin: null, licencePlate: null, notes: '', expectedLifeKm: null, inspectionIntervalDays: null, categoryId: null, meterUnit: 'km',
   }))
   const assignments: VehicleAssignment[] = vehicles.map((v) => ({
     id: `asg-${v.unitNumber}-1`, vehicleId: v.id, projectId: PROJECT_ID, startDate: null, endDate: null,
   }))
-  const base = applyVerifiedT6010({ vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [], accessoryTypes: [] })
+  const base = applyVerifiedT6010({ vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [], accessoryTypes: [], categories: [] })
   return identity.fleet.extras ? addSampleHistory(base, T6010_ID, todayISO()) : base
 }

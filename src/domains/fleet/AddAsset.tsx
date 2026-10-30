@@ -27,9 +27,9 @@ function AddAsset({ projectId, onClose }: { projectId?: string; onClose: () => v
   const { today } = useFleet()
   const registry = useProjectRegistry()
   const { run, saving } = useFleetCommand()
-  const [v, setV] = useState({ unitNumber: '', kind: 'vehicle' as 'vehicle' | 'equipment', year: String(new Date().getFullYear()), make: '', model: '', vin: '', licencePlate: '', notes: '', project: projectId ?? '' })
+  const [v, setV] = useState({ unitNumber: '', kind: 'vehicle' as 'vehicle' | 'equipment', year: String(new Date().getFullYear()), make: '', model: '', vin: '', licencePlate: '', notes: '', project: projectId ?? '', meter: 'km' as 'km' | 'h' })
   const set = (p: Partial<typeof v>) => setV((x) => ({ ...x, ...p }))
-  const save = () => run(addVehicle({ unitNumber: v.unitNumber, kind: v.kind, year: Number(v.year), make: v.make, model: v.model, vin: v.vin, licencePlate: v.licencePlate, notes: v.notes }, v.project || null, today), () => {
+  const save = () => run(addVehicle({ unitNumber: v.unitNumber, kind: v.kind, year: Number(v.year), make: v.make, model: v.model, vin: v.vin, licencePlate: v.licencePlate, notes: v.notes, meterUnit: v.meter }, v.project || null, today), () => {
     const made = fleetStore.get().vehicles.find((x) => x.unitNumber.toLowerCase() === v.unitNumber.trim().toLowerCase())
     onClose()
     if (made) navigate(projectId ? fleetPaths.projectVehicle(projectId, made.id) : fleetPaths.orgVehicle(made.id))
@@ -41,7 +41,8 @@ function AddAsset({ projectId, onClose }: { projectId?: string; onClose: () => v
         <p className="text-muted">It starts with no odometer, inspections or maintenance: nothing is assumed. Record those from the asset’s page.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Unit number *"><Input autoFocus value={v.unitNumber} onChange={(e) => set({ unitNumber: e.target.value })} /></Field>
-          <Field label="Type"><Select aria-label="Type" value={v.kind} onChange={(e) => set({ kind: e.target.value as 'vehicle' | 'equipment' })}><option value="vehicle">Vehicle</option><option value="equipment">Equipment</option></Select></Field>
+          <Field label="Type"><Select aria-label="Type" value={v.kind} onChange={(e) => set({ kind: e.target.value as 'vehicle' | 'equipment', meter: e.target.value === 'equipment' ? 'h' : 'km' })}><option value="vehicle">Vehicle</option><option value="equipment">Equipment</option></Select></Field>
+          <Field label="Meter counts"><Select aria-label="Meter counts" value={v.meter} onChange={(e) => set({ meter: e.target.value as 'km' | 'h' })}><option value="km">Kilometres (odometer)</option><option value="h">Operating hours</option></Select></Field>
           <Field label="Make *"><Input value={v.make} onChange={(e) => set({ make: e.target.value })} /></Field>
           <Field label="Model *"><Input value={v.model} onChange={(e) => set({ model: e.target.value })} /></Field>
           <Field label="Year *"><Input inputMode="numeric" value={v.year} onChange={(e) => set({ year: e.target.value })} /></Field>

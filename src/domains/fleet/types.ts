@@ -4,6 +4,19 @@ import type { ISODate } from '@/lib/date'
 export type ConditionStatus = 'not-assessed' | 'good' | 'fair' | 'poor' | 'out-of-service'
 export type RatedCondition = Exclude<ConditionStatus, 'not-assessed'>
 
+/** What an asset's meter counts: kilometres driven, or operating hours (equipment). Absent on an asset = km. */
+export type MeterUnit = 'km' | 'h'
+
+/** An organization setting: a kind of asset (for example Truck or Excavator) with the default lifespan for assets of that kind. */
+export interface FleetCategory {
+  id: string
+  name: string
+  meterUnit: MeterUnit
+  /** Default planning lifespan in the category's meter unit. null = no default. An asset's own estimate always takes priority. */
+  defaultLife: number | null
+  archived: boolean
+}
+
 /** An organization-level asset. It is never owned by a project; projects reference it through assignments. */
 export interface Vehicle {
   id: string
@@ -17,8 +30,12 @@ export interface Vehicle {
   notes: string
   /** A road vehicle or a piece of equipment. Absent = vehicle. */
   kind?: 'vehicle' | 'equipment'
-  /** Planning estimate of the vehicle's total service life in km. null = not set. Reaching it never marks the vehicle unsafe. */
+  /** This asset's own planning estimate of its total service life, in its meter unit (km or hours). null = not set, so the category default applies. It always takes priority. Reaching it never marks the vehicle unsafe. */
   expectedLifeKm: number | null
+  /** The organization category this asset belongs to; its default lifespan applies when the asset has no estimate of its own. */
+  categoryId?: string | null
+  /** km (default) or operating hours. Cannot change once readings exist. */
+  meterUnit?: MeterUnit
   /** Days between inspections. null = the weekly default (7). */
   inspectionIntervalDays: number | null
 }
@@ -43,7 +60,7 @@ export interface OdometerReading {
   vehicleId: string
   date: ISODate | null // null = a verified value supplied without a date
   reading: number
-  unit: 'km' | 'mi'
+  unit: 'km' | 'mi' | 'h'
   review: OdometerReview
   flag: string | null // why the reading needs review
   correctsId: string | null // the earlier reading this one is stated to correct
@@ -89,6 +106,12 @@ export interface InspectionRecord {
   condition: RatedCondition | null
   /** Demonstration / unverified sample. Never counts toward inspection status, compliance, defects or condition. */
   demo: boolean
+  /** The odometer / hour-meter reading given with the submission (also recorded in the odometer history). */
+  meterReading?: number | null
+  /** The condition the submitter reported. This is a report, not a verdict: the reviewer's `condition` is the only one that counts. */
+  reportedCondition?: RatedCondition | null
+  /** The next oil change due value given with the submission. Entering it never records an oil change as done. */
+  nextOilDue?: number | null
 }
 
 export interface MaintenanceRecord {
@@ -178,4 +201,6 @@ export interface FleetState {
   tireSets: TireSet[]
   accessories: Accessory[]
   accessoryTypes: AccessoryType[]
+  /** Optional so older saved data still loads; treat absent as empty. */
+  categories?: FleetCategory[]
 }

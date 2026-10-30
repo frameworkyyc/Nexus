@@ -12,7 +12,7 @@ describe('migrations', () => {
   it('create the schema and seed the real REEF project and fleet', async () => {
     const { d1, raw } = createTestDb()
     const v = (await d1.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>())?.value
-    expect(v).toBe('10')
+    expect(v).toBe('11')
     expect((await d1.prepare('SELECT COUNT(*) AS n FROM vehicles').first<{ n: number }>())?.n).toBe(4)
     expect((await d1.prepare('SELECT name FROM areas ORDER BY sequence').all<{ name: string }>()).results.map((r) => r.name)).toEqual(['Mole Sieve', 'Propane BOG', 'Piperack', 'Locomotive Shelter', 'E-House'])
     expect(raw.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 })
@@ -43,7 +43,8 @@ describe('migrations', () => {
   it('the server seed is identical to the browser seed, so migrating the two never conflicts', async () => {
     const s = session()
     const { body } = await s.call('GET', '/api/state/fleet')
-    const stripKind = (st: { vehicles: object[] }) => ({ ...st, vehicles: st.vehicles.map((v) => { const rest = { ...(v as Record<string, unknown>) }; delete rest.kind; return rest }) })
+    const nullsOut = (o: unknown) => { const r = { ...(o as Record<string, unknown>) }; for (const k of ['meterReading', 'reportedCondition', 'nextOilDue']) if (r[k] === null) delete r[k]; return r }
+    const stripKind = (st: { vehicles: object[]; inspections: object[] }) => ({ ...st, inspections: st.inspections.map(nullsOut), vehicles: st.vehicles.map((v) => { const rest = { ...(v as Record<string, unknown>) }; delete rest.kind; return rest }) }) // `kind` and the inspection submission fields are new, and absent from the browser fixture
     expect(stripKind(body.state)).toEqual(buildFleetSeed()) // `kind` is new, and absent from the browser fixture
   })
 

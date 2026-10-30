@@ -1,6 +1,7 @@
 import type { Row, RowSet } from '../db'
 import { accessoryTypeKey } from '@/domains/fleet/accessoryTypes'
-import type { Accessory, AccessoryPlacement, AccessoryType, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, ServiceTarget, TireSet, TreadMeasurement, Vehicle, VehicleAssignment } from '@/domains/fleet/types'
+import { categoryKey } from '@/domains/fleet/meter'
+import type { Accessory, AccessoryPlacement, AccessoryType, FleetCategory, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, ServiceTarget, TireSet, TreadMeasurement, Vehicle, VehicleAssignment } from '@/domains/fleet/types'
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v))
@@ -8,7 +9,8 @@ const n = (v: unknown) => (v === null || v === undefined ? null : Number(v))
 /** FleetState → table rows. Array position becomes `seq` so creation order survives a round trip. */
 export function fleetToRows(state: FleetState): RowSet {
   return {
-    vehicles: state.vehicles.map((v, seq): Row => ({ id: v.id, company_id: v.companyId, unit_number: v.unitNumber, year: v.year, make: v.make, model: v.model, vin: v.vin, licence_plate: v.licencePlate, notes: v.notes, kind: v.kind ?? 'vehicle', expected_life_km: v.expectedLifeKm, inspection_interval_days: v.inspectionIntervalDays, seq })),
+    fleet_categories: (state.categories ?? []).map((c, seq): Row => ({ id: c.id, name: c.name, name_key: categoryKey(c.name), meter_unit: c.meterUnit, default_life: c.defaultLife, archived: c.archived ? 1 : 0, seq })),
+    vehicles: state.vehicles.map((v, seq): Row => ({ id: v.id, company_id: v.companyId, unit_number: v.unitNumber, year: v.year, make: v.make, model: v.model, vin: v.vin, licence_plate: v.licencePlate, notes: v.notes, kind: v.kind ?? 'vehicle', expected_life_km: v.expectedLifeKm, inspection_interval_days: v.inspectionIntervalDays, category_id: v.categoryId ?? null, meter_unit: v.meterUnit ?? 'km', seq })),
     vehicle_assignments: state.assignments.map((a, seq): Row => ({ id: a.id, vehicle_id: a.vehicleId, project_id: a.projectId, start_date: a.startDate, end_date: a.endDate, seq })),
     odometer_readings: state.odometer.map((r, seq): Row => ({ id: r.id, vehicle_id: r.vehicleId, reading_date: r.date, reading: r.reading, unit: r.unit, review: r.review, flag: r.flag, corrects_id: r.correctsId, note: r.note, review_note: r.reviewNote, reviewed_date: r.reviewedDate, seq })),
     service_targets: state.serviceTargets.map((t, seq): Row => ({ id: t.id, vehicle_id: t.vehicleId, odometer: t.odometer, set_date: t.setDate, note: t.note, service_type: t.serviceType, warn_within_km: t.warnWithinKm, interval_km: t.intervalKm, seq })),
@@ -18,7 +20,7 @@ export function fleetToRows(state: FleetState): RowSet {
     accessory_types: (state.accessoryTypes ?? []).map((t, seq): Row => ({ id: t.id, name: t.name, name_key: accessoryTypeKey(t.name), archived: t.archived ? 1 : 0, created_at: t.createdAt, created_by: t.createdBy, seq })),
     accessories: state.accessories.map((a, seq): Row => ({ id: a.id, type_id: a.typeId ?? null, name: a.name, category: a.category, description: a.description, specification: a.specification, cost: a.cost, warranty: a.warranty, notes: a.notes, seq })),
     accessory_placements: state.accessories.flatMap((a) => a.placements.map((p, seq): Row => ({ id: `${a.id}:${seq}`, accessory_id: a.id, seq, vehicle_id: p.vehicleId, install_date: p.installDate, install_odometer: p.installOdometer, end_date: p.endDate, end_odometer: p.endOdometer, end_reason: p.endReason, to_vehicle_id: p.toVehicleId, note: p.note }))),
-    inspections: state.inspections.map((i, seq): Row => ({ id: i.id, vehicle_id: i.vehicleId, inspection_date: i.date, submitted_by: i.submittedBy, notes: i.notes, review: i.review, reviewed_by: i.reviewedBy, reviewed_date: i.reviewedDate, review_note: i.reviewNote, condition: i.condition, demo: i.demo ? 1 : 0, seq })),
+    inspections: state.inspections.map((i, seq): Row => ({ id: i.id, vehicle_id: i.vehicleId, inspection_date: i.date, submitted_by: i.submittedBy, notes: i.notes, review: i.review, reviewed_by: i.reviewedBy, reviewed_date: i.reviewedDate, review_note: i.reviewNote, condition: i.condition, demo: i.demo ? 1 : 0, meter_reading: i.meterReading ?? null, reported_condition: i.reportedCondition ?? null, next_oil_due: i.nextOilDue ?? null, seq })),
     inspection_defects: state.inspections.flatMap((i) => i.defects.map((d, seq): Row => ({ id: d.id, inspection_id: i.id, description: d.description, status: d.status, resolved_date: d.resolvedDate, resolution_note: d.resolutionNote, seq }))),
   }
 }
@@ -35,9 +37,10 @@ export function fleetFromRows(rows: RowSet): FleetState {
   const placements = by(rows.accessory_placements, 'accessory_id')
   const defects = by(rows.inspection_defects, 'inspection_id')
   return {
-    vehicles: (rows.vehicles ?? []).map((r): Vehicle => ({ id: String(r.id), companyId: String(r.company_id), unitNumber: String(r.unit_number), year: Number(r.year), make: String(r.make), model: String(r.model), vin: s(r.vin), licencePlate: s(r.licence_plate), notes: String(r.notes), kind: String(r.kind ?? 'vehicle') === 'equipment' ? 'equipment' : 'vehicle', expectedLifeKm: n(r.expected_life_km), inspectionIntervalDays: n(r.inspection_interval_days) })),
+    vehicles: (rows.vehicles ?? []).map((r): Vehicle => ({ id: String(r.id), companyId: String(r.company_id), unitNumber: String(r.unit_number), year: Number(r.year), make: String(r.make), model: String(r.model), vin: s(r.vin), licencePlate: s(r.licence_plate), notes: String(r.notes), kind: String(r.kind ?? 'vehicle') === 'equipment' ? 'equipment' : 'vehicle', expectedLifeKm: n(r.expected_life_km), inspectionIntervalDays: n(r.inspection_interval_days), categoryId: s(r.category_id), meterUnit: String(r.meter_unit ?? 'km') === 'h' ? 'h' : 'km' })),
+    categories: (rows.fleet_categories ?? []).map((r): FleetCategory => ({ id: String(r.id), name: String(r.name), meterUnit: String(r.meter_unit) === 'h' ? 'h' : 'km', defaultLife: n(r.default_life), archived: Number(r.archived) === 1 })),
     assignments: (rows.vehicle_assignments ?? []).map((r): VehicleAssignment => ({ id: String(r.id), vehicleId: String(r.vehicle_id), projectId: String(r.project_id), startDate: s(r.start_date), endDate: s(r.end_date) })),
-    odometer: (rows.odometer_readings ?? []).map((r): OdometerReading => ({ id: String(r.id), vehicleId: String(r.vehicle_id), date: s(r.reading_date), reading: Number(r.reading), unit: String(r.unit) as 'km' | 'mi', review: String(r.review) as OdometerReading['review'], flag: s(r.flag), correctsId: s(r.corrects_id), note: String(r.note), reviewNote: String(r.review_note), reviewedDate: s(r.reviewed_date) })),
+    odometer: (rows.odometer_readings ?? []).map((r): OdometerReading => ({ id: String(r.id), vehicleId: String(r.vehicle_id), date: s(r.reading_date), reading: Number(r.reading), unit: String(r.unit) as OdometerReading['unit'], review: String(r.review) as OdometerReading['review'], flag: s(r.flag), correctsId: s(r.corrects_id), note: String(r.note), reviewNote: String(r.review_note), reviewedDate: s(r.reviewed_date) })),
     serviceTargets: (rows.service_targets ?? []).map((r): ServiceTarget => ({ id: String(r.id), vehicleId: String(r.vehicle_id), odometer: Number(r.odometer), setDate: s(r.set_date), note: String(r.note), serviceType: s(r.service_type), warnWithinKm: n(r.warn_within_km), intervalKm: n(r.interval_km) })),
     maintenance: (rows.maintenance_records ?? []).map((r): MaintenanceRecord => ({ id: String(r.id), vehicleId: String(r.vehicle_id), date: String(r.service_date), serviceType: String(r.service_type), odometer: n(r.odometer), description: String(r.description), ...(r.condition ? { condition: String(r.condition) as MaintenanceRecord['condition'] } : {}), notes: String(r.notes) })),
     tireSets: (rows.tire_sets ?? []).map((r): TireSet => ({
@@ -52,7 +55,7 @@ export function fleetFromRows(rows: RowSet): FleetState {
     })),
     accessoryTypes: (rows.accessory_types ?? []).map((r): AccessoryType => ({ id: String(r.id), name: String(r.name), archived: Number(r.archived) === 1, createdAt: String(r.created_at), createdBy: String(r.created_by) })),
     inspections: (rows.inspections ?? []).map((r): InspectionRecord => ({
-      id: String(r.id), vehicleId: String(r.vehicle_id), date: String(r.inspection_date), submittedBy: String(r.submitted_by), notes: String(r.notes), review: String(r.review) as InspectionRecord['review'], reviewedBy: String(r.reviewed_by), reviewedDate: s(r.reviewed_date), reviewNote: String(r.review_note), condition: s(r.condition) as InspectionRecord['condition'], demo: Number(r.demo) === 1,
+      id: String(r.id), vehicleId: String(r.vehicle_id), date: String(r.inspection_date), submittedBy: String(r.submitted_by), notes: String(r.notes), review: String(r.review) as InspectionRecord['review'], reviewedBy: String(r.reviewed_by), reviewedDate: s(r.reviewed_date), reviewNote: String(r.review_note), condition: s(r.condition) as InspectionRecord['condition'], demo: Number(r.demo) === 1, meterReading: n(r.meter_reading), reportedCondition: s(r.reported_condition) as InspectionRecord['reportedCondition'], nextOilDue: n(r.next_oil_due),
       defects: (defects.get(String(r.id)) ?? []).map((d): Defect => ({ id: String(d.id), description: String(d.description), status: String(d.status) as Defect['status'], resolvedDate: s(d.resolved_date), resolutionNote: String(d.resolution_note) })),
     })),
   }

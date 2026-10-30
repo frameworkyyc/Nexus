@@ -12,6 +12,7 @@ import { useFleet, useFleetActor, useProjectRegistry } from '../store'
 import { AccessNotice, FleetFooter } from '../ui'
 import { AddAssetButton } from '../AddAsset'
 import { AccessoryTypesModal } from '../AccessoryTypesModal'
+import { FleetSettingsModal } from '../FleetSettingsModal'
 import { EmptyState } from '@/components/ui/EmptyState'
 
 /** The office view: every vehicle across every project, from the same records the project views use. */
@@ -23,6 +24,7 @@ export function FleetOverview() {
   const [search, setSearch] = useState('')
   const [project, setProject] = useState('')
   const [types, setTypes] = useState(false)
+  const [settings, setSettings] = useState(false)
   const counts = fleetCounts(state)
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -43,7 +45,7 @@ export function FleetOverview() {
   }
   return (
     <>
-      <PageHeader title="Fleet" description="Vehicles and equipment owned by the organization and where they are assigned." actions={<><Button onClick={() => setTypes(true)}>Accessory types</Button><AddAssetButton /></>} />
+      <PageHeader title="Fleet" description="Vehicles and equipment owned by the organization and where they are assigned." actions={<><Button onClick={() => setSettings(true)}>Fleet settings</Button><Button onClick={() => setTypes(true)}>Accessory types</Button><AddAssetButton /></>} />
       <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
         <Stat label="Vehicles" value={counts.vehicles} />
         <Stat label="Assigned" value={counts.assigned} sub={counts.unassigned ? `${counts.unassigned} unassigned` : undefined} />
@@ -62,6 +64,7 @@ export function FleetOverview() {
         <FleetTable rows={rows} projectName={registry.name} onRowClick={(r) => navigate(fleetPaths.orgVehicle(r.vehicle.id))} unit={(r) => <Link to={fleetPaths.orgVehicle(r.vehicle.id)} className="font-medium underline-offset-4 hover:underline">{r.vehicle.unitNumber}</Link>} />
       </div>
       {types && <AccessoryTypesModal onClose={() => setTypes(false)} />}
+      {settings && <FleetSettingsModal onClose={() => setSettings(false)} />}
       <AccessNotice />
       <FleetFooter />
     </>

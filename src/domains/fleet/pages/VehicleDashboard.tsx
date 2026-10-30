@@ -9,7 +9,8 @@ import { Section } from '@/components/ui/Section'
 import { Sparkline } from '@/components/viz'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
-import { useIsPhone } from '@/lib/useMedia'
+import { useAccess } from '@/lib/access'
+import { fmtMeter, lifespanOf, meterUnitOf } from '../meter'
 import { canReassign, canReview, canUpdate } from '../access'
 import { addDefect, reassignVehicle, removeDemoInspections, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
 import { ServiceCell } from '../FleetTable'
@@ -36,7 +37,6 @@ const Row = ({ label, children }: { label: string; children: ReactNode }) => (
 )
 const Empty = ({ children }: { children: ReactNode }) => <p className="border-t border-line py-5 text-[13px] text-muted">{children}</p>
 const link = 'text-xs text-muted underline-offset-4 hover:text-ink hover:underline'
-const km = (n: number) => `${n.toLocaleString('en-CA')} km`
 const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
 
 type Modal =
@@ -66,7 +66,7 @@ export function VehicleDashboard() {
   const registry = useProjectRegistry()
   const actor = useFleetActor()
   const { run } = useFleetCommand()
-  const phone = useIsPhone()
+  const access = useAccess()
   const [target, setTarget] = useState<string | null>(null)
   const [modal, setModal] = useState<Modal>(null)
   const vehicle = state.vehicles.find((v) => v.id === vehicleId)
@@ -79,7 +79,8 @@ export function VehicleDashboard() {
   if (projectId && current?.projectId !== projectId) {
     return <EmptyState title="Not assigned to this project" description={`${vehicle.unitNumber} is ${current ? `assigned to ${registry.name(current.projectId)}` : 'not assigned to a project'}.`} action={<Link to={fleetPaths.orgVehicle(vehicle.id)} className="text-[13px] underline underline-offset-4">Open in organization fleet</Link>} />
   }
-  const editable = canUpdate(state, actor, vehicle.id)
+  const editable = canUpdate(state, actor, vehicle.id) && access.can('data.edit')
+  const km = (n: number) => fmtMeter(n, meterUnitOf(state, vehicle.id))
   const reviewer = canReview(state, actor, vehicle.id)
   const row = fleetRow(state, vehicle, today)
   const selected = target ?? current?.projectId ?? ''
@@ -92,6 +93,7 @@ export function VehicleDashboard() {
   const tires = tireSetsOf(state, vehicle.id)
   const accessories = accessoriesOf(state, vehicle.id)
   const history = historyOf(state, vehicle.id, registry.name)
+  const life = lifespanOf(state, vehicle)
   const project = current ? registry.get(current.projectId) : undefined
   const s = row.service
   const oil = lastService(state, vehicle.id, 'Oil change')
@@ -108,19 +110,21 @@ export function VehicleDashboard() {
       </Link>
       <PageHeader title={vehicle.unitNumber} description={`${vehicleTitle(vehicle)}${project ? ` · ${project.name}` : ' · Unassigned'}`} actions={<><ConditionBadge condition={row.condition} />{editable && <Btn onClick={() => setModal({ kind: 'edit' })}>Edit vehicle</Btn>}</>} />
 
-      {phone && editable && (
-        <section aria-label="Quick actions" className="mb-6 grid grid-cols-2 gap-2">
-          <Button variant="primary" onClick={() => setModal({ kind: 'odometer' })}>Odometer</Button>
-          <Button variant="primary" onClick={() => setModal({ kind: 'inspection' })}>Inspection</Button>
-          <Button onClick={() => setModal({ kind: 'maintenance' })}>Maintenance</Button>
-          <Button onClick={() => setModal({ kind: 'oil-target' })}>Oil change</Button>
+      <VehicleGauges state={state} vehicle={vehicle} today={today} projectName={project?.name} quickActions={(editable ? (
+        <section aria-label="Quick actions" className="mt-6">
+          <h2 className="t-label mb-2">Quick actions</h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Button onClick={() => setModal({ kind: 'inspection' })}>Add inspection</Button>
+            <Button onClick={() => setModal({ kind: 'accessory-add' })}>Add accessory</Button>
+            <Button onClick={() => setModal({ kind: 'oil-record' })}>Record oil change</Button>
+            <Button onClick={() => setModal({ kind: 'odometer' })}>{meterUnitOf(state, vehicle.id) === 'h' ? 'Update hours' : 'Update odometer'}</Button>
+          </div>
         </section>
-      )}
-      <VehicleGauges state={state} vehicle={vehicle} today={today} projectName={project?.name} handlers={{
+      ) : <p className="mt-3 text-xs text-muted">View only.</p>)} handlers={{
         jump,
-        edit: editable ? { lifespan: () => setModal({ kind: 'planning' }), service: () => setModal({ kind: 'service' }), oilTarget: () => setModal({ kind: 'oil-target' }), oilRecord: () => setModal({ kind: 'oil-record' }), tire: () => setModal({ kind: 'tire', mode: { kind: 'edit', tire: row.tires! } }), tread: () => setModal({ kind: 'tread', tire: row.tires! }), inspection: () => setModal({ kind: 'inspection' }) } : undefined,
+        edit: editable ? { lifespan: () => setModal({ kind: 'planning' }), oilTarget: () => setModal({ kind: 'oil-target' }), oilRecord: () => setModal({ kind: 'oil-record' }), tire: () => setModal({ kind: 'tire', mode: { kind: 'edit', tire: row.tires! } }), tread: () => setModal({ kind: 'tread', tire: row.tires! }), inspection: () => setModal({ kind: 'inspection' }) } : undefined,
       }} />
-      {!editable && <p className="mt-3 text-xs text-muted">View only.</p>}
+
       <nav aria-label="Dashboard sections" data-compact className="mt-4 flex gap-5 overflow-x-auto pb-1 text-[13px] phone:-mx-4 phone:gap-2 phone:px-4 phone:[scrollbar-width:none]">
         {SECTIONS.map(([id, label]) => <a key={id} href={`#${id}`} onClick={(e) => { e.preventDefault(); jump(id) }} className="shrink-0 text-muted transition-colors hover:text-ink phone:inline-flex phone:h-11 phone:items-center phone:rounded-full phone:border phone:border-line phone:bg-surface phone:px-4 phone:text-[15px] phone:text-ink">{label}</a>)}
       </nav>
@@ -135,7 +139,9 @@ export function VehicleDashboard() {
           <Row label="Licence plate">{vehicle.licencePlate ?? NOT_RECORDED}</Row>
           <Row label="Assigned project">{project ? <Link to={`/projects/${project.id}`} className="underline-offset-4 hover:underline">{project.name} · Job {project.jobNumber}</Link> : current ? registry.name(current.projectId) : <span className="text-muted">Unassigned</span>}</Row>
           <Row label="Assigned since">{current?.startDate ? formatDate(current.startDate) : NOT_RECORDED}</Row>
-          <Row label="Estimated lifespan">{vehicle.expectedLifeKm !== null ? <>{km(vehicle.expectedLifeKm)}<span className="text-muted"> · planning estimate, not a condition rating</span></> : <span className="text-muted">Not set</span>}</Row>
+          <Row label="Estimated lifespan">{life.value !== null ? <>{km(life.value)}<span className="text-muted"> · {life.source === 'asset' ? 'set for this asset' : `${life.category?.name} default`} · planning estimate, not a condition rating</span></> : <span className="text-muted">Not set</span>}</Row>
+          <Row label="Category">{life.category ? life.category.name : <span className="text-muted">None</span>}</Row>
+          <Row label="Meter">{meterUnitOf(state, vehicle.id) === 'h' ? 'Operating hours' : 'Kilometres'}</Row>
           <Row label="Inspection interval">{vehicle.inspectionIntervalDays !== null ? `Every ${vehicle.inspectionIntervalDays} days` : <span className="text-muted">Weekly (default)</span>}</Row>
           <Row label="Notes">{vehicle.notes || NOT_RECORDED}</Row>
         </dl>

@@ -16,10 +16,10 @@ export function MetricSummary({ label, value, sub, status, statusLabel, visual, 
       {visual && <div className="mt-3">{visual}</div>}
     </>
   )
-  const cls = 'block min-w-0 text-left'
+  const cls = 'block w-full min-w-0 max-w-full text-left'
   // The grid cell is a plain div so every summary aligns to the top, whether or not its content is interactive.
   return (
-    <div className="self-start">
+    <div className="min-w-0 self-start">
       {to ? <Link to={to} className={`${cls} hover:opacity-80`}>{body}</Link> : onSelect ? <button type="button" onClick={onSelect} className={`${cls} hover:opacity-80`}>{body}</button> : <div className={cls}>{body}</div>}
     </div>
   )

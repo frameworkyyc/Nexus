@@ -8,10 +8,11 @@ import { accessoryLabel, findAccessoryType, typesOf } from './accessoryTypes'
 import * as A from './commands'
 import type { AccessoryInput, TireInput } from './actions'
 import { recordOdometer, reviewInspection, setServiceTarget, submitInspection } from './commands'
-import { activeTireSet, currentOilTarget, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
+import { activeTireSet, CONDITION_LABEL, currentOilTarget, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
 import { oilIndicator } from './indicators'
 import { fleetStore, useFleet, useFleetCommand } from './store'
-import type { Accessory, InspectionRecord, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
+import { categoriesOf, fmtMeter, meterUnitOf } from './meter'
+import type { Accessory, InspectionRecord, MeterUnit, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
 
 const Body = ({ children }: { children: React.ReactNode }) => <div className="space-y-4 p-6 text-[13px]">{children}</div>
 
@@ -23,18 +24,19 @@ export function OdometerModal({ vehicle, onClose }: { vehicle: Vehicle; onClose:
   const [note, setNote] = useState('')
   const [corrects, setCorrects] = useState('')
   const latest = latestOdometer(state, vehicle.id)
+  const unit = meterUnitOf(state, vehicle.id)
   const history = odometerHistory(state, vehicle.id).filter((r) => r.review !== 'rejected').slice(-8).reverse()
   const save = () => { run(recordOdometer(vehicle.id, { date, reading: Number(reading), note, correctsId: corrects || null }, today), onClose)}
   return (
-    <Modal title={`Record odometer · ${vehicle.unitNumber}`} onClose={onClose}>
+    <Modal title={`Record ${unit === 'h' ? 'hour meter' : 'odometer'} · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
-        <p className="text-muted">{latest ? `Current mileage ${latest.reading.toLocaleString('en-CA')} km (${latest.date}).` : 'No reading recorded yet.'} A reading lower than an earlier one, or higher than a later one, is saved but held for review; it will not change the current mileage until someone accepts it.</p>
+        <p className="text-muted">{latest ? `Current ${unit === 'h' ? 'hours' : 'mileage'} ${fmtMeter(latest.reading, unit)} (${latest.date}).` : 'No reading recorded yet.'} A reading lower than an earlier one, or higher than a later one, is saved but held for review; it will not change the current mileage until someone accepts it.</p>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Reading (km)"><Input inputMode="numeric" autoFocus value={reading} onChange={(e) => setReading(e.target.value)} /></Field>
+          <Field label={unit === 'h' ? 'Reading (hours)' : 'Reading (km)'}><Input inputMode="decimal" autoFocus value={reading} onChange={(e) => setReading(e.target.value)} /></Field>
           <Field label="Date"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         </div>
         <Field label="This corrects an earlier reading (optional)">
-          <Select value={corrects} onChange={(e) => setCorrects(e.target.value)}><option value="">No — this is a new reading</option>{history.map((r) => <option key={r.id} value={r.id}>{r.date} · {r.reading.toLocaleString('en-CA')} km</option>)}</Select>
+          <Select value={corrects} onChange={(e) => setCorrects(e.target.value)}><option value="">No — this is a new reading</option>{history.map((r) => <option key={r.id} value={r.id}>{r.date} · {fmtMeter(r.reading, unit)}</option>)}</Select>
         </Field>
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <Button variant="primary" disabled={saving || !reading} onClick={save}>Save reading</Button>
@@ -44,24 +46,50 @@ export function OdometerModal({ vehicle, onClose }: { vehicle: Vehicle; onClose:
 }
 
 export function InspectionModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
-  const { today } = useFleet()
+  const { state, today } = useFleet()
   const { run, saving } = useFleetCommand()
+  const unit = meterUnitOf(state, vehicle.id)
+  const latest = latestOdometer(state, vehicle.id)
   const [date, setDate] = useState(today)
   const [by, setBy] = useState('')
+  const [reading, setReading] = useState('')
+  const [nextOil, setNextOil] = useState('')
+  const [condition, setCondition] = useState<RatedCondition | ''>('')
   const [notes, setNotes] = useState('')
   const [defects, setDefects] = useState('')
-  const save = () => { run(submitInspection(vehicle.id, { date, submittedBy: by, notes, defects: defects.split('\n') }, today), onClose)}
+  const [error, setError] = useState('')
+  const readingN = numOrNull(reading)
+  // Say, before saving, when the reading will not become the current figure: an older inspection never overwrites a newer reading.
+  const held = readingN !== null && latest && ((latest.date && date < latest.date) || readingN < latest.reading)
+  const save = () => {
+    if (readingN === null) { setError(`Enter the current ${unit === 'h' ? 'hour-meter reading' : 'odometer'}.`); return }
+    setError('')
+    run(submitInspection(vehicle.id, { date, submittedBy: by, notes, defects: defects.split('\n'), meterReading: readingN, nextOilDue: numOrNull(nextOil), reportedCondition: condition || null }, today), onClose)
+  }
   return (
     <Modal title={`Weekly inspection · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
-        <p className="text-muted">Submitting records that the inspection was done. It does not state the vehicle is sound: a reviewer sets the condition, and every defect listed stays outstanding until it is resolved.</p>
+        <p className="text-muted">Submitting records that the inspection was done and updates the {unit === 'h' ? 'hour meter' : 'odometer'}. It does not state the vehicle is sound: a reviewer verifies the condition, and every defect listed stays outstanding until it is resolved.</p>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Inspection date"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Submitted by"><Input value={by} onChange={(e) => setBy(e.target.value)} /></Field>
+          <Field label="Inspection date *"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Submitted by *"><Input value={by} onChange={(e) => setBy(e.target.value)} /></Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={unit === 'h' ? 'Current operating hours *' : 'Current odometer (km) *'}><Input inputMode="decimal" value={reading} onChange={(e) => setReading(e.target.value)} placeholder={latest ? `Last ${fmtMeter(latest.reading, unit)}` : 'Not recorded yet'} /></Field>
+          <Field label={`Next oil change due (${unit === 'h' ? 'h' : 'km'}, optional)`}><Input inputMode="numeric" value={nextOil} onChange={(e) => setNextOil(e.target.value)} placeholder="Leave as is" /></Field>
+        </div>
+        {held && <p role="status" className="-mt-2 text-xs text-muted">This reading is {latest && latest.date && date < latest.date ? 'dated before' : 'lower than'} the current {fmtMeter(latest!.reading, unit)}. It is saved with the inspection but held for review, so it does not replace the current figure.</p>}
+        {nextOil.trim() !== '' && <p className="-mt-2 text-xs text-muted">This sets when the next oil change falls due. It does not record an oil change as done.</p>}
+        <Field label="Overall condition (as observed, optional)">
+          <Select value={condition} onChange={(e) => setCondition(e.target.value as RatedCondition | '')}>
+            <option value="">Not stated</option>
+            {(['good', 'fair', 'poor', 'out-of-service'] as const).map((c) => <option key={c} value={c}>{CONDITION_LABEL[c]}</option>)}
+          </Select>
+        </Field>
         <Field label="Defects found (one per line)"><Textarea rows={4} value={defects} onChange={(e) => setDefects(e.target.value)} placeholder="Leave empty if none were found" /></Field>
-        <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
-        <Button variant="primary" disabled={saving} onClick={save}>Submit inspection</Button>
+        <Field label="Inspection notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        {error && <p role="alert" className="text-status-bad">{error}</p>}
+        <Button variant="primary" disabled={saving || !by.trim()} onClick={save}>Submit inspection</Button>
       </Body>
     </Modal>
   )
@@ -75,6 +103,7 @@ export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehic
   const { state, today } = useFleet()
   const { run, saving } = useFleetCommand()
   const oilInd = oilIndicator(state, vehicle.id)
+  const u = meterUnitOf(state, vehicle.id) === 'h' ? 'h' : 'km'
   const s = oil ? { target: oilInd.schedule } : serviceStatus(state, vehicle.id)
   // After an oil change is recorded the old target is done; offer the next one as last change + the previous interval (editable, never saved unseen).
   const prevOil = oil ? currentOilTarget(state, vehicle.id) : undefined
@@ -89,11 +118,11 @@ export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehic
     <Modal title={`${oil ? 'Next oil change' : 'Next service'} · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
         <p className="text-muted">{oil ? 'Enter the odometer reading at which the next oil change falls due. The interval percentage is shown only when the last oil change was recorded with its odometer.' : 'Enter the odometer reading at which the next scheduled service falls due. KM remaining is calculated from the latest valid reading. The service type is optional and is not assumed. Oil changes are scheduled separately.'}</p>
-        <Field label={oil ? 'Next oil change at (km)' : 'Next service at (km)'}><Input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} /></Field>
+        <Field label={oil ? `Next oil change at (${u})` : `Next service at (${u})`}><Input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} /></Field>
         {!oil && <Field label="Service type (optional)"><Input list="service-types" value={type} onChange={(e) => setType(e.target.value)} placeholder="Not specified" /></Field>}
         {!oil && <datalist id="service-types">{SERVICE_TYPES.filter((t) => t !== 'Oil change').map((t) => <option key={t} value={t} />)}</datalist>}
-        <Field label="Interval between services (km, optional)"><Input inputMode="numeric" value={interval} onChange={(e) => setInterval_(e.target.value)} placeholder="Not set" /></Field>
-        <Field label="Highlight as due soon within (km, optional)"><Input inputMode="numeric" value={warn} onChange={(e) => setWarn(e.target.value)} placeholder="No warning window" /></Field>
+        <Field label={`Interval between services (${u}, optional)`}><Input inputMode="numeric" value={interval} onChange={(e) => setInterval_(e.target.value)} placeholder="Not set" /></Field>
+        <Field label={`Highlight as due soon within (${u}, optional)`}><Input inputMode="numeric" value={warn} onChange={(e) => setWarn(e.target.value)} placeholder="No warning window" /></Field>
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <Button variant="primary" disabled={saving || !value} onClick={save}>Save</Button>
       </Body>
@@ -103,7 +132,7 @@ export function ServiceModal({ vehicle, oil = false, onClose }: { vehicle: Vehic
 
 /** `onSaved`, when given, runs after a successful save instead of just closing (e.g. to prompt for the next oil-change mileage). */
 export function MaintenanceModal({ vehicle, presetType = '', onSaved, onClose }: { vehicle: Vehicle; presetType?: string; onSaved?: () => void; onClose: () => void }) {
-  const { today } = useFleet()
+  const { state, today } = useFleet()
   const { run, saving } = useFleetCommand()
   const [date, setDate] = useState(today)
   const [type, setType] = useState(presetType)
@@ -119,7 +148,7 @@ export function MaintenanceModal({ vehicle, presetType = '', onSaved, onClose }:
         <datalist id="service-types">{SERVICE_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Odometer (km, optional)"><Input inputMode="numeric" value={odo} onChange={(e) => setOdo(e.target.value)} /></Field>
+          <Field label={meterUnitOf(state, vehicle.id) === 'h' ? 'Hour meter (h, optional)' : 'Odometer (km, optional)'}><Input inputMode="decimal" value={odo} onChange={(e) => setOdo(e.target.value)} /></Field>
         </div>
         <Field label="Work done"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
@@ -129,19 +158,52 @@ export function MaintenanceModal({ vehicle, presetType = '', onSaved, onClose }:
   )
 }
 
-/** Planning figures for the vehicle: its estimated lifespan and how often it is inspected. Both are optional and have no hidden defaults. */
+/** Lifespan settings for one asset: its category (organization default), its own estimate (takes priority) and how often it is inspected. */
 export function PlanningModal({ vehicle, onClose }: { vehicle: Vehicle; onClose: () => void }) {
-  const { run, saving } = useFleetCommand()
+  const { state } = useFleet()
+  const access = useAccess()
+  const unit = meterUnitOf(state, vehicle.id)
   const [life, setLife] = useState(vehicle.expectedLifeKm === null ? '' : String(vehicle.expectedLifeKm))
   const [days, setDays] = useState(vehicle.inspectionIntervalDays === null ? '' : String(vehicle.inspectionIntervalDays))
-  const save = () => { run(A.setVehiclePlanning(vehicle.id, { expectedLifeKm: numOrNull(life), inspectionIntervalDays: numOrNull(days) }), onClose) }
+  const [category, setCategory] = useState(vehicle.categoryId ?? '')
+  const [meter, setMeter] = useState<MeterUnit>(unit)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const canChangeUnit = !state.odometer.some((r) => r.vehicleId === vehicle.id) && !state.serviceTargets.some((t) => t.vehicleId === vehicle.id)
+  const cats = categoriesOf(state).filter((c) => !c.archived || c.id === vehicle.categoryId)
+  const chosen = categoriesOf(state).find((c) => c.id === category)
+  const shown = life.trim() === '' && chosen && chosen.defaultLife !== null && chosen.meterUnit === meter ? chosen.defaultLife : null
+  const save = async () => {
+    setBusy(true); setError('')
+    const steps = [
+      ...(meter !== unit ? [() => fleetStore.run(A.setVehicleMeterUnit(vehicle.id, meter))] : []),
+      ...(category !== (vehicle.categoryId ?? '') ? [() => fleetStore.run(A.setVehicleCategory(vehicle.id, category || null))] : []),
+      () => fleetStore.run(A.setVehiclePlanning(vehicle.id, { expectedLifeKm: numOrNull(life), inspectionIntervalDays: numOrNull(days) })),
+    ]
+    for (const step of steps) { const e = await step(); if (e) { setError(e); setBusy(false); return } }
+    setBusy(false); onClose()
+  }
   return (
-    <Modal title={`Planning estimates · ${vehicle.unitNumber}`} onClose={onClose}>
+    <Modal title={`Lifespan settings · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
-        <p className="text-muted">The estimated lifespan is a planning figure only. Reaching it does not mark the vehicle unsafe, unserviceable or in any condition: condition comes from inspections.</p>
-        <Field label="Estimated vehicle lifespan (km)"><Input inputMode="numeric" autoFocus value={life} onChange={(e) => setLife(e.target.value)} placeholder="Not set" /></Field>
+        <p className="text-muted">The estimated lifespan is a planning figure only. Reaching it does not mark the vehicle unsafe, unserviceable or in any condition: condition comes from inspections. This asset’s own estimate takes priority over its category’s default.</p>
+        <Field label="Category (organization default lifespan)">
+          <Select aria-label="Category" value={category} onChange={(e) => { setCategory(e.target.value); const c = categoriesOf(state).find((x) => x.id === e.target.value); if (c && canChangeUnit) setMeter(c.meterUnit) }}>
+            <option value="">No category</option>
+            {cats.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.defaultLife === null ? 'no default' : fmtMeter(c.defaultLife, c.meterUnit)}</option>)}
+          </Select>
+        </Field>
+        <Field label="This asset counts">
+          <Select aria-label="Meter unit" value={meter} disabled={!canChangeUnit} onChange={(e) => setMeter(e.target.value as MeterUnit)}>
+            <option value="km">Kilometres (odometer)</option><option value="h">Operating hours (hour meter)</option>
+          </Select>
+        </Field>
+        {!canChangeUnit && <p className="-mt-2 text-xs text-muted">The unit is fixed once readings or schedules are recorded.</p>}
+        <Field label={`Own lifespan estimate (${meter === 'h' ? 'hours' : 'km'}, optional)`}><Input inputMode="numeric" autoFocus value={life} onChange={(e) => setLife(e.target.value)} placeholder={shown !== null ? `Using the ${chosen!.name} default: ${fmtMeter(shown, meter)}` : 'Not set'} /></Field>
+        <p className="-mt-2 text-xs text-muted">Leave blank to use the category default.{access.can('structure.manage') ? '' : ' Defaults are managed by an administrator in Fleet settings.'}</p>
         <Field label="Inspection interval (days)"><Input inputMode="numeric" value={days} onChange={(e) => setDays(e.target.value)} placeholder="Weekly (7)" /></Field>
-        <Button variant="primary" disabled={saving} onClick={save}>Save</Button>
+        {error && <p role="alert" className="text-status-bad">{error}</p>}
+        <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</Button>
       </Body>
     </Modal>
   )

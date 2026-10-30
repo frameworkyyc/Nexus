@@ -1,7 +1,8 @@
 import { remainingStatus, worstStatus, type Status } from '@/components/viz/status'
 import type { ISODate } from '@/lib/date'
 import { activeTireSet, currentOilTarget, currentServiceTarget, inspectionStatus, isOilChange, lastService, latestOdometer, latestTread, maintenanceOf, outstandingDefects, tireKm } from './selectors'
-import type { FleetState, MaintenanceRecord, ServiceTarget, TireSet } from './types'
+import { fmtMeter, lifespanOf, meterUnitOf } from './meter'
+import type { FleetState, MaintenanceRecord, MeterUnit, ServiceTarget, TireSet } from './types'
 
 /**
  * Pure view-models for the vehicle dashboard gauges. Every figure comes from recorded or configured data; when a figure cannot be
@@ -11,7 +12,6 @@ import type { FleetState, MaintenanceRecord, ServiceTarget, TireSet } from './ty
 
 /** One decimal, the precision every percentage in the dashboard is shown at. */
 export const pct1 = (n: number) => Math.round(n * 10) / 10
-const fmtKm = (n: number) => `${n.toLocaleString('en-CA')} km`
 
 /** Remaining and consumed shares of a total, clamped to 0–100 so a gauge never over- or under-fills when the estimate is exceeded. */
 export function lifeShares(used: number | null, total: number | null): { remainingPercent: number | null; consumedPercent: number | null; remaining: number | null } {
@@ -23,6 +23,10 @@ export function lifeShares(used: number | null, total: number | null): { remaini
 /* ── Vehicle lifespan ──────────────────────────────────────────────────── */
 
 export interface LifeIndicator {
+  /** Where the estimate comes from: the asset itself, its category default, or nowhere. */
+  source: 'asset' | 'category' | 'none'
+  categoryName: string | null
+  unit: MeterUnit
   status: Status
   label: string
   current: number | null
@@ -38,18 +42,24 @@ export interface LifeIndicator {
  * it is flagged for planning (orange) and never marks the vehicle unsafe, unserviceable or in poor condition.
  */
 export function lifespanIndicator(state: FleetState, vehicleId: string): LifeIndicator {
-  const expectedKm = state.vehicles.find((v) => v.id === vehicleId)?.expectedLifeKm ?? null
+  const vehicle = state.vehicles.find((v) => v.id === vehicleId)
+  const life = vehicle ? lifespanOf(state, vehicle) : null
+  const expectedKm = life?.value ?? null
+  const unit = life?.unit ?? 'km'
+  const fmtKm = (n: number) => fmtMeter(n, unit)
   const current = latestOdometer(state, vehicleId)?.reading ?? null
   const { remainingPercent, consumedPercent, remaining } = lifeShares(current, expectedKm)
-  if (expectedKm === null) return { status: 'unknown', label: 'No lifespan estimate set', current, expectedKm, remainingKm: null, remainingPercent: null, consumedPercent: null }
-  if (remaining === null) return { status: 'unknown', label: 'No valid odometer reading', current, expectedKm, remainingKm: null, remainingPercent: null, consumedPercent: null }
+  const base = { source: life?.source ?? 'none', categoryName: life?.category?.name ?? null, unit } as const
+  if (expectedKm === null) return { ...base, status: 'unknown', label: 'No lifespan estimate set', current, expectedKm, remainingKm: null, remainingPercent: null, consumedPercent: null }
+  if (remaining === null) return { ...base, status: 'unknown', label: 'No valid odometer reading', current, expectedKm, remainingKm: null, remainingPercent: null, consumedPercent: null }
   const within = remaining >= 0
-  return { status: within ? 'ok' : 'warn', label: within ? 'Within estimated lifespan' : `Beyond estimate by ${fmtKm(-remaining)}`, current, expectedKm, remainingKm: remaining, remainingPercent, consumedPercent }
+  return { ...base, status: within ? 'ok' : 'warn', label: within ? 'Within estimated lifespan' : `Beyond estimate by ${fmtKm(-remaining)}`, current, expectedKm, remainingKm: remaining, remainingPercent, consumedPercent }
 }
 
 /* ── Scheduled maintenance (oil change and other services) ─────────────── */
 
 export interface DistanceIndicator {
+  unit: MeterUnit
   status: Status
   label: string
   current: number | null
@@ -71,7 +81,8 @@ export interface DistanceIndicator {
   last: MaintenanceRecord | undefined
 }
 
-function distance(label: string, current: number | null, schedule: ServiceTarget | undefined, last: MaintenanceRecord | undefined): DistanceIndicator {
+function distance(label: string, current: number | null, schedule: ServiceTarget | undefined, last: MaintenanceRecord | undefined, unit: MeterUnit): DistanceIndicator {
+  const fmtKm = (n: number) => fmtMeter(n, unit)
   const dueAt = schedule?.odometer ?? null
   const remaining = dueAt !== null && current !== null ? dueAt - current : null
   const lastAt = last?.odometer ?? null
@@ -96,7 +107,7 @@ function distance(label: string, current: number | null, schedule: ServiceTarget
   else if (status === 'warn') text = 'Due soon'
   else if (status === 'ok') text = 'On schedule'
   else text = 'Not yet due'
-  return { status, label: text, current, dueAt, remaining, lastAt, lastDate: last?.date ?? null, intervalStart, baselineCalculated, intervalKm: schedule?.intervalKm ?? null, remainingPercent, consumedPercent, warnWithinKm: schedule?.warnWithinKm ?? null, schedule, last }
+  return { unit, status, label: text, current, dueAt, remaining, lastAt, lastDate: last?.date ?? null, intervalStart, baselineCalculated, intervalKm: schedule?.intervalKm ?? null, remainingPercent, consumedPercent, warnWithinKm: schedule?.warnWithinKm ?? null, schedule, last }
 }
 
 /** Scheduled service that is not an oil change. Percentage only when an interval start is known (last service of the same recorded type, or a configured interval). */
@@ -104,7 +115,7 @@ export function serviceIndicator(state: FleetState, vehicleId: string): Distance
   const schedule = currentServiceTarget(state, vehicleId)
   const type = schedule?.serviceType ?? null
   const last = type ? lastService(state, vehicleId, type) : undefined
-  return distance('next service', latestOdometer(state, vehicleId)?.reading ?? null, schedule, last)
+  return distance('next service', latestOdometer(state, vehicleId)?.reading ?? null, schedule, last, meterUnitOf(state, vehicleId))
 }
 
 /**
@@ -118,7 +129,7 @@ export function oilIndicator(state: FleetState, vehicleId: string): DistanceIndi
   // Already done: an oil change completed at/after the due mileage, or (with an interval) later than the interval's calculated start,
   // meaning it was performed for this cycle. A change at exactly the start is the cycle's own baseline, so the schedule stays.
   if (schedule && last?.odometer != null && last.odometer > schedule.odometer - (schedule.intervalKm ?? 0) - (schedule.intervalKm ? 0 : 1)) schedule = undefined
-  return distance('oil-change schedule', latestOdometer(state, vehicleId)?.reading ?? null, schedule, last)
+  return distance('oil-change schedule', latestOdometer(state, vehicleId)?.reading ?? null, schedule, last, meterUnitOf(state, vehicleId))
 }
 
 /* ── Tires ─────────────────────────────────────────────────────────────── */
@@ -145,6 +156,7 @@ export interface TireIndicator {
  * a recorded good condition, a measured tread above the limit, or mileage still inside the estimate is green; with none of these, unknown.
  */
 export function tireIndicator(state: FleetState, vehicleId: string): TireIndicator {
+  const fmtKm = (n: number) => fmtMeter(n, meterUnitOf(state, vehicleId))
   const set = activeTireSet(state, vehicleId)
   if (!set) return { status: 'unknown', label: 'No tire set fitted', set, km: null, expectedLifeKm: null, remainingPercent: null, consumedPercent: null, remainingKm: null, treadMm: null, replaceAtMm: null, basis: 'none' }
   const km = tireKm(state, set)
