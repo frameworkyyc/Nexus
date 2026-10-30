@@ -190,6 +190,7 @@ export interface ComponentInput {
   washersPerBolt?: number
   nutSize?: string
   washerSize?: string
+  centerHole?: number | null
 }
 
 const text = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
@@ -201,6 +202,10 @@ export function componentProblem(c: ComponentInput, n: number): string | null {
   const at = `Component ${n}`
   if (!['bolt', 'sole-plate', 'template', 'embed-plate'].includes(c.kind)) return `${at}: choose bolts, a sole plate, a template or an embed plate.`
   if (!Number.isInteger(c.qty) || c.qty < 1 || c.qty > 1000) return `${at}: enter a whole number of 1 to 1,000 per anchorage.`
+  if (c.kind === 'sole-plate') {
+    if (c.centerHole !== null && c.centerHole !== undefined && !pos(c.centerHole)) return `${at}: enter the centre hole diameter as a number above 0, or leave it empty.`
+    if (c.lengthUnit !== undefined && c.lengthUnit !== 'mm' && c.lengthUnit !== 'in') return `${at}: choose mm or inches for the centre hole.`
+  }
   if (c.kind !== 'bolt') return null
   if (!text(c.diameter, 30)) return `${at}: enter the bolt diameter (for example M25 or 3/4").`
   if (!pos(c.length)) return `${at}: enter the total bolt length.`
@@ -237,6 +242,7 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
       diameter: bolt ? text(c.diameter, 30) : '', length: bolt ? (c.length as number) : null, lengthUnit: c.lengthUnit === 'in' ? 'in' : 'mm',
       thread: bolt ? (c.thread as 'both-ends' | 'all-thread') : null, topThread: bolt && c.thread === 'both-ends' ? (c.topThread as number) : null, bottomThread: bolt && c.thread === 'both-ends' ? (c.bottomThread as number) : null,
       nutsPerBolt: bolt ? c.nutsPerBolt ?? 0 : 0, washersPerBolt: bolt ? c.washersPerBolt ?? 0 : 0, nutSize: bolt ? text(c.nutSize, 30) : '', washerSize: bolt ? text(c.washerSize, 30) : '',
+      centerHole: c.kind === 'sole-plate' && pos(c.centerHole) ? (c.centerHole as number) : null,
     })
   }
   return ok({ ...s, anchorageComponents: [...(s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId !== anchorageTypeId), ...next] })

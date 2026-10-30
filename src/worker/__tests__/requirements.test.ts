@@ -123,3 +123,19 @@ describe('migration 0012', () => {
     expect(() => db.raw.exec("INSERT INTO manual_materials (id, area, category, name, required_qty, derive_key, origin, seq) VALUES ('d1', 'A', 'nut', 'Nut', 1, 'k', 'anchorage', 1), ('d2', 'A', 'nut', 'Nut', 1, 'k', 'anchorage', 2)")).toThrow() // one row per calculated requirement
   })
 })
+
+describe('migration 0013', () => {
+  it('adds the centre hole column; existing sole plates keep no hole', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec('PRAGMA foreign_keys = OFF') // only the column is under test, not the project it hangs off
+    db.raw.exec("INSERT INTO anchorage_types (id, project_id, code, description, seq) VALUES ('at-1', 'p-1', 'A', 'A', 0)")
+    db.raw.exec("INSERT INTO anchorage_components (id, anchorage_type_id, kind, qty, size, seq) VALUES ('c-1', 'at-1', 'sole-plate', 2, '300 x 300', 0)")
+    applyMigrationFile(db.raw, '0013_sole_plate_center_hole.sql')
+    expect(db.raw.prepare('SELECT qty, size, center_hole FROM anchorage_components').get()).toEqual({ qty: 2, size: '300 x 300', center_hole: null })
+    expect(() => db.raw.exec("UPDATE anchorage_components SET center_hole = 0")).toThrow()
+    db.raw.exec('UPDATE anchorage_components SET center_hole = 40')
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '13' })
+  })
+})

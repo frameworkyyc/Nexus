@@ -170,6 +170,8 @@ export interface AnchorageComponent {
   washersPerBolt: number
   nutSize: string
   washerSize: string
+  // Sole plates only: optional centre hole diameter, in lengthUnit (mm or in)
+  centerHole?: number | null
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */

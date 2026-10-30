@@ -31,6 +31,24 @@ function world() {
 }
 const find = (t: TrackerState, name: string) => t.manual.find((l) => l.origin === 'anchorage' && l.component === name)!
 
+describe('sole plate centre hole', () => {
+  it('is optional, validated, kept on edit and shown in the material specification', () => {
+    const { s, A1 } = world()
+    const plate = (o: Partial<ComponentInput> = {}): ComponentInput => ({ kind: 'sole-plate', qty: 1, size: '300 x 300 x 12 mm', ...o })
+    expect(err(s, K.setAnchorageComponents(A1, [plate()]))).toBeUndefined()
+    expect(err(s, K.setAnchorageComponents(A1, [plate({ centerHole: 0 })]))).toMatch(/centre hole/)
+    expect(err(s, K.setAnchorageComponents(A1, [plate({ centerHole: -5 })]))).toMatch(/centre hole/)
+    const t = apply(s, K.setAnchorageComponents(A1, [plate({ centerHole: 1.5, lengthUnit: 'in' })]))
+    expect(t.anchorageComponents![0]).toMatchObject({ centerHole: 1.5, lengthUnit: 'in' })
+    const none = apply(s, K.setAnchorageComponents(A1, [plate()]))
+    expect(none.anchorageComponents![0].centerHole).toBeNull()
+    const m = at(emptyTracker(), t)
+    expect(find(m, 'Sole plate')).toMatchObject({ specification: 'centre hole Ø1.5 in', size: '300 x 300 x 12 mm' })
+    const mm = at(emptyTracker(), apply(s, K.setAnchorageComponents(A1, [plate({ spec: 'CSA G40.21 350W', centerHole: 40 })])))
+    expect(find(mm, 'Sole plate').specification).toBe('CSA G40.21 350W, centre hole Ø40 mm')
+  })
+})
+
 describe('anchorage components', () => {
   it('validates: bolts need a diameter, length and thread; an anchorage can be embed plates only', () => {
     const { s, A1 } = world()
