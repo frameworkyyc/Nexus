@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { importWorkbookFile } from '@/domains/construction/tracker/import'
-import { areaSummary, deliveryState, isVerified, materialsProgress, receivedOf, remainingOf } from '@/domains/construction/tracker/selectors'
+import { areaSummary, deliveryState, materialsProgress, receivedOf, remainingOf } from '@/domains/construction/tracker/selectors'
 import { sampleWorkbook } from '@/domains/construction/__tests__/xlsxBuilder'
 import type { TrackerState } from '@/domains/construction/tracker/types'
 import { loadRows, tablesOf } from '../db'
@@ -141,15 +141,15 @@ describe('Materials: workbook import, receipts and review', () => {
     expect((await s.db.d1.prepare('SELECT COUNT(*) AS n FROM material_receipts WHERE line_id = ?').bind(id).first<{ n: number }>())?.n).toBe(1)
   })
 
-  it('distinguishes reported, verified, unknown and confirmed-zero deliveries, and supports partial receipts', async () => {
+  it('a workbook status is not a delivery; confirmed deliveries, including partial ones, are', async () => {
     const s = session()
     await importSample(s)
     let t = await tracker(s)
     const bolt = lineAt(t, 4), washer = lineAt(t, 5), nut = lineAt(t, 6)
     expect(bolt.sourceStatus).toBe('Delivered')
-    expect(deliveryState(bolt)).toBe('unverified-delivered') // reported only
+    expect(deliveryState(bolt)).toBe('none-received') // reported only
     expect(receivedOf(bolt)).toBe(0)
-    expect(remainingOf(bolt)).toBeNull() // unknown, not 24
+    expect(remainingOf(bolt)).toBe(bolt.requiredQty) // workbook says delivered, but nothing has been confirmed here
     await command(s, 'materials', 'addReceipt', [bolt.id, { date: '2026-10-10', qty: 10, reference: 'PS-1', note: '' }, TODAY])
     await command(s, 'materials', 'addReceipt', [bolt.id, { date: '2026-10-15', qty: 8, reference: 'PS-2', note: '' }, TODAY])
     await command(s, 'materials', 'confirmNoReceipts', [washer.id, true])
@@ -158,16 +158,15 @@ describe('Materials: workbook import, receipts and review', () => {
     expect([receivedOf(lineAt(t, 4)), remainingOf(lineAt(t, 4))]).toEqual([18, 6])
     expect(lineAt(t, 4).receipts.map((r) => r.reference)).toEqual(['PS-1', 'PS-2']) // multiple deliveries, in order
     expect(deliveryState(lineAt(t, 5))).toBe('none-received')
-    expect([isVerified(lineAt(t, 5)), remainingOf(lineAt(t, 5))]).toEqual([true, 48]) // confirmed zero
-    expect(isVerified(lineAt(t, 6))).toBe(false)
-    expect(remainingOf(nut)).toBeNull()
+    expect(remainingOf(lineAt(t, 5))).toBe(48)
+    expect(remainingOf(nut)).toBe(nut.requiredQty)
   })
 
   it('a recorded receipt is reflected in the dashboard figures', async () => {
     const s = session()
     await importSample(s)
     const before = materialsProgress((await tracker(s)).lines.filter((l) => l.area === 'North Area'))
-    expect(before.percent).toBeNull() // delivered per workbook, nothing verified
+    expect(before.percent).toBe(0) // delivered per workbook, nothing confirmed
     const t = await tracker(s)
     await command(s, 'materials', 'addReceipt', [lineAt(t, 4).id, { date: '2026-10-10', qty: 24, reference: '', note: '' }, TODAY])
     const after = materialsProgress((await tracker(s)).lines.filter((l) => l.area === 'North Area'))

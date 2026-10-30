@@ -20,7 +20,18 @@ export interface QuantityCalc {
 }
 
 /** A physical receipt recorded in Nexus. Only these count as verified received quantity. */
-export interface Receipt { id: string; date: ISODate; qty: number; reference: string; note: string; /** Verified identity of whoever recorded it (server only); empty when unknown. */ by?: string }
+export interface Receipt {
+  id: string; date: ISODate; qty: number; reference: string; note: string
+  /** Who confirmed the delivery (verified identity, server only); empty when unknown. */
+  by?: string
+  /** When it was confirmed (a timestamp, as opposed to `date`, the day the material arrived). */
+  at?: string
+}
+
+/** What a required quantity is counted per. */
+export type QtyBasis = 'fixed' | 'per-anchorage' | 'per-plinth' | 'per-footing'
+/** One contribution to a calculated total: this many anchorages of one type, each needing `each` of the item. */
+export interface RequirementPart { anchorageTypeId: string; code: string; instances: number; each: number }
 
 export interface TrackerLine {
   id: string // stable across re-imports: area | footing type | anchorage type | component
@@ -45,7 +56,17 @@ export interface TrackerLine {
   notes: string
   // Nexus-side details. For workbook lines only these (never the source facts above) can be changed; materials entered in Nexus
   // (`origin: 'manual'`) own all of their fields.
-  origin?: 'manual'
+  /** 'manual': entered in Nexus. 'anchorage': a requirement calculated from the anchorage library and the foundations. Absent: from the workbook. */
+  origin?: 'manual' | 'anchorage'
+  /** How the entered quantity becomes the required total. Absent = 'fixed' (the quantity is the total). */
+  basis?: QtyBasis
+  /** The quantity as entered: the total for 'fixed', otherwise the amount per anchorage / plinth / footing. */
+  qtyEach?: number | null
+  /** Calculated requirements: the stable key that finds this line again, and the parts of the total. */
+  deriveKey?: string
+  breakdown?: RequirementPart[]
+  /** A calculated requirement that no longer applies but has orders or deliveries, so it is kept. */
+  requirementRemoved?: boolean
   description?: string
   specification?: string
   size?: string

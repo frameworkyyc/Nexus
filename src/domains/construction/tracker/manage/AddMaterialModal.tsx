@@ -13,10 +13,11 @@ import { addMaterials, addSupplier } from '../commands'
 import { anchorageFor, foundationsOfArea } from '../catalog'
 import { effectiveSupplier, validateMaterial, type MaterialInput } from '../materialModel'
 import { CATEGORY_LABEL, CATEGORY_ORDER } from '../selectors'
+import { QuantityScope } from './QuantityScope'
 import { trackerStore } from '../store'
 import { supplierId as idOfSupplier } from '../suppliers'
 import { MATERIAL_TEMPLATES, UNITS } from '../templates'
-import type { ComponentCategory, TrackerLine } from '../types'
+import type { ComponentCategory, QtyBasis, TrackerLine } from '../types'
 import { useMaterialRefs } from './useMaterialRefs'
 
 export const blankMaterial = (over: Partial<MaterialInput> = {}): MaterialInput => ({
@@ -26,7 +27,7 @@ export const blankMaterial = (over: Partial<MaterialInput> = {}): MaterialInput 
 /** Pre-fills a new material from an existing one (Duplicate). Quantities, receipts and history are not copied. */
 export const duplicateOf = (l: TrackerLine): MaterialInput => blankMaterial({
   areaId: l.areaId ?? '', foundationId: l.foundationId ?? '', anchorageTypeId: l.anchorageTypeId ?? '', category: l.category, name: l.component, description: l.description ?? '', specification: l.specification ?? '', size: l.size ?? '',
-  requiredQty: l.requiredQty, unit: l.unit || 'ea', supplierId: l.supplierId ?? '', poRef: l.poRef ?? '',
+  requiredQty: l.qtyEach ?? l.requiredQty, basis: l.basis ?? 'fixed', unit: l.unit || 'ea', supplierId: l.supplierId ?? '', poRef: l.poRef ?? '',
 })
 
 type Mode = 'one' | 'quick'
@@ -148,19 +149,16 @@ export function AddMaterialModal({ initial, duplicate, title = 'Add material', p
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Specification"><Input value={m.specification} onChange={(e) => set({ specification: e.target.value })} placeholder="e.g. ASTM F1554 Gr.36" /></Field>
               <Field label="Size / dimensions"><Input value={m.size} onChange={(e) => set({ size: e.target.value })} placeholder={'e.g. 3/4" x 460 mm'} /></Field>
-              <div className="grid grid-cols-[1fr_6rem] gap-3">
-                <Field label="Qty required *"><Input inputMode="numeric" value={qty} onChange={(e) => { setQty(e.target.value); setError(null); setDup(false) }} /></Field>
-                <Field label="Unit"><Select aria-label="Unit" value={m.unit} onChange={(e) => set({ unit: e.target.value })}>{[...new Set([m.unit, ...UNITS])].map((u) => <option key={u}>{u}</option>)}</Select></Field>
-              </div>
+              <Field label="Unit"><Select aria-label="Unit" value={m.unit} onChange={(e) => set({ unit: e.target.value })}>{[...new Set([m.unit, ...UNITS])].map((u) => <option key={u}>{u}</option>)}</Select></Field>
             </div>
+            <QuantityScope basis={m.basis ?? 'fixed'} onBasis={(basis) => set({ basis })} qty={qty} onQty={(q) => { setQty(q); setError(null); setDup(false) }} foundationId={m.foundationId} anchorageTypeId={m.anchorageTypeId} />
             <Field label="Description"><Input value={m.description} onChange={(e) => set({ description: e.target.value })} /></Field>
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div><Field label="Supplier">{supplierField(sharedSupplier, supplier.manual, (id) => { setSupplier({ id, manual: true }); setError(null) }, () => setSupplier({ id: '', manual: false }), 'Supplier', m.category)}</Field></div>
               <Field label="PO / reference"><Input value={m.poRef} onChange={(e) => set({ poRef: e.target.value })} /></Field>
               <Field label="Expected delivery"><Input type="date" value={m.expectedDate} onChange={(e) => set({ expectedDate: e.target.value })} /></Field>
-              <Field label="Delivery status"><Select aria-label="Delivery status" value={m.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Not verified</option><option>Pending</option><option>Delivered</option></Select></Field>
             </div>
-            <p className="-mt-2 text-xs text-muted">Delivery status is a note, not a receipt. Quantity received only counts once a delivery is recorded on the material.</p>
+            <p className="-mt-2 text-xs text-muted">Delivery is recorded on the material once it arrives: confirm the quantity that was received and checked.</p>
             <Field label="Notes"><Textarea rows={2} value={m.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
           </>
         ) : (
@@ -170,7 +168,8 @@ export function AddMaterialModal({ initial, duplicate, title = 'Add material', p
               <div><Field label="Default supplier">{supplierField(sharedSupplier, supplier.manual, (id) => { setSupplier({ id, manual: true }); setError(null) }, () => setSupplier({ id: '', manual: false }), 'Default supplier', m.category)}</Field></div>
               <Field label="PO / reference"><Input value={m.poRef} onChange={(e) => set({ poRef: e.target.value })} /></Field>
             </div>
-            <p className="-mt-2 text-xs text-muted">Area, foundation, anchorage type and supplier apply to every row. A row can use its own category, anchorage type or supplier; changing a default never replaces a row’s own choice.</p>
+            <Field label="Quantities are"><Select aria-label="Quantities are" value={m.basis ?? 'fixed'} onChange={(e) => set({ basis: e.target.value as QtyBasis })}><option value="fixed">Fixed totals</option><option value="per-anchorage">Per anchorage type instance</option><option value="per-plinth">Per plinth</option><option value="per-footing">Per footing</option></Select></Field>
+            <p className="-mt-2 text-xs text-muted">{(m.basis ?? 'fixed') === 'fixed' ? 'Each quantity is the total required.' : 'Each quantity is multiplied by the chosen foundation’s actual counts (the foundation is required); the totals are shown on the materials once added.'} Area, foundation, anchorage type and supplier apply to every row. A row can use its own category, anchorage type or supplier; changing a default never replaces a row’s own choice.</p>
             <div className="space-y-4">
               {rows.map((r, i) => {
                 const cat = r.category ?? m.category

@@ -131,11 +131,11 @@ describe('editing', () => {
 })
 
 describe('quantities and deliveries', () => {
-  it('outstanding = required − total verified received, across partial deliveries and multiple receipts', () => {
+  it('outstanding = required − total delivered, across partial deliveries and multiple receipts', () => {
     let s = apply(base(), A.addMaterials([item({ requiredQty: 100 })]))
     const id = s.manual[0].id
-    expect(deliveryState(s.manual[0])).toBe('unverified-pending')
-    expect(outstandingOf(s.manual[0])).toBeNull() // unknown, not "100"
+    expect(deliveryState(s.manual[0])).toBe('none-received')
+    expect(outstandingOf(s.manual[0])).toBe(100)
     s = apply(s, A.addReceipt(id, { date: '2026-10-10', qty: 40, reference: 'DN-1', note: '' }, TODAY))
     expect(receivedOf(s.manual[0])).toBe(40)
     expect(outstandingOf(s.manual[0])).toBe(60)
@@ -164,15 +164,15 @@ describe('quantities and deliveries', () => {
     expect(err(s0, A.addReceipt(id, { date: '2026-12-31', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/future/)
   })
 
-  it('a stated “Delivered” status never becomes a receipt', async () => {
+  it('a stated “Delivered” status never becomes a receipt, so nothing counts as delivered until it is confirmed', async () => {
     const s = apply(base(), A.addMaterials([item({ claimedStatus: 'Delivered' })]))
     expect(s.manual[0].receipts).toEqual([])
-    expect(deliveryState(s.manual[0])).toBe('unverified-delivered')
-    expect(outstandingOf(s.manual[0])).toBeNull()
+    expect(deliveryState(s.manual[0])).toBe('none-received')
+    expect(outstandingOf(s.manual[0])).toBe(s.manual[0].requiredQty)
     const w = await withWorkbook()
     const delivered = w.lines.filter((l) => /^delivered$/i.test(l.sourceStatus))
     expect(delivered.length).toBeGreaterThan(0)
-    expect(delivered.every((l) => l.receipts.length === 0 && deliveryState(l) === 'unverified-delivered')).toBe(true)
+    expect(delivered.every((l) => l.receipts.length === 0 && deliveryState(l) === 'none-received')).toBe(true)
   })
 
   it('works on workbook lines too and voiding a receipt is recorded', async () => {
@@ -242,9 +242,8 @@ describe('dashboard, sorting and export', () => {
     const s = demoTrackerSeed(C)
     const c = dashboardCounts(activeLines(s))
     expect(c.total).toBe(12) // one of the 13 sample records is archived
-    expect(c.delivered + c.partial + c.pending + c.unverified).toBe(c.total)
+    expect(c.delivered + c.partial + c.pending).toBe(c.total)
     expect(c.partial).toBeGreaterThan(0)
-    expect(c.unverified).toBe(1)
   })
 
   it('sorts by quantity and status and filters by supplier and specification', () => {

@@ -1,6 +1,6 @@
 import type { Row, RowSet } from '../db'
 import { supplierKey } from '@/domains/construction/tracker/suppliers'
-import type { ComponentCategory, AnchorageSheetRow, AuditEntry, ImportFlag, ImportMeta, QuantityCalc, TrackerLine, TrackerState, WorkbookSummaryRow } from '@/domains/construction/tracker/types'
+import type { ComponentCategory, AnchorageSheetRow, AuditEntry, ImportFlag, ImportMeta, QuantityCalc, RequirementPart, TrackerLine, TrackerState, WorkbookSummaryRow } from '@/domains/construction/tracker/types'
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v))
@@ -39,13 +39,15 @@ export function materialsToRows(state: TrackerState, ctx: MaterialsWriteContext)
     material_line_ops: state.lines.filter((l) => l.orderedQty !== null || l.confirmedNoReceipts || l.notes || l.unit || l.supplier || l.supplierId || l.poRef || l.expectedDate || l.archived).map((l): Row => ({
       line_id: l.id, ordered_qty: l.orderedQty, confirmed_no_receipts: l.confirmedNoReceipts ? 1 : 0, notes: l.notes, unit: l.unit ?? '', supplier: l.supplier ?? '', supplier_id: l.supplierId || null, po_ref: l.poRef ?? '', expected_date: l.expectedDate || null, archived: l.archived ? 1 : 0,
     })),
-    material_receipts: state.lines.flatMap((l) => l.receipts.map((r, seq): Row => ({ id: r.id, line_id: l.id, receipt_date: r.date, qty: r.qty, reference: r.reference, note: r.note, recorded_by: r.by ?? '', seq }))),
+    material_receipts: state.lines.flatMap((l) => l.receipts.map((r, seq): Row => ({ id: r.id, line_id: l.id, receipt_date: r.date, qty: r.qty, reference: r.reference, note: r.note, recorded_by: r.by ?? '', recorded_at: r.at ?? '', seq }))),
     manual_materials: (state.manual ?? []).map((l, seq): Row => ({
       id: l.id, area: l.area, location: l.footingType, anchorage_ref: l.anchorageType, category: l.category, name: l.component, description: l.description ?? '', specification: l.specification ?? '', area_id: l.areaId || null, foundation_id: l.foundationId || null, anchorage_type_id: l.anchorageTypeId || null, size: l.size ?? '',
       required_qty: l.requiredQty, unit: l.unit ?? 'ea', supplier: l.supplier ?? '', supplier_id: l.supplierId || null, po_ref: l.poRef ?? '', expected_date: l.expectedDate || null, claimed_status: l.sourceStatus, ordered_qty: l.orderedQty,
-      confirmed_no_receipts: l.confirmedNoReceipts ? 1 : 0, notes: l.notes, archived: l.archived ? 1 : 0, created_at: l.createdAt ?? '', created_by: l.createdBy ?? '', seq,
+      confirmed_no_receipts: l.confirmedNoReceipts ? 1 : 0, notes: l.notes, archived: l.archived ? 1 : 0, created_at: l.createdAt ?? '', created_by: l.createdBy ?? '',
+      origin: l.origin === 'anchorage' ? 'anchorage' : 'manual', derive_key: l.deriveKey ?? null, qty_basis: l.basis ?? 'fixed', qty_each: l.qtyEach ?? null,
+      calc_json: l.origin === 'anchorage' || (l.basis && l.basis !== 'fixed') ? JSON.stringify({ calc: l.calc, breakdown: l.breakdown ?? [] }) : '', requirement_removed: l.requirementRemoved ? 1 : 0, seq,
     })),
-    manual_material_receipts: (state.manual ?? []).flatMap((l) => l.receipts.map((r, seq): Row => ({ id: r.id, material_id: l.id, receipt_date: r.date, qty: r.qty, reference: r.reference, note: r.note, recorded_by: r.by ?? '', seq }))),
+    manual_material_receipts: (state.manual ?? []).flatMap((l) => l.receipts.map((r, seq): Row => ({ id: r.id, material_id: l.id, receipt_date: r.date, qty: r.qty, reference: r.reference, note: r.note, recorded_by: r.by ?? '', recorded_at: r.at ?? '', seq }))),
     material_audit: (state.history ?? []).map((h, seq): Row => ({ id: h.id, at: h.at, actor: h.by, action: h.action, material_id: h.materialId, label: h.label, summary: h.summary, changes_json: JSON.stringify(h.changes), seq })),
     workbook_summary_rows: state.summary.map((r, seq): Row => ({ id: r.id, batch_id: batch('workbook_summary_rows', r.id), source_sheet: r.source.sheet, source_row: r.source.row, area: r.area, item: r.item, total_qty: r.totalQty, status: r.status, seq })),
     anchorage_sheet_rows: state.anchorage.map((a, seq): Row => ({ id: a.id, batch_id: batch('anchorage_sheet_rows', a.id), source_sheet: a.source.sheet, source_row: a.source.row, footing_type: a.footingType, anchorage_type: a.anchorageType, footings: a.footings, plinths: a.plinths, bolts: a.bolts, component: a.component, category: a.category, required_qty: a.requiredQty, calc_json: JSON.stringify(a.calc), grade: a.grade, source_status: a.sourceStatus, seq })),
@@ -54,7 +56,7 @@ export function materialsToRows(state: TrackerState, ctx: MaterialsWriteContext)
   }
 }
 
-const receiptOf = (x: Row) => ({ id: String(x.id), date: String(x.receipt_date), qty: Number(x.qty), reference: String(x.reference), note: String(x.note), ...(x.recorded_by ? { by: String(x.recorded_by) } : {}) })
+const receiptOf = (x: Row) => ({ id: String(x.id), date: String(x.receipt_date), qty: Number(x.qty), reference: String(x.reference), note: String(x.note), ...(x.recorded_by ? { by: String(x.recorded_by) } : {}), ...(x.recorded_at ? { at: String(x.recorded_at) } : {}) })
 const opDetails = (op: Row): Partial<TrackerLine> => ({
   ...(op.unit ? { unit: String(op.unit) } : {}), ...(op.supplier ? { supplier: String(op.supplier) } : {}), ...(op.supplier_id ? { supplierId: String(op.supplier_id) } : {}), ...(op.po_ref ? { poRef: String(op.po_ref) } : {}),
   ...(op.expected_date ? { expectedDate: String(op.expected_date) } : {}), ...(Number(op.archived) === 1 ? { archived: true } : {}),
@@ -79,9 +81,11 @@ export function materialsFromRows(rows: RowSet): TrackerState {
   })
   const manualReceipts = new Map<string, Row[]>()
   for (const r of rows.manual_material_receipts ?? []) manualReceipts.set(String(r.material_id), [...(manualReceipts.get(String(r.material_id)) ?? []), r])
+  const calcOf = (r: Row): { calc: QuantityCalc; breakdown: RequirementPart[] } | null => { try { return r.calc_json ? (JSON.parse(String(r.calc_json)) as { calc: QuantityCalc; breakdown: RequirementPart[] }) : null } catch { return null } }
   const manual = (rows.manual_materials ?? []).map((r): TrackerLine => ({
-    id: String(r.id), origin: 'manual', source: { sheet: 'Nexus', row: 0 }, area: String(r.area), footingType: String(r.location), anchorageType: String(r.anchorage_ref), footings: 0, plinths: 0, bolts: 0,
-    component: String(r.name), category: String(r.category) as TrackerLine['category'], requiredQty: Number(r.required_qty), calc: { kind: 'entered', formula: null, expression: 'Entered in Nexus', recomputed: null },
+    id: String(r.id), origin: String(r.origin) === 'anchorage' ? 'anchorage' : 'manual', source: { sheet: 'Nexus', row: 0 }, area: String(r.area), footingType: String(r.location), anchorageType: String(r.anchorage_ref), footings: 0, plinths: 0, bolts: 0,
+    component: String(r.name), category: String(r.category) as TrackerLine['category'], requiredQty: Number(r.required_qty), calc: calcOf(r)?.calc ?? { kind: 'entered', formula: null, expression: 'Entered in Nexus', recomputed: null },
+    ...(String(r.qty_basis) !== 'fixed' ? { basis: String(r.qty_basis) as TrackerLine['basis'], qtyEach: n(r.qty_each) } : { qtyEach: n(r.qty_each) }), ...(r.derive_key ? { deriveKey: String(r.derive_key), breakdown: calcOf(r)?.breakdown ?? [] } : {}), ...(Number(r.requirement_removed) === 1 ? { requirementRemoved: true } : {}),
     sourceStatus: String(r.claimed_status), sourceNotes: [], orderedQty: n(r.ordered_qty), confirmedNoReceipts: Number(r.confirmed_no_receipts) === 1, notes: String(r.notes),
     description: String(r.description), specification: String(r.specification), size: String(r.size), unit: String(r.unit), supplier: String(r.supplier), areaId: s(r.area_id), foundationId: s(r.foundation_id), anchorageTypeId: s(r.anchorage_type_id), supplierId: s(r.supplier_id), poRef: String(r.po_ref), expectedDate: s(r.expected_date),
     archived: Number(r.archived) === 1, createdAt: String(r.created_at), createdBy: String(r.created_by), receipts: (manualReceipts.get(String(r.id)) ?? []).map(receiptOf),

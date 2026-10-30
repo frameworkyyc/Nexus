@@ -14,7 +14,7 @@ import { archiveMaterials, bulkEditMaterials, editMaterial } from '../commands'
 import { ImportButton } from '../ImportModal'
 import { LineModal } from '../LineModal'
 import {
-  areaBreakdown, CATEGORY_LABEL, CATEGORY_ORDER, dashboardCounts, DELIVERY_LABEL, deliveryLabelOf, deliveryState, distinct, filterLines, groupLabel, isVerified, receivedOf, remainingOf, sortLines,
+  areaBreakdown, CATEGORY_LABEL, CATEGORY_ORDER, dashboardCounts, DELIVERY_LABEL, deliveryLabelOf, deliveryState, distinct, filterLines, groupLabel, receivedOf, remainingOf, sortLines,
   type DeliveryState, type GroupKey, type LineFilter, type SortKey,
 } from '../selectors'
 import { useTrackerCommand } from '../store'
@@ -27,8 +27,8 @@ import { SupplierSettings } from './SupplierSettings'
 import { useMaterialRefs } from './useMaterialRefs'
 import { downloadMaterialsCsv } from './csv'
 
-const TONE: Record<DeliveryState, Tone> = { received: 'ok', 'over-received': 'warn', partial: 'warn', 'none-received': 'muted', 'unverified-delivered': 'info', 'unverified-pending': 'muted' }
-const STATUS_FILTER: DeliveryState[] = ['unverified-pending', 'none-received', 'partial', 'received', 'over-received', 'unverified-delivered']
+const TONE: Record<DeliveryState, Tone> = { received: 'ok', 'over-received': 'warn', partial: 'warn', 'none-received': 'muted' }
+const STATUS_FILTER: DeliveryState[] = ['none-received', 'partial', 'received', 'over-received']
 const num = (n: number | null) => (n === null ? <span className="text-muted">—</span> : <span className="tabular-nums">{n.toLocaleString('en-CA')}</span>)
 
 /**
@@ -105,12 +105,11 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
 
   return (
     <div>
-      <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
+      <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
         <Stat label="Line items" value={counts.total} sub={archivedCount ? `${archivedCount} archived hidden` : scopeName} />
-        <Stat label="Received in full" value={counts.delivered} sub="Verified by receipts" />
-        <Stat label="Partially received" value={counts.partial} sub="Some verified, some outstanding" />
-        <Stat label="Pending" value={counts.pending} sub="Nothing verified received" />
-        <Stat label="Delivered, unverified" value={counts.unverified} sub="Stated, no receipt recorded" />
+        <Stat label="Delivered" value={counts.delivered} sub="Received, checked and confirmed" />
+        <Stat label="Partially delivered" value={counts.partial} sub="Some confirmed, some outstanding" />
+        <Stat label="Not delivered" value={counts.pending} sub="Nothing confirmed yet" />
       </dl>
 
       {!hideArea && breakdown.length > 1 && (
@@ -123,7 +122,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
                   className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-2.5 text-left text-[13px] hover:bg-hover md:grid-cols-[14rem_minmax(0,1fr)_auto] ${filter.area === a.area ? 'bg-hover' : ''}`}>
                   <span className="font-medium">{a.area}</span>
                   <span className="order-3 col-span-2 md:order-none md:col-span-1" aria-hidden><span className="block h-1 w-full bg-line"><span className="block h-1 bg-ok" style={{ width: `${a.required ? Math.round((a.received / a.required) * 100) : 0}%` }} /></span></span>
-                  <span className="text-xs text-muted">{a.total} items · {a.delivered} full · {a.partial} partial · {a.pending + a.unverified} not verified</span>
+                  <span className="text-xs text-muted">{a.total} items · {a.delivered} delivered · {a.partial} partial · {a.pending} not delivered</span>
                 </button>
               </li>
             ))}
@@ -148,7 +147,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
         <Select aria-label="Category" value={filter.category ?? ''} onChange={(e) => set({ category: e.target.value as ComponentCategory | '' })}><option value="">All categories</option>{CATEGORY_ORDER.filter((c) => lines.some((l) => l.category === c)).map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</Select>
         <Select aria-label="Specification" value={filter.specification ?? ''} onChange={(e) => set({ specification: e.target.value })}><option value="">All specifications</option>{distinct(lines.map((l) => l.specification ?? '').filter(Boolean)).map((a) => <option key={a}>{a}</option>)}</Select>
         <Select aria-label="Supplier" value={filter.supplier ?? ''} onChange={(e) => set({ supplier: e.target.value })}><option value="">All suppliers</option>{distinct(lines.map((l) => l.supplier ?? '').filter(Boolean)).map((a) => <option key={a}>{a}</option>)}</Select>
-        <Select aria-label="Delivery status" value={filter.delivery ?? ''} onChange={(e) => set({ delivery: e.target.value as DeliveryState | '' })}><option value="">Any delivery status</option>{STATUS_FILTER.map((d) => <option key={d} value={d}>{d === 'unverified-pending' ? 'Pending (not verified)' : d === 'unverified-delivered' ? 'Delivered, not verified' : DELIVERY_LABEL[d]}</option>)}</Select>
+        <Select aria-label="Delivery status" value={filter.delivery ?? ''} onChange={(e) => set({ delivery: e.target.value as DeliveryState | '' })}><option value="">Any delivery status</option>{STATUS_FILTER.map((d) => <option key={d} value={d}>{DELIVERY_LABEL[d]}</option>)}</Select>
         <Select aria-label="Group by" value={group} onChange={(e) => setGroup(e.target.value as GroupKey)}><option value="">No grouping</option><option value="area">Group by area</option><option value="location">Group by foundation</option><option value="category">Group by category</option><option value="specification">Group by specification</option><option value="supplier">Group by supplier</option><option value="status">Group by delivery status</option></Select>
         <Select aria-label="Show" value={filter.archived ?? 'active'} onChange={(e) => set({ archived: e.target.value as LineFilter['archived'] })}><option value="active">Active materials</option><option value="archived">Archived only</option><option value="all">Active and archived</option></Select>
       </div>
@@ -195,7 +194,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
                         <span className="flex items-start gap-2">
                           {canBulk && <input type="checkbox" aria-label={`Select ${l.component}`} checked={selected.has(l.id)} onChange={() => toggle(l.id)} className="mt-1 h-4 w-4 phone:h-6 phone:w-6" />}
                           <button type="button" onClick={() => setOpen(l.id)} className="min-w-0 text-left">
-                            <span className="font-medium underline-offset-4 hover:underline">{l.component}</span>
+                            <span className="font-medium underline-offset-4 hover:underline">{l.component}</span>{l.origin === 'anchorage' && <span className="ml-2 rounded-nx border border-line px-1.5 py-0.5 text-[11px] font-normal text-muted">Calculated</span>}{l.requirementRemoved && <span className="ml-2 text-xs font-normal text-warn">No longer required</span>}
                             <span className="block text-xs text-muted">{[l.specification, l.size].filter(Boolean).join(' · ') || (l.origin === 'manual' ? CATEGORY_LABEL[l.category] : `${l.anchorageType || CATEGORY_LABEL[l.category]} · ${l.source.sheet} row ${l.source.row}`)}{l.archived ? ' · archived' : ''}</span>
                           </button>
                         </span>
@@ -203,8 +202,8 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
                       {!hideArea && <td className="py-2.5 pr-4">{l.area}</td>}
                       <td className="py-2.5 pr-4">{l.footingType || <span className="text-muted">—</span>}</td>
                       <td className="hidden py-2.5 pr-4 md:table-cell">{CATEGORY_LABEL[l.category]}</td>
-                      <td className="py-2.5 pr-4 text-right">{inline(l, 'requiredQty', String(l.requiredQty), { type: 'text', label: 'Required' })}{l.unit && l.unit !== 'ea' && <span className="ml-1 text-xs text-muted">{l.unit}</span>}</td>
-                      <td className="py-2.5 pr-4 text-right">{isVerified(l) ? num(receivedOf(l)) : <span className="text-muted">Not verified</span>}</td>
+                      <td className="py-2.5 pr-4 text-right">{l.origin === 'anchorage' || (l.basis && l.basis !== 'fixed') ? <span className="tabular-nums">{l.requiredQty.toLocaleString('en-CA')}</span> : inline(l, 'requiredQty', String(l.requiredQty), { type: 'text', label: 'Required' })}{l.unit && l.unit !== 'ea' && <span className="ml-1 text-xs text-muted">{l.unit}</span>}{(l.origin === 'anchorage' || (l.basis && l.basis !== 'fixed')) && <span className="block max-w-[16rem] text-xs text-muted" title={l.calc.expression}>{l.calc.expression}</span>}</td>
+                      <td className="py-2.5 pr-4 text-right">{num(receivedOf(l))}</td>
                       <td className="py-2.5 pr-4 text-right">{num(remainingOf(l))}</td>
                       <td className="py-2.5 pr-4"><StatusBadge tone={TONE[d]} label={deliveryLabelOf(l)} /></td>
                       <td className="py-2.5 pr-4">{supplierCell(l)}</td>
@@ -230,7 +229,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
 
 function BulkModal({ lines, refs, onClose, onDone }: { lines: TrackerLine[]; refs: MaterialRefs; onClose: () => void; onDone: () => void }) {
   const { run, saving } = useTrackerCommand()
-  const [f, setF] = useState({ supplierId: null as string | null, poRef: '', expectedDate: '', unit: '', areaId: null as string | null, foundationId: null as string | null, anchorageTypeId: null as string | null, claimedStatus: '' })
+  const [f, setF] = useState({ supplierId: null as string | null, poRef: '', expectedDate: '', unit: '', areaId: null as string | null, foundationId: null as string | null, anchorageTypeId: null as string | null })
   const [error, setError] = useState<string | null>(null)
   const hasWorkbook = lines.some((l) => l.origin !== 'manual')
   const set = (p: Partial<typeof f>) => { setF((x) => ({ ...x, ...p })); setError(null) }
@@ -261,9 +260,8 @@ function BulkModal({ lines, refs, onClose, onDone }: { lines: TrackerLine[]; ref
             <Field label="Reassign to area"><SearchSelect label="Reassign to area" value={f.areaId ?? ''} options={refs.catalog.areas.map((a) => ({ value: a.id, label: a.name }))} placeholder="Leave unchanged" onChange={(id) => set({ areaId: id || null, foundationId: null })} /></Field>
             <Field label="Reassign to foundation"><SearchSelect label="Reassign to foundation" value={f.foundationId ?? ''} disabled={!area} options={foundations.map((x) => ({ value: x.id, label: x.number, hint: x.description || undefined }))} emptyLabel="No foundation (clear)" placeholder={f.foundationId === '' ? 'Foundation will be cleared' : area ? 'Choose a foundation' : 'Choose an area first'} onChange={(id) => set({ foundationId: id })} /></Field>
             <Field label="Anchorage type"><SearchSelect label="Anchorage type" value={f.anchorageTypeId ?? ''} options={anchorageFor(refs.catalog, f.foundationId || null).map((a) => ({ value: a.id, label: a.code, hint: a.description || undefined }))} emptyLabel="Clear the anchorage type" placeholder={f.anchorageTypeId === '' ? 'Anchorage will be cleared' : 'Leave unchanged'} onChange={(id) => set({ anchorageTypeId: id })} /></Field>
-            <Field label="Delivery status note"><Select aria-label="Delivery status note" value={f.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Leave as is</option><option>Pending</option><option>Delivered</option></Select></Field>
           </div>
-          <p className="text-xs text-muted">Moving to another area needs a foundation in that area (or “none”). A status note never creates a receipt.</p>
+          <p className="text-xs text-muted">Moving to another area needs a foundation in that area (or “none”).</p>
         </fieldset>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex gap-2"><Button variant="primary" disabled={saving} onClick={apply}>{saving ? 'Saving…' : `Apply to ${lines.length}`}</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>

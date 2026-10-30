@@ -1,7 +1,8 @@
 import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
 import type { ParsedTracker } from './import'
-import type { ComponentCategory, ImportMeta, TrackerLine, TrackerState } from './types'
+import { scopedCalc, type RefSource } from './requirements'
+import type { ComponentCategory, ImportMeta, QtyBasis, TrackerLine, TrackerState } from './types'
 import { buildCatalog, displayOf, type CatalogSource } from './catalog'
 import { clean, findDuplicate, keyOf, validateMaterial, type Env, type MaterialInput } from './materialModel'
 import { cleanSupplierName, findSimilarSupplier, supplierId, type SupplierRecord } from './suppliers'
@@ -66,7 +67,7 @@ export const addReceipt = (lineId: string, input: { date: ISODate; qty: number; 
     if (!Number.isInteger(input.qty)) return 'Quantity received must be a whole number.'
     if (!validDate(input.date)) return 'Enter a valid date.'
     if (input.date > today) return 'A receipt cannot be dated in the future.'
-    return { ...l, receipts: [...l.receipts, { id: nextId(), date: input.date, qty: input.qty, reference: input.reference.trim(), note: input.note.trim(), by: ctx?.actor ?? '' }], confirmedNoReceipts: false }
+    return { ...l, receipts: [...l.receipts, { id: nextId(), date: input.date, qty: input.qty, reference: input.reference.trim(), note: input.note.trim(), by: ctx?.actor ?? '', at: ctx?.now ?? new Date().toISOString() }], confirmedNoReceipts: false }
   }))
 
 export const removeReceipt = (lineId: string, receiptId: string): Reducer => audited((s) =>
@@ -93,7 +94,7 @@ export const acknowledgeFlag = (flagId: string, note: string, today: ISODate, on
 
 const envOf = (s: TrackerState, ctx?: Ctx): Env | null => {
   const c = (ctx as RefCtx | undefined)?.construction
-  return c ? { catalog: buildCatalog(c, s), suppliers: s.suppliers ?? [] } : null
+  return c ? { catalog: buildCatalog(c, s), suppliers: s.suppliers ?? [], refs: c as RefSource } : null
 }
 const NO_REFS = 'Project areas and foundations could not be loaded, so nothing was saved.'
 
@@ -103,10 +104,18 @@ function snapshot(l: TrackerLine, env: Env): TrackerLine {
   return { ...l, area: d.area, footingType: d.foundation, anchorageType: d.anchorage, supplier: d.supplier }
 }
 
-const fromInput = (m: MaterialInput, env: Env, createdAt: string, createdBy: string): TrackerLine => snapshot({
+/** The total and its calculation for an entered quantity, or why it cannot be calculated. */
+function totalOf(m: { basis?: QtyBasis; requiredQty: number; foundationId?: string | null; anchorageTypeId?: string | null }, env: Env) {
+  const basis: QtyBasis = m.basis ?? 'fixed'
+  if (basis === 'fixed') return { total: m.requiredQty, calc: { kind: 'entered' as const, formula: null, expression: 'Entered in Nexus', recomputed: null } }
+  if (!env.refs) return { error: NO_REFS }
+  return scopedCalc(env.refs, basis, m.requiredQty, m.foundationId, m.anchorageTypeId)
+}
+
+const fromInput = (m: MaterialInput, env: Env, createdAt: string, createdBy: string, total: { total: number; calc: TrackerLine['calc'] }): TrackerLine => snapshot({
   id: manualId(), origin: 'manual', source: { sheet: 'Nexus', row: 0 }, area: '', footingType: '', anchorageType: '', footings: 0, plinths: 0, bolts: 0,
-  component: clean(m.name), category: m.category, requiredQty: m.requiredQty,
-  calc: { kind: 'entered', formula: null, expression: 'Entered in Nexus', recomputed: null }, sourceStatus: m.claimedStatus ?? '', sourceNotes: [],
+  component: clean(m.name), category: m.category, requiredQty: total.total, ...(m.basis && m.basis !== 'fixed' ? { basis: m.basis } : {}), qtyEach: m.requiredQty,
+  calc: total.calc, sourceStatus: m.claimedStatus ?? '', sourceNotes: [],
   orderedQty: null, receipts: [], confirmedNoReceipts: false, notes: clean(m.notes),
   description: clean(m.description), specification: clean(m.specification), size: clean(m.size), unit: clean(m.unit) || 'ea', poRef: clean(m.poRef),
   expectedDate: m.expectedDate || null, archived: false, createdAt, createdBy,
@@ -134,7 +143,9 @@ export const addMaterials = (items: MaterialInput[], allowDuplicates = false): R
     const named = env.catalog.areas.find((a) => a.id === m.areaId)?.name ?? ''
     if (!allowDuplicates && (dup || seen.has(k))) return { error: `${where}“${clean(m.name)}” already exists for ${named}${m.foundationId ? ` · ${env.catalog.foundations.find((f) => f.id === m.foundationId)?.number}` : ''} with the same specification and size. Edit the existing record, or add it anyway.` }
     seen.add(k)
-    next = { ...next, manual: [...(next.manual ?? []), fromInput(m, env, at, ctx?.actor ?? '')] }
+    const total = totalOf(m, env)
+    if ('error' in total) return { error: where + total.error }
+    next = { ...next, manual: [...(next.manual ?? []), fromInput(m, env, at, ctx?.actor ?? '', total)] }
   }
   return { state: next }
 })
@@ -142,10 +153,13 @@ export const addMaterials = (items: MaterialInput[], allowDuplicates = false): R
 export type MaterialPatch = Partial<MaterialInput>
 /** Fields a workbook line allows: its source facts (area, foundation, description, quantity) stay as imported. */
 const WORKBOOK_EDITABLE: (keyof MaterialInput)[] = ['unit', 'supplierId', 'poRef', 'expectedDate', 'notes']
+/** Calculated requirements: only the procurement details can be edited here; what is required comes from the Anchorage Library and the foundations. */
+const CALCULATED_MSG = 'This requirement is calculated from the Anchorage Library and the foundations. Change the anchorage configuration or the foundation to change it. Supplier, PO, expected date, unit and notes can be edited here.'
 
 function applyPatch(l: TrackerLine, p: MaterialPatch, env: Env): TrackerLine | string {
   const manual = l.origin === 'manual'
-  if (!manual) {
+  if (l.origin === 'anchorage' && Object.keys(p).some((k) => !WORKBOOK_EDITABLE.includes(k as keyof MaterialInput))) return CALCULATED_MSG
+  if (!manual && l.origin !== 'anchorage') {
     const locked = Object.keys(p).filter((k) => !WORKBOOK_EDITABLE.includes(k as keyof MaterialInput))
     if (locked.length) return 'This line comes from the workbook. Its area, foundation, description and quantity stay as imported — change them in the workbook and re-import. Supplier, PO, expected date, unit and notes can be edited here.'
   }
@@ -165,7 +179,13 @@ function applyPatch(l: TrackerLine, p: MaterialPatch, env: Env): TrackerLine | s
   if (p.description !== undefined) out.description = clean(p.description)
   if (p.specification !== undefined) out.specification = clean(p.specification)
   if (p.size !== undefined) out.size = clean(p.size)
-  if (p.requiredQty !== undefined) out = { ...out, requiredQty: p.requiredQty }
+  if (p.basis !== undefined) out = { ...out, basis: p.basis === 'fixed' ? undefined : p.basis }
+  if (p.requiredQty !== undefined) out = { ...out, qtyEach: p.requiredQty, requiredQty: p.requiredQty }
+  if (manual && (p.basis !== undefined || p.requiredQty !== undefined || p.foundationId !== undefined || p.anchorageTypeId !== undefined)) {
+    const t = totalOf({ basis: out.basis ?? 'fixed', requiredQty: out.qtyEach ?? out.requiredQty, foundationId: out.foundationId, anchorageTypeId: out.anchorageTypeId }, env)
+    if ('error' in t) return t.error
+    out = { ...out, requiredQty: t.total, calc: t.calc, qtyEach: out.qtyEach ?? out.requiredQty }
+  }
   if (p.unit !== undefined) out.unit = clean(p.unit) || 'ea'
   if (p.supplierId !== undefined) out.supplierId = p.supplierId || null
   if (p.poRef !== undefined) out.poRef = clean(p.poRef)

@@ -1,7 +1,7 @@
 import { blankActivitiesFor } from './blankActivities'
 import { dimsProblem, hasAnyDim } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageGroup, ConstructionState, Dims, Foundation, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, Plinth } from './types'
 
 const fail = (error: string) => ({ error }) as const
 const ok = (state: ConstructionState) => ({ state }) as const
@@ -169,4 +169,75 @@ export const setPlinthDims = (plinthId: string, dims: Dims | null): Reducer => (
   const bad = dimsProblem(dims, 'Plinth dimensions')
   if (bad) return fail(bad)
   return ok({ ...s, plinths: s.plinths.map((x) => (x.id === plinthId ? { ...x, dims: cleanDims(dims) } : x)) })
+}
+
+/* ── Anchorage components ───────────────────────────────────────────────── */
+
+export interface ComponentInput {
+  id?: string
+  kind: AnchorageComponent['kind']
+  qty: number
+  label?: string
+  spec?: string
+  size?: string
+  diameter?: string
+  length?: number | null
+  lengthUnit?: 'mm' | 'in'
+  thread?: 'both-ends' | 'all-thread' | null
+  topThread?: number | null
+  bottomThread?: number | null
+  nutsPerBolt?: number
+  washersPerBolt?: number
+  nutSize?: string
+  washerSize?: string
+}
+
+const text = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
+const pos = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 1_000_000
+export const MAX_COMPONENTS = 20
+
+/** Why a component cannot be saved, or null. Not every anchorage has bolts: an anchorage of embed plates alone is fine. */
+export function componentProblem(c: ComponentInput, n: number): string | null {
+  const at = `Component ${n}`
+  if (!['bolt', 'sole-plate', 'template', 'embed-plate'].includes(c.kind)) return `${at}: choose bolts, a sole plate, a template or an embed plate.`
+  if (!Number.isInteger(c.qty) || c.qty < 1 || c.qty > 1000) return `${at}: enter a whole number of 1 to 1,000 per anchorage.`
+  if (c.kind !== 'bolt') return null
+  if (!text(c.diameter, 30)) return `${at}: enter the bolt diameter (for example M25 or 3/4").`
+  if (!pos(c.length)) return `${at}: enter the total bolt length.`
+  if (c.lengthUnit !== undefined && c.lengthUnit !== 'mm' && c.lengthUnit !== 'in') return `${at}: choose mm or inches for the length.`
+  if (c.thread !== 'both-ends' && c.thread !== 'all-thread') return `${at}: choose threaded both ends or all-thread.`
+  if (c.thread === 'both-ends') {
+    if (!pos(c.topThread) || !pos(c.bottomThread)) return `${at}: enter the top and bottom thread lengths.`
+    if ((c.topThread as number) + (c.bottomThread as number) > (c.length as number)) return `${at}: the top and bottom threads are longer than the bolt.`
+  }
+  for (const [k, v] of [['nuts', c.nutsPerBolt ?? 0], ['washers', c.washersPerBolt ?? 0]] as const) if (!Number.isInteger(v) || v < 0 || v > 10) return `${at}: enter 0 to 10 ${k} per bolt.`
+  return null
+}
+
+/**
+ * Sets what an anchorage type is made of, replacing its list of components. A component that keeps its id is edited in place; the list may be
+ * empty. Requirements in Materials are recalculated from this the next time they are read or changed — orders and deliveries are never touched.
+ */
+export const setAnchorageComponents = (anchorageTypeId: string, components: ComponentInput[]): Reducer => (s) => {
+  const t = s.anchorageTypes.find((x) => x.id === anchorageTypeId)
+  if (!t) return fail('Anchorage type not found.')
+  if (!Array.isArray(components) || components.length > MAX_COMPONENTS) return fail(`An anchorage type can have up to ${MAX_COMPONENTS} components.`)
+  const mine = (s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId === anchorageTypeId)
+  const used = new Set((s.anchorageComponents ?? []).map((c) => c.id))
+  const next: AnchorageComponent[] = []
+  for (const [i, c] of components.entries()) {
+    const bad = componentProblem(c, i + 1)
+    if (bad) return fail(bad)
+    if (c.id && !mine.some((m) => m.id === c.id)) return fail(`Component ${i + 1} no longer exists. Reload and try again.`)
+    let id = c.id ?? ''
+    if (!id) { let n = mine.length + i + 1; id = `ac-${anchorageTypeId}-${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `ac-${anchorageTypeId}-${++n}` }
+    const bolt = c.kind === 'bolt'
+    next.push({
+      id, anchorageTypeId, kind: c.kind, qty: c.qty, label: text(c.label, 60), spec: text(c.spec, 120), size: text(c.size, 80),
+      diameter: bolt ? text(c.diameter, 30) : '', length: bolt ? (c.length as number) : null, lengthUnit: c.lengthUnit === 'in' ? 'in' : 'mm',
+      thread: bolt ? (c.thread as 'both-ends' | 'all-thread') : null, topThread: bolt && c.thread === 'both-ends' ? (c.topThread as number) : null, bottomThread: bolt && c.thread === 'both-ends' ? (c.bottomThread as number) : null,
+      nutsPerBolt: bolt ? c.nutsPerBolt ?? 0 : 0, washersPerBolt: bolt ? c.washersPerBolt ?? 0 : 0, nutSize: bolt ? text(c.nutSize, 30) : '', washerSize: bolt ? text(c.washerSize, 30) : '',
+    })
+  }
+  return ok({ ...s, anchorageComponents: [...(s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId !== anchorageTypeId), ...next] })
 }

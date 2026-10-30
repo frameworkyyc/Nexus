@@ -6,13 +6,14 @@ import { Modal } from '@/components/ui/Modal'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
-import { addReceipt, archiveMaterials, confirmNoReceipts, editMaterial, removeReceipt, setOrdered } from './commands'
+import { addReceipt, archiveMaterials, editMaterial, removeReceipt, setOrdered } from './commands'
 import { AddMaterialModal, duplicateOf } from './manage/AddMaterialModal'
 import { anchorageFor, displayOf, foundationsOfArea, legacyIssues } from './catalog'
 import { useMaterialRefs, type MaterialRefs } from './manage/useMaterialRefs'
-import { allLines, CATEGORY_LABEL, CATEGORY_ORDER, deliveryLabelOf, isVerified, receivedOf, remainingOf } from './selectors'
+import { allLines, CATEGORY_LABEL, CATEGORY_ORDER, deliveryLabelOf, receivedOf, remainingOf } from './selectors'
+import { QuantityScope } from './manage/QuantityScope'
 import { useTracker, useTrackerCommand } from './store'
-import type { ComponentCategory, ImportFlag, TrackerLine } from './types'
+import type { ComponentCategory, ImportFlag, QtyBasis, TrackerLine } from './types'
 import { UNITS } from './templates'
 
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
@@ -39,6 +40,8 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
     return <AddMaterialModal title="Duplicate material" duplicate initial={duplicateOf(line)} projectId={projectId} onClose={() => { setDup(false); onClose() }} />
   }
   const manual = line.origin === 'manual'
+  const calculated = line.origin === 'anchorage'
+  const showCalc = calculated || (manual && !!line.basis && line.basis !== 'fixed')
   const flags: ImportFlag[] = state.flags.filter((f) => f.lineId === line.id)
   const remaining = remainingOf(line)
   const got = receivedOf(line)
@@ -47,7 +50,10 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   const legacy = legacyIssues(line, refs.catalog, refs.suppliers)
   const history = (state.history ?? []).filter((h) => h.materialId === line.id).slice().reverse()
   const canEdit = access.can('materials.edit')
-  const save = () => run(addReceipt(line.id, { date, qty: Number(qty), reference: ref, note }, today), () => { setQty(''); setRef(''); setNote('') })
+  const confirmDelivery = (n: number) => {
+    if (!window.confirm(`Confirm that ${n.toLocaleString('en-CA')} ${unit} of “${line.component}” were physically received and checked?`)) return
+    run(addReceipt(line.id, { date, qty: n, reference: ref, note }, today), () => { setQty(''); setRef(''); setNote('') })
+  }
   return (
     <Modal title={line.component} onClose={onClose} wide>
       <div className="space-y-8 p-6 text-[13px]">
@@ -59,7 +65,7 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
         </div>
 
         {legacy.length > 0 && manual && <p role="status" className="border-l-2 border-warn pl-3 text-xs">Not linked to project records: {legacy.map((i) => `${i.field} “${i.value}”`).join(', ')}. The value is kept as written; use Edit details to select the matching record.</p>}
-        {edit && canEdit && <EditForm line={line} manual={manual} refs={refs} onDone={() => setEdit(false)} />}
+        {edit && canEdit && <EditForm line={line} manual={manual} calculated={calculated} refs={refs} onDone={() => setEdit(false)} />}
 
         <dl className="border-t border-line">
           <Row k="Area">{shown.area}</Row>
@@ -70,12 +76,13 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
           <Row k="Specification">{dash(line.specification)}</Row>
           <Row k="Size / dimensions">{dash(line.size)}</Row>
           {!manual && <Row k="Counts">{line.footings} footings · {line.plinths} plinths · {line.bolts} bolts</Row>}
-          <Row k="Required">{line.requiredQty.toLocaleString('en-CA')} {unit}{!manual && <span className="text-muted"> = {line.calc.expression}{line.calc.recomputed !== null && line.calc.recomputed !== line.requiredQty ? ` (formula gives ${line.calc.recomputed})` : ''}</span>}</Row>
+          <Row k="Required">{line.requiredQty.toLocaleString('en-CA')} {unit}{showCalc && <span className="text-muted"> — {line.calc.expression}</span>}{!manual && !calculated && <span className="text-muted"> = {line.calc.expression}{line.calc.recomputed !== null && line.calc.recomputed !== line.requiredQty ? ` (formula gives ${line.calc.recomputed})` : ''}</span>}</Row>
           <Row k="Supplier">{dash(shown.supplier)}</Row>
           <Row k="PO / reference">{dash(line.poRef)}</Row>
           <Row k="Expected delivery">{line.expectedDate ? formatDate(line.expectedDate) : <span className="text-muted">—</span>}</Row>
-          <Row k={manual ? 'Delivery status note' : 'Workbook status'}>{line.sourceStatus || '—'} <span className="text-muted">(a stated status, not a receipt)</span></Row>
-          <Row k="Source">{manual ? <>Entered in Nexus{line.createdAt ? ` on ${formatDate(line.createdAt.slice(0, 10))}` : ''}{line.createdBy ? ` by ${line.createdBy}` : ''}</> : `${line.source.sheet}, row ${line.source.row}`}</Row>
+          {!manual && !calculated && <Row k="Workbook status">{line.sourceStatus || '—'} <span className="text-muted">(for reference; a delivery counts once it is confirmed here)</span></Row>}
+          {manual && !!line.sourceStatus && <Row k="Earlier status note">{line.sourceStatus} <span className="text-muted">(for reference; a delivery counts once it is confirmed here)</span></Row>}
+          <Row k="Source">{calculated ? <>Calculated from the Anchorage Library and the foundations{line.requirementRemoved ? ' — no longer required' : ''}</> : manual ? <>Entered in Nexus{line.createdAt ? ` on ${formatDate(line.createdAt.slice(0, 10))}` : ''}{line.createdBy ? ` by ${line.createdBy}` : ''}</> : `${line.source.sheet}, row ${line.source.row}`}</Row>
           <Row k="Record ID"><span className="font-mono text-xs">{line.id}</span></Row>
         </dl>
 
@@ -86,31 +93,32 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
           <h3 className="t-label mb-2">Quantities · {deliveryLabelOf(line)}</h3>
           <dl className="border-t border-line">
             <Row k="Required">{line.requiredQty.toLocaleString('en-CA')} {unit}</Row>
-            <Row k="Received (verified)">{isVerified(line) ? `${got.toLocaleString('en-CA')} ${unit}` : <span className="text-muted">Not verified</span>}</Row>
-            <Row k="Outstanding">{remaining === null ? <span className="text-muted">Unknown until a receipt is recorded or “nothing received” is confirmed</span> : `${remaining.toLocaleString('en-CA')} ${unit}${got > line.requiredQty ? ` (over-received by ${got - line.requiredQty})` : ''}`}</Row>
+            <Row k="Delivered">{got.toLocaleString('en-CA')} {unit}</Row>
+            <Row k="Outstanding">{`${remaining.toLocaleString('en-CA')} ${unit}`}{got > line.requiredQty && <span className="text-muted"> (over-delivered by {(got - line.requiredQty).toLocaleString('en-CA')})</span>}</Row>
           </dl>
-          <p className="mt-2 text-xs text-muted">Outstanding = required − total verified received. A “Delivered” status without receipts is never counted as received.</p>
+          <p className="mt-2 text-xs text-muted">Delivered means the material was physically received, checked and confirmed. Outstanding = required − delivered.</p>
+          {line.requirementRemoved && <p role="status" className="mt-2 border-l-2 border-warn pl-3 text-xs">This requirement no longer applies (the anchorage configuration changed). Its orders and deliveries are kept.</p>}
           {line.receipts.length > 0 && (
             <ul className="mt-2">
               {line.receipts.map((r) => (
                 <li key={r.id} className="flex items-baseline justify-between gap-4 border-b border-line py-2">
-                  <span>{formatDate(r.date)} · <span className="tabular-nums">{r.qty.toLocaleString('en-CA')}</span>{r.reference && <span className="text-muted"> · {r.reference}</span>}{r.note && <span className="text-muted"> · {r.note}</span>}{r.by && <span className="text-muted"> · recorded by {r.by}</span>}</span>
-                  {access.can('materials.void-receipt') && <button className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onClick={() => window.confirm('Void this receipt? It stays in the history.') && run(removeReceipt(line.id, r.id))}>Void</button>}
+                  <span>{formatDate(r.date)} · <span className="tabular-nums">{r.qty.toLocaleString('en-CA')} {unit}</span>{r.reference && <span className="text-muted"> · {r.reference}</span>}{r.note && <span className="text-muted"> · {r.note}</span>}<span className="block text-xs text-muted">Confirmed{r.by ? ` by ${r.by}` : ' (user not recorded)'}{r.at ? ` on ${new Date(r.at).toLocaleString('en-CA')}` : ''}</span></span>
+                  {access.can('materials.void-receipt') && <button className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onClick={() => window.confirm('Void this delivery? It stays in the history.') && run(removeReceipt(line.id, r.id))}>Void</button>}
                 </li>
               ))}
             </ul>
           )}
-          {access.can('materials.receive') && (
+          {access.can('materials.receive') && remaining > 0 && !line.requirementRemoved && (
             <>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Field label="Quantity received"><Input inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
-                <Field label="Date"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+                <Field label="Quantity delivered"><Input aria-label="Quantity delivered" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder={String(remaining)} /></Field>
+                <Field label="Date received"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
                 <Field label="Delivery ref. (optional)"><Input value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
                 <Field label="Note (optional)"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button variant="primary" disabled={saving || !qty} onClick={save}>{saving ? 'Saving…' : 'Record receipt'}</Button>
-                {!line.receipts.length && <label className="flex items-center gap-2 text-muted"><input type="checkbox" checked={line.confirmedNoReceipts} onChange={(e) => run(confirmNoReceipts(line.id, e.target.checked))} />Confirm nothing has been received yet</label>}
+                <Button variant="primary" disabled={saving} onClick={() => confirmDelivery(qty.trim() === '' ? remaining : Number(qty))}>{saving ? 'Saving…' : qty.trim() === '' ? `Mark delivered (${remaining.toLocaleString('en-CA')} ${unit})` : 'Confirm delivery'}</Button>
+                <span className="text-xs text-muted">Confirms the material was received and checked. For a partial delivery enter what arrived; the rest stays outstanding.</span>
               </div>
             </>
           )}
@@ -143,11 +151,11 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   )
 }
 
-function EditForm({ line, manual, refs, onDone }: { line: TrackerLine; manual: boolean; refs: MaterialRefs; onDone: () => void }) {
+function EditForm({ line, manual, calculated, refs, onDone }: { line: TrackerLine; manual: boolean; calculated: boolean; refs: MaterialRefs; onDone: () => void }) {
   const { run, saving } = useTrackerCommand()
   const initial = {
     areaId: line.areaId ?? '', foundationId: line.foundationId ?? '', anchorageTypeId: line.anchorageTypeId ?? '', category: line.category, name: line.component, description: line.description ?? '', specification: line.specification ?? '', size: line.size ?? '',
-    requiredQty: String(line.requiredQty), unit: line.unit || 'ea', supplierId: line.supplierId ?? '', poRef: line.poRef ?? '', expectedDate: line.expectedDate ?? '', claimedStatus: line.sourceStatus, notes: line.notes,
+    requiredQty: String(line.qtyEach ?? line.requiredQty), basis: (line.basis ?? 'fixed') as QtyBasis, unit: line.unit || 'ea', supplierId: line.supplierId ?? '', poRef: line.poRef ?? '', expectedDate: line.expectedDate ?? '', notes: line.notes,
   }
   const [f, setF] = useState(initial)
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }))
@@ -157,7 +165,7 @@ function EditForm({ line, manual, refs, onDone }: { line: TrackerLine; manual: b
   const keepCurrent = line.foundationId && f.areaId === line.areaId && !foundations.some((x) => x.id === line.foundationId) ? refs.catalog.foundations.filter((x) => x.id === line.foundationId) : []
   const changeArea = (areaId: string) => set({ areaId, foundationId: refs.catalog.foundations.find((x) => x.id === f.foundationId)?.areaId === areaId ? f.foundationId : '' })
   const submit = () => {
-    const all = { ...f, requiredQty: Number(f.requiredQty) }
+    const all = { ...f, requiredQty: Number(f.requiredQty), basis: f.basis }
     const editable = manual ? Object.keys(all) : ['unit', 'supplierId', 'poRef', 'expectedDate', 'notes']
     // Only what actually changed is sent, so the history records real edits and not defaults being filled in. An unlinked legacy value
     // is left alone unless a record was chosen for it.
@@ -168,7 +176,8 @@ function EditForm({ line, manual, refs, onDone }: { line: TrackerLine; manual: b
   return (
     <section className="space-y-3 border border-line p-4">
       <h3 className="t-label">Edit details</h3>
-      {!manual && <p className="text-xs text-muted">This line comes from the workbook: area, foundation, description and quantity stay as imported (change them in the workbook and re-import). Supplier, PO, expected delivery, unit and notes can be edited here.</p>}
+      {calculated && <p className="text-xs text-muted">This requirement is calculated from the Anchorage Library and the foundations, so its quantity cannot be edited here. Supplier, PO, expected delivery, unit and notes can.</p>}
+      {!manual && !calculated && <p className="text-xs text-muted">This line comes from the workbook: area, foundation, description and quantity stay as imported (change them in the workbook and re-import). Supplier, PO, expected delivery, unit and notes can be edited here.</p>}
       {manual && (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -181,12 +190,11 @@ function EditForm({ line, manual, refs, onDone }: { line: TrackerLine; manual: b
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Material name *"><Input value={f.name} onChange={(e) => set({ name: e.target.value })} /></Field>
             <Field label="Category"><Select aria-label="Category" value={f.category} onChange={(e) => set({ category: e.target.value as ComponentCategory })}>{CATEGORY_ORDER.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</Select></Field>
-            <Field label="Qty required *"><Input inputMode="numeric" value={f.requiredQty} onChange={(e) => set({ requiredQty: e.target.value })} /></Field>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <QuantityScope basis={f.basis} onBasis={(basis) => set({ basis })} qty={f.requiredQty} onQty={(requiredQty) => set({ requiredQty })} foundationId={f.foundationId} anchorageTypeId={f.anchorageTypeId} />
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Specification"><Input value={f.specification} onChange={(e) => set({ specification: e.target.value })} /></Field>
             <Field label="Size / dimensions"><Input value={f.size} onChange={(e) => set({ size: e.target.value })} /></Field>
-            <Field label="Delivery status note"><Select aria-label="Delivery status note" value={f.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Not verified</option><option>Pending</option><option>Delivered</option></Select></Field>
           </div>
           <Field label="Description"><Input value={f.description} onChange={(e) => set({ description: e.target.value })} /></Field>
         </>

@@ -10,7 +10,9 @@ import { useAccess } from '@/lib/access'
 import { addAnchorageType, archiveAnchorageType, editAnchorageType } from '../commands'
 import { constructionStore, useConstruction } from '../store'
 import { useTracker } from '../tracker/store'
+import { itemsOf } from '../tracker/requirements'
 import type { AnchorageType } from '../types'
+import { AnchorageComponentsModal } from './AnchorageComponentsModal'
 
 /**
  * The project's anchorage library: each type defined once, then selected by Materials (and plinths). Administrators add, rename and
@@ -25,6 +27,7 @@ export function AnchorageLibrary() {
   const [query, setQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState<AnchorageType | 'new' | null>(null)
+  const [configuring, setConfiguring] = useState<AnchorageType | null>(null)
   const [error, setError] = useState<string | null>(null)
   const types = state.anchorageTypes.filter((t) => (t.projectId ?? projectId) === projectId)
   const usedBy = (t: AnchorageType) => [...tracker.lines, ...tracker.manual].filter((l) => !l.archived && l.anchorageTypeId === t.id).length
@@ -52,14 +55,15 @@ export function AnchorageLibrary() {
           {shown.length === 0 ? <EmptyState title="No anchorage types match" /> : (
             <div className="overflow-x-auto">
               <table className="card-table w-full min-w-[560px] border-collapse text-left text-[13px]">
-                <thead><tr className="border-b border-line">{['Code', 'Description', 'Used by', ''].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
+                <thead><tr className="border-b border-line">{['Code', 'Description', 'Components', 'Used by', ''].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
                 <tbody>
                   {shown.map((t) => (
                     <tr key={t.id} className="border-b border-line">
                       <td className="py-3 pr-4 font-medium">{t.code}{t.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</td>
                       <td className="py-3 pr-4 text-muted">{t.description || '—'}</td>
+                      <td className="py-3 pr-4 text-muted">{componentsSummary(state.anchorageComponents ?? [], t.id)}</td>
                       <td className="py-3 pr-4 tabular-nums text-muted">{usedBy(t)} material{usedBy(t) === 1 ? '' : 's'} · {plinths(t)} plinth{plinths(t) === 1 ? '' : 's'}</td>
-                      <td className="py-3 pr-4 text-right">{admin && <span className="flex justify-end gap-1"><Button variant="ghost" className="h-8 px-2" onClick={() => setEditing(t)}>Edit</Button><Button variant="ghost" className="h-8 px-2" onClick={() => void run(constructionStore.run(archiveAnchorageType(t.id, !t.archived)))}>{t.archived ? 'Restore' : 'Archive'}</Button></span>}</td>
+                      <td className="py-3 pr-4 text-right">{admin && <span className="flex justify-end gap-1"><Button variant="ghost" className="h-8 px-2" onClick={() => setEditing(t)}>Edit</Button><Button variant="ghost" className="h-8 px-2" aria-label={`Configure ${t.code}`} onClick={() => setConfiguring(t)}>Configure</Button><Button variant="ghost" className="h-8 px-2" onClick={() => void run(constructionStore.run(archiveAnchorageType(t.id, !t.archived)))}>{t.archived ? 'Restore' : 'Archive'}</Button></span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -79,6 +83,7 @@ export function AnchorageLibrary() {
           </ul>
         </section>
       )}
+      {configuring && <AnchorageComponentsModal type={configuring} onClose={() => setConfiguring(null)} />}
       {editing && <AnchorageModal projectId={projectId} type={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </>
   )
@@ -108,4 +113,13 @@ function AnchorageModal({ projectId, type, onClose }: { projectId: string; type:
       </form>
     </Modal>
   )
+}
+
+/** "4 × M25 × 900 mm bolts · 1 plywood template": what one anchorage is made of, in a line. */
+function componentsSummary(all: import('../types').AnchorageComponent[], typeId: string): string {
+  const mine = all.filter((c) => c.anchorageTypeId === typeId)
+  if (mine.length === 0) return 'Not configured'
+  const parts: string[] = []
+  for (const c of mine) for (const it of itemsOf(c)) if (it.category === 'bolt' || it.category === 'sole-plate' || it.category === 'template' || it.category === 'embed-plate') parts.push(`${it.each} × ${it.category === 'bolt' ? `${it.spec.split(',')[0]} bolt${it.each === 1 ? '' : 's'}` : it.name.toLowerCase()}`)
+  return parts.join(' · ')
 }

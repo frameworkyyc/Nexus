@@ -1,3 +1,4 @@
+import { refreshRequirements, type RefSource } from './requirements'
 import type { AuditAction, AuditEntry, TrackerLine, TrackerState } from './types'
 
 export interface Ctx {
@@ -51,12 +52,18 @@ export function auditChange(before: TrackerState, after: TrackerState, ctx: Ctx 
   return out
 }
 
-/** Runs a reducer and appends the history of what it changed. History only ever grows. */
+/**
+ * Runs a reducer and appends the history of what it changed. History only ever grows. Before the reducer runs, calculated requirements and
+ * per-anchorage / per-plinth / per-footing quantities are brought up to date with the foundations and the Anchorage Library (recorded in the
+ * history as system changes), so a change to an order or delivery always lands on a current record and is never mistaken for that recalculation.
+ */
 export function audited<R extends (s: TrackerState, ctx?: Ctx) => { state: TrackerState; error?: undefined } | { error: string; state?: undefined }>(reducer: R) {
   return ((s: TrackerState, ctx?: Ctx) => {
-    const r = reducer(s, ctx)
+    const at = ctx?.now ?? new Date().toISOString()
+    const base = refreshRequirements(s, ctx?.construction as RefSource | undefined, { log: true, at })
+    const r = reducer(base, ctx)
     if (r.error !== undefined) return r
-    const entries = auditChange(s, r.state, ctx, ctx?.now ?? new Date().toISOString())
-    return entries.length ? { state: { ...r.state, history: [...(r.state.history ?? s.history ?? []), ...entries] } } : r
+    const entries = auditChange(base, r.state, ctx, at)
+    return entries.length ? { state: { ...r.state, history: [...(r.state.history ?? base.history ?? []), ...entries] } } : r
   }) as R
 }

@@ -1,0 +1,125 @@
+import { beforeAll, describe, expect, it } from 'vitest'
+import { handleApi, type Env } from '../api'
+import { resetAuthCache } from '../auth'
+import { clock, NOW, TODAY } from './helpers'
+import { applyMigrationFile, createTestDb, type TestDb } from './sqliteD1'
+
+const TEAM = 'https://nexus-team.cloudflareaccess.com'
+const AUD = 'aud-tag-123'
+const enc = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+const b64u = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_')
+let pair: CryptoKeyPair
+let jwk: JsonWebKey
+beforeAll(async () => {
+  pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify'])
+  jwk = await crypto.subtle.exportKey('jwk', pair.publicKey)
+})
+const token = async (email: string) => {
+  const header = enc({ alg: 'RS256', kid: 'k1', typ: 'JWT' })
+  const payload = enc({ iss: TEAM, aud: [AUD], email, exp: Math.floor(NOW.getTime() / 1000) + 3600 })
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(`${header}.${payload}`))
+  return `${header}.${payload}.${b64u(sig)}`
+}
+const certs = (async () => new Response(JSON.stringify({ keys: [{ ...jwk, kid: 'k1' }] }))) as unknown as typeof fetch
+async function as(db: TestDb, email: string, method: string, path: string, body?: unknown, env: Partial<Env> = {}) {
+  resetAuthCache()
+  const full: Env = { DB: db.d1, ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, NEXUS_ENV: 'staging', ...env }
+  const res = await handleApi(new Request(`https://staging.nexus.example${path}`, { method, headers: { 'cf-access-jwt-assertion': await token(email), 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }), full, clock(), certs)
+  return { status: res.status, body: (await res.json()) as any } // eslint-disable-line @typescript-eslint/no-explicit-any
+}
+let n = 0
+const cmd = (db: TestDb, email: string, module: string, name: string, args: unknown[], env: Partial<Env> = {}) =>
+  as(db, email, 'POST', '/api/commands', { module, name, args, requestId: `req-onb-${Date.now().toString(36)}-${n++}-xxxxxxxx`, clientToday: TODAY }, env)
+const give = (db: TestDb, email: string, role: string) => db.raw.prepare("INSERT INTO user_roles (email, role, assigned_by, assigned_at) VALUES (?, ?, 'test', '2026-10-21T00:00:00Z')").run(email, role)
+import { refreshRequirements } from '@/domains/construction/tracker/requirements'
+const count = (db: TestDb, table: string) => (db.raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
+const fresh = async () => { const db = createTestDb({ seed: false }); give(db, 'admin@example.com', 'admin'); give(db, 'editor@example.com', 'editor'); give(db, 'viewer@example.com', 'viewer'); await cmd(db, 'admin@example.com', 'construction', 'createOrganization', [{ name: 'Northline' }]); return db }
+const get = async (db: TestDb, module: string) => (await as(db, 'viewer@example.com', 'GET', `/api/state/${module}`)).body.state
+const bolt = { kind: 'bolt', qty: 4, diameter: 'M25', length: 900, lengthUnit: 'mm', thread: 'both-ends', topThread: 100, bottomThread: 80, nutsPerBolt: 2, washersPerBolt: 2 }
+
+async function setup() {
+  const db = await fresh()
+  const pid = (await cmd(db, 'admin@example.com', 'construction', 'createProject', [{ name: 'Plant' }])).body.state.projects[0].id
+  await cmd(db, 'admin@example.com', 'construction', 'createArea', [pid, 'E-House', []])
+  await cmd(db, 'admin@example.com', 'construction', 'addAnchorageType', [pid, 'A', 'Type A'])
+  const c0 = await get(db, 'construction')
+  const A = c0.anchorageTypes[0].id; const aid = c0.areas[0].id
+  expect((await cmd(db, 'admin@example.com', 'construction', 'setAnchorageComponents', [A, [bolt, { kind: 'template', qty: 1, spec: '19 mm plywood' }]])).status).toBe(200)
+  expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'OP-1', '', null, 12, { groups: [{ anchorageTypeId: A, count: 3 }] }])).status).toBe(200)
+  return { db, pid, A, aid }
+}
+
+describe('anchorage library → material requirements on the server', () => {
+  it('only admins configure anchorage types', async () => {
+    const { db, A } = await setup()
+    expect((await cmd(db, 'editor@example.com', 'construction', 'setAnchorageComponents', [A, []])).status).toBe(403)
+    expect((await cmd(db, 'viewer@example.com', 'construction', 'setAnchorageComponents', [A, []])).status).toBe(403)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'setAnchorageComponents', [A, [{ ...bolt, diameter: '' }]])).status).toBe(422)
+    expect(db.raw.prepare('SELECT kind, qty, diameter, length, thread, top_thread, nuts_per_bolt FROM anchorage_components ORDER BY seq').all()).toEqual([
+      { kind: 'bolt', qty: 4, diameter: 'M25', length: 900, thread: 'both-ends', top_thread: 100, nuts_per_bolt: 2 }, { kind: 'template', qty: 1, diameter: '', length: null, thread: null, top_thread: null, nuts_per_bolt: 0 }])
+  })
+
+  it('a delivery on a calculated requirement is saved once, with who and when; recalculation never touches it', async () => {
+    const { db, A } = await setup()
+    // What the app shows: the saved records with the calculated requirements brought up to date.
+    const view = () => get(db, 'materials').then(async (m) => refreshRequirements(m, await get(db, 'construction'), { log: false }))
+    let t = await view()
+    const nut = t.manual.find((l: { component: string }) => l.component === 'Nut')!
+    expect(nut.requiredQty).toBe(288)
+    expect(count(db, 'manual_materials')).toBe(0) // calculated, not yet acted on: nothing stored
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'addReceipt', [nut.id, { date: '2026-10-20', qty: 100, reference: 'DN-1', note: '' }, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'addReceipt', [nut.id, { date: '2026-10-20', qty: 100, reference: 'DN-1', note: 'checked' }, TODAY])).status).toBe(200)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'addReceipt', [nut.id, { date: '2026-10-21', qty: 88, reference: 'DN-2', note: '' }, TODAY])).status).toBe(200)
+    expect(count(db, 'manual_materials')).toBe(4) // the four calculated requirements, each once
+    const rec = db.raw.prepare("SELECT receipt_date, qty, reference, recorded_by, recorded_at FROM manual_material_receipts ORDER BY seq").all() as { recorded_by: string; recorded_at: string }[]
+    expect(rec).toHaveLength(2)
+    expect(rec[0]).toMatchObject({ qty: 100, reference: 'DN-1', recorded_by: 'editor@example.com' })
+    expect(rec[0].recorded_at).toMatch(/^2026-10-/)
+    expect(db.raw.prepare("SELECT origin, qty_basis, requirement_removed FROM manual_materials WHERE id = ?").get(nut.id)).toEqual({ origin: 'anchorage', qty_basis: 'fixed', requirement_removed: 0 })
+    // the foundation grows: the requirement follows, the deliveries stay
+    const c = await get(db, 'construction')
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [c.foundations[0].id, { quantity: 20 }])).status).toBe(200)
+    t = await view()
+    expect(t.manual.find((l: { id: string }) => l.id === nut.id)).toMatchObject({ requiredQty: 480 })
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setOrdered', [nut.id, 480])).status).toBe(200) // an ordinary change persists the recalculation and logs it
+    const saved = db.raw.prepare('SELECT required_qty, ordered_qty FROM manual_materials WHERE id = ?').get(nut.id)
+    expect(saved).toEqual({ required_qty: 480, ordered_qty: 480 })
+    expect(count(db, 'manual_material_receipts')).toBe(2)
+    expect(db.raw.prepare("SELECT summary FROM material_audit WHERE material_id = ? AND action = 'quantity'").all(nut.id).length).toBeGreaterThan(0)
+    // the configuration changes so the nuts no longer apply: kept, flagged, with its deliveries
+    expect((await cmd(db, 'admin@example.com', 'construction', 'setAnchorageComponents', [A, [{ ...bolt, nutsPerBolt: 0 }]])).status).toBe(200)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setNotes', [nut.id, 'spec changed'])).status).toBe(200)
+    expect(db.raw.prepare('SELECT required_qty, requirement_removed, ordered_qty FROM manual_materials WHERE id = ?').get(nut.id)).toEqual({ required_qty: 0, requirement_removed: 1, ordered_qty: 480 })
+    expect(count(db, 'manual_material_receipts')).toBe(2)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('quantities entered per plinth are calculated and saved, and the server enforces the same rules', async () => {
+    const { db, aid } = await setup()
+    const f = (await get(db, 'construction')).foundations[0].id
+    const item = { areaId: aid, foundationId: f, anchorageTypeId: '', category: 'other', name: 'Grout', description: '', specification: '', size: '', requiredQty: 2, basis: 'per-plinth', unit: 'ea', supplierId: '', poRef: '', expectedDate: '', claimedStatus: '', notes: '' }
+    expect((await cmd(db, 'editor@example.com', 'materials', 'addMaterials', [[item]])).status).toBe(200)
+    expect(db.raw.prepare('SELECT required_qty, qty_basis, qty_each FROM manual_materials WHERE name = ?').get('Grout')).toEqual({ required_qty: 72, qty_basis: 'per-plinth', qty_each: 2 }) // 2 × 12 × 3
+    expect((await cmd(db, 'editor@example.com', 'materials', 'addMaterials', [[{ ...item, name: 'Grout 2', foundationId: '' }]])).status).toBe(422)
+  })
+})
+
+describe('migration 0012', () => {
+  it('keeps existing materials and deliveries exactly, adds the new columns with safe defaults', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec("INSERT INTO manual_materials (id, area, category, name, required_qty, ordered_qty, seq) VALUES ('mm-1', 'Area', 'bolt', 'Bolt', 10, 8, 0)")
+    db.raw.exec("INSERT INTO manual_material_receipts (id, material_id, receipt_date, qty, reference, note, recorded_by, seq) VALUES ('r-1', 'mm-1', '2026-10-01', 5, 'DN', '', 'a@example.com', 0)")
+    const before = [db.raw.prepare('SELECT * FROM manual_materials').all(), db.raw.prepare('SELECT * FROM manual_material_receipts').all()]
+    applyMigrationFile(db.raw, '0012_anchorage_components_requirements_deliveries.sql')
+    const m = db.raw.prepare('SELECT * FROM manual_materials').get() as Record<string, unknown>
+    for (const [k, v] of Object.entries(before[0][0] as Record<string, unknown>)) expect(m[k]).toEqual(v)
+    expect(m).toMatchObject({ origin: 'manual', derive_key: null, qty_basis: 'fixed', qty_each: null, calc_json: '', requirement_removed: 0 })
+    const r = db.raw.prepare('SELECT * FROM manual_material_receipts').get() as Record<string, unknown>
+    for (const [k, v] of Object.entries(before[1][0] as Record<string, unknown>)) expect(r[k]).toEqual(v)
+    expect(r.recorded_at).toBe('')
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '12' })
+    expect(() => db.raw.exec("INSERT INTO manual_materials (id, area, category, name, required_qty, derive_key, origin, seq) VALUES ('d1', 'A', 'nut', 'Nut', 1, 'k', 'anchorage', 1), ('d2', 'A', 'nut', 'Nut', 1, 'k', 'anchorage', 2)")).toThrow() // one row per calculated requirement
+  })
+})

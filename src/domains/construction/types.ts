@@ -145,6 +145,33 @@ export interface PourItem {
   overrideBy: string
 }
 
+/** What an anchorage type is made of. Quantities are per anchorage (per plinth that uses the type); materials requirements are calculated from them. */
+export type AnchorageComponentKind = 'bolt' | 'sole-plate' | 'template' | 'embed-plate'
+export interface AnchorageComponent {
+  id: string
+  anchorageTypeId: string
+  kind: AnchorageComponentKind
+  /** How many of this component each anchorage has (for bolts: bolts per anchorage). */
+  qty: number
+  /** Optional name, for example "Base plate". */
+  label: string
+  /** Material, grade or other specification text. */
+  spec: string
+  /** Plate / template dimensions as written, for example "300 x 300 x 12 mm". */
+  size: string
+  // Anchor bolts only
+  diameter: string
+  length: number | null
+  lengthUnit: 'mm' | 'in'
+  thread: 'both-ends' | 'all-thread' | null
+  topThread: number | null
+  bottomThread: number | null
+  nutsPerBolt: number
+  washersPerBolt: number
+  nutSize: string
+  washerSize: string
+}
+
 /* ── Anchorage library & material specifications ───────────────────────── */
 
 export interface BoltSpec {
@@ -378,6 +405,8 @@ export interface ConstructionState {
   plinths: Plinth[]
   /** Optional so older saved data and the demo still load; treat absent as empty. */
   anchorageGroups?: AnchorageGroup[]
+  /** Components and specifications of each anchorage type. Optional so older data still loads. */
+  anchorageComponents?: AnchorageComponent[]
   pours?: Pour[]
   pourItems?: PourItem[]
   boltSpecs: BoltSpec[]

@@ -1,4 +1,5 @@
 import { identity } from '@/app/identity'
+import { useMemo } from 'react'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { createEphemeralStore, createPersistedStore } from '@/lib/createPersistedStore'
 import { createModuleStore, setModuleContext, useSaver } from '@/lib/dataSource'
@@ -6,6 +7,7 @@ import { constructionStore } from '../store'
 import { buildSeed } from '../seed'
 import { todayISO } from '@/lib/date'
 import { notify } from '@/lib/notify'
+import { refreshRequirements } from './requirements'
 import { emptyTracker, type TrackerState } from './types'
 
 /**
@@ -28,7 +30,17 @@ export const trackerStore = createModuleStore<TrackerState>('materials', tracker
 export const trackerLocalStore = trackerLocal
 export const resetTrackerData = () => trackerLocal.reset()
 
-export const useTracker = () => ({ state: trackerStore.use(), today: todayISO() })
+/**
+ * The materials as everyone sees them: the saved records with calculated requirements and per-anchorage / plinth / footing quantities brought
+ * up to date with the foundations and the Anchorage Library. This view is for display; the saved records are brought up to date, and the
+ * change logged, by the next change made to a material.
+ */
+export function useTracker() {
+  const raw = trackerStore.use()
+  const construction = constructionStore.use()
+  const state = useMemo(() => refreshRequirements(raw, construction, { log: false }), [raw, construction])
+  return { state, today: todayISO() }
+}
 export const useTrackerCommand = () => useSaver(trackerStore)
 
 // Rules that span modules: a material is checked against the project's areas, foundations and anchorage types; archiving a foundation checks its materials.

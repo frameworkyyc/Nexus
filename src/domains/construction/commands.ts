@@ -55,6 +55,7 @@ export const addAnchorageType = tagged.addAnchorageType
 export const editAnchorageType = tagged.editAnchorageType
 export const archiveAnchorageType = tagged.archiveAnchorageType
 export const configureFoundation = tagged.configureFoundation
+export const setAnchorageComponents = tagged.setAnchorageComponents
 export const setPlinthDims = tagged.setPlinthDims
 export const createPour = tagged.createPour
 export const updatePour = tagged.updatePour

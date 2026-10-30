@@ -1,7 +1,7 @@
 import type { Row, RowSet } from '../db'
 import { blankActivitiesFor } from '@/domains/construction/blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS } from '@/domains/construction/config'
-import type { Activity, AnchorageGroup, AnchorageType, Area, ConstructionState, Dims, Foundation, LengthUnit, Plinth, Pour, PourItem, Project } from '@/domains/construction/types'
+import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, Area, ConstructionState, Dims, Foundation, LengthUnit, Plinth, Pour, PourItem, Project } from '@/domains/construction/types'
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 
@@ -27,6 +27,7 @@ export function constructionToRows(state: ConstructionState): RowSet {
     projects: state.projects.map((p): Row => ({ id: p.id, company_id: p.companyId, name: p.name, job_number: p.jobNumber, client: p.client, location: p.location, scope: p.scope, status: p.status, status_note: p.statusNote, description: p.description ?? '', start_date: p.startDate ?? null, end_date: p.endDate ?? null })),
     areas: state.areas.map((a): Row => ({ id: a.id, project_id: a.projectId, name: a.name, sequence: a.sequence, identifier: a.identifier ?? '', description: a.description ?? '', archived: a.archived ? 1 : 0 })),
     anchorage_types: state.anchorageTypes.map((t, seq): Row => ({ id: t.id, project_id: t.projectId ?? '', code: t.code, description: t.description, archived: t.archived ? 1 : 0, seq })),
+    anchorage_components: (state.anchorageComponents ?? []).map((c, seq): Row => ({ id: c.id, anchorage_type_id: c.anchorageTypeId, kind: c.kind, qty: c.qty, label: c.label, spec: c.spec, size: c.size, diameter: c.diameter, length: c.length, length_unit: c.lengthUnit, thread: c.thread, top_thread: c.topThread, bottom_thread: c.bottomThread, nuts_per_bolt: c.nutsPerBolt, washers_per_bolt: c.washersPerBolt, nut_size: c.nutSize, washer_size: c.washerSize, seq })),
     foundation_anchorage_groups: (state.anchorageGroups ?? []).map((g, seq): Row => ({ id: g.id, foundation_id: g.foundationId, anchorage_type_id: g.anchorageTypeId, plinth_count: g.count, ...dimsToCols(g.dims), seq })),
     foundations: state.foundations.map((f, seq): Row => ({ id: f.id, area_id: f.areaId, number: f.number, description: f.description, notes: f.notes, archived: f.archived ? 1 : 0, quantity: f.quantity ?? 1, plinths_per_foundation: f.plinthsPerFoundation === undefined ? state.plinths.filter((p) => p.foundationId === f.id).length : f.plinthsPerFoundation, footing_length: f.footing?.length ?? null, footing_width: f.footing?.width ?? null, footing_height: f.footing?.height ?? null, footing_unit: f.footing && (f.footing.length !== null || f.footing.width !== null || f.footing.height !== null) ? f.footing.unit : null, plinth_base: f.plinthBase ?? 'above-footing', seq })),
     plinths: state.plinths.map((p, seq): Row => ({ id: p.id, foundation_id: p.foundationId, idx: p.index, anchorage_type_id: p.anchorageTypeId, notes: p.notes, group_id: p.groupId ?? null, ...dimsToCols(p.dims), seq })),
@@ -50,13 +51,14 @@ export function constructionFromRows(rows: RowSet): ConstructionState {
   const activities: Activity[] = foundations.flatMap((f) => blankActivitiesFor(f, plinths.filter((p) => p.foundationId === f.id)).map(overlay))
   const areas = (rows.areas ?? []).map((r): Area => ({ id: String(r.id), projectId: String(r.project_id), name: String(r.name), sequence: Number(r.sequence), identifier: String(r.identifier ?? ''), description: String(r.description ?? ''), ...(Number(r.archived) === 1 ? { archived: true } : {}) }))
   const anchorageTypes = (rows.anchorage_types ?? []).map((r): AnchorageType => ({ id: String(r.id), projectId: String(r.project_id), code: String(r.code), description: String(r.description), bolts: [], hardware: [], ...(Number(r.archived) === 1 ? { archived: true } : {}) }))
+  const anchorageComponents = (rows.anchorage_components ?? []).map((r): AnchorageComponent => ({ id: String(r.id), anchorageTypeId: String(r.anchorage_type_id), kind: String(r.kind) as AnchorageComponent['kind'], qty: Number(r.qty), label: String(r.label), spec: String(r.spec), size: String(r.size), diameter: String(r.diameter), length: r.length === null ? null : Number(r.length), lengthUnit: String(r.length_unit) === 'in' ? 'in' : 'mm', thread: s(r.thread) as AnchorageComponent['thread'], topThread: r.top_thread === null ? null : Number(r.top_thread), bottomThread: r.bottom_thread === null ? null : Number(r.bottom_thread), nutsPerBolt: Number(r.nuts_per_bolt), washersPerBolt: Number(r.washers_per_bolt), nutSize: String(r.nut_size), washerSize: String(r.washer_size) }))
   const company = (rows.companies ?? [])[0]
   return {
     company: company ? { id: String(company.id), name: String(company.name), legalName: String(company.legal_name ?? ''), location: String(company.location ?? ''), contactName: String(company.contact_name ?? ''), contactEmail: String(company.contact_email ?? ''), contactPhone: String(company.contact_phone ?? ''), website: String(company.website ?? ''), notes: String(company.notes ?? '') } : { id: '', name: '' },
     projects: (rows.projects ?? []).map((r): Project => ({ id: String(r.id), companyId: String(r.company_id), name: String(r.name), jobNumber: String(r.job_number), client: String(r.client), location: String(r.location), scope: String(r.scope), status: String(r.status) as Project['status'], statusNote: String(r.status_note), tracking: 'detailed', reportedProgress: null, description: String(r.description ?? ''), startDate: s(r.start_date), endDate: s(r.end_date) })),
     projectIssues: [],
     areas,
-    foundations, plinths, anchorageGroups, pours, pourItems,
+    foundations, plinths, anchorageGroups, anchorageComponents, pours, pourItems,
     boltSpecs: [], anchorageTypes, bulkMaterials: [], suppliers: [], purchaseOrders: [], deliveries: [], allocations: [], plinthReady: [], fabrication: [],
     activities, documents: [], deficiencies: [],
     // Handover is not saved yet: each area carries an untouched, empty checklist so screens that read it keep working. Nothing here is persisted or shown as progress.

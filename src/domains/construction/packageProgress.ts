@@ -33,7 +33,7 @@ const doneOf = (xs: { status: string }[]) => xs.filter((x) => x.status === 'comp
 
 export function materialsIndicator(idx: Index, areaId: string, tracker: TrackerState): PackageIndicator {
   const lines = linesForArea(tracker, idx.state.areas, areaId).filter((l) => !l.archived)
-  const basis = 'Verified received quantity against required quantity, averaged across the area’s material lines. Only receipts recorded in Nexus count: a “Delivered” status in the workbook is shown but does not raise the percentage. Ordered quantities are procurement only.'
+  const basis = 'Delivered quantity against required quantity, averaged across the area’s material lines. A delivery counts once it has been physically received, checked and confirmed in Nexus; a status in the workbook is shown but does not raise the percentage.'
   if (!lines.length) {
     return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material tracker', value: tracker.meta ? 'No lines for this area' : 'Not imported' }], gaps: [`Import the ${identity.trackerName} material tracker workbook to track materials. Demonstration material data is not counted.`] }
   }
@@ -41,12 +41,10 @@ export function materialsIndicator(idx: Index, areaId: string, tracker: TrackerS
   return {
     key: 'materials', title: 'Materials', basis, percent: p.percent,
     rows: [
-      { label: 'Lines with verified receipts', value: `${p.verifiedLines} / ${p.lines}` },
-      { label: 'Received in full', value: String(p.receivedInFull), note: p.partial ? `${p.partial} partially received` : undefined },
-      { label: 'Delivered per workbook, unverified', value: String(p.unverifiedDelivered) },
-      { label: 'Pending per workbook', value: String(p.unverifiedPending) },
+      { label: 'Delivered in full', value: `${p.receivedInFull} / ${p.lines}`, note: p.partial ? `${p.partial} partially delivered` : undefined },
+      { label: 'Not yet delivered', value: String(p.nothingReceived) },
     ],
-    gaps: p.percent === null ? ['No receipts are verified yet, so no percentage is shown.'] : p.unverifiedDelivered ? [`${p.unverifiedDelivered} lines marked Delivered have no recorded receipt and count as zero until verified.`] : [],
+    gaps: p.percent === null ? ['Nothing to measure yet.'] : [],
   }
 }
 

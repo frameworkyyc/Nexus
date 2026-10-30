@@ -1,7 +1,8 @@
 import { allLines } from './audit'
 import { displayOf, foundationsOfArea, type Catalog } from './catalog'
 import type { SupplierRecord } from './suppliers'
-import type { ComponentCategory, TrackerLine, TrackerState } from './types'
+import type { RefSource } from './requirements'
+import type { ComponentCategory, QtyBasis, TrackerLine, TrackerState } from './types'
 
 const validDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T00:00:00`).getTime())
 export const clean = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '')
@@ -10,6 +11,7 @@ const MAX_TEXT = 500
 
 export const CATEGORIES: ComponentCategory[] = ['bolt', 'nut', 'washer', 'sole-plate', 'template', 'embed-plate', 'other']
 export const CLAIMED_STATUSES = ['', 'Pending', 'Delivered'] as const
+export const QTY_BASES: QtyBasis[] = ['fixed', 'per-anchorage', 'per-plinth', 'per-footing']
 
 /**
  * What a person enters. Area, foundation, anchorage type and supplier are chosen from existing records and held by id ('' = none);
@@ -24,7 +26,10 @@ export interface MaterialInput {
   description: string
   specification: string
   size: string
+  /** The quantity as entered: the total for a fixed quantity, otherwise the amount per anchorage / plinth / footing (see `basis`). */
   requiredQty: number
+  /** What the quantity is counted per. Absent = 'fixed'. The total is calculated from the foundation's actual counts. */
+  basis?: QtyBasis
   unit: string
   supplierId: string
   poRef: string
@@ -35,7 +40,7 @@ export interface MaterialInput {
 }
 
 /** The project records a change is checked against. */
-export interface Env { catalog: Catalog; suppliers: SupplierRecord[] }
+export interface Env { catalog: Catalog; suppliers: SupplierRecord[]; refs?: RefSource }
 
 
 /**
@@ -58,6 +63,7 @@ export function validateMaterial(m: Partial<MaterialInput>, env: Env, current?: 
     if (!Number.isInteger(m.requiredQty) || m.requiredQty < 1) return 'Quantity required must be a whole number, 1 or more.'
     if (m.requiredQty > 10_000_000) return 'Quantity required is too large.'
   }
+  if (m.basis !== undefined && !QTY_BASES.includes(m.basis)) return 'Choose what the quantity is counted per.'
   if (m.expectedDate && !validDate(m.expectedDate)) return 'Enter a valid expected delivery date.'
   if (m.claimedStatus !== undefined && !(CLAIMED_STATUSES as readonly string[]).includes(m.claimedStatus)) return 'Delivery status must be Pending, Delivered or not stated.'
   const areaId = m.areaId ?? current?.areaId ?? ''

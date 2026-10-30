@@ -11,35 +11,26 @@ export const CATEGORY_LABEL: Record<ComponentCategory, string> = {
 }
 export const CATEGORY_ORDER: ComponentCategory[] = ['bolt', 'nut', 'washer', 'sole-plate', 'template', 'embed-plate', 'other']
 
-/* ── Receipts: only entries made in Nexus count as verified ─────────────── */
+/* ── Delivery: a delivery is a confirmed receipt ────────────────────────── */
+// Delivered means the material was physically received, checked and confirmed. Confirming a delivery records a receipt (how much, when it
+// arrived, who confirmed it and when), so there is no separate verification step afterwards. Partial deliveries are simply smaller receipts.
 
 export const receivedOf = (l: TrackerLine) => l.receipts.reduce((s, r) => s + r.qty, 0)
-/** A line is verified once a receipt is recorded, or someone has confirmed that nothing has arrived. */
-export const isVerified = (l: TrackerLine) => l.receipts.length > 0 || l.confirmedNoReceipts
-/** Remaining is only stated when receipts are verified; otherwise the answer is "unknown", not the full requirement. */
-export const remainingOf = (l: TrackerLine): number | null => (isVerified(l) ? Math.max(0, l.requiredQty - receivedOf(l)) : null)
+/** Still to be delivered: required minus everything confirmed so far, never below zero. */
+export const remainingOf = (l: TrackerLine): number => Math.max(0, l.requiredQty - receivedOf(l))
 
-export type DeliveryState = 'received' | 'over-received' | 'partial' | 'none-received' | 'unverified-delivered' | 'unverified-pending'
+export type DeliveryState = 'received' | 'over-received' | 'partial' | 'none-received'
 
 export function deliveryState(l: TrackerLine): DeliveryState {
-  if (isVerified(l)) {
-    const got = receivedOf(l)
-    return got === 0 ? 'none-received' : got > l.requiredQty ? 'over-received' : got === l.requiredQty ? 'received' : 'partial'
-  }
-  return /^delivered$/i.test(l.sourceStatus) ? 'unverified-delivered' : 'unverified-pending'
+  const got = receivedOf(l)
+  return got === 0 ? 'none-received' : got > l.requiredQty ? 'over-received' : got === l.requiredQty ? 'received' : 'partial'
 }
 
 export const DELIVERY_LABEL: Record<DeliveryState, string> = {
-  received: 'Received in full', 'over-received': 'Over-received', partial: 'Partially received', 'none-received': 'Nothing received',
-  'unverified-delivered': 'Delivered per workbook, not verified', 'unverified-pending': 'Pending per workbook',
+  received: 'Delivered', 'over-received': 'Over-delivered', partial: 'Partially delivered', 'none-received': 'Not delivered',
 }
 
-/** The label for one material: workbook lines say "per workbook"; materials entered in Nexus carry a stated status instead. */
-export const deliveryLabelOf = (l: TrackerLine): string => {
-  const d = deliveryState(l)
-  if (l.origin !== 'manual') return DELIVERY_LABEL[d]
-  return d === 'unverified-delivered' ? 'Delivered, not verified' : d === 'unverified-pending' ? 'Pending, not verified' : DELIVERY_LABEL[d]
-}
+export const deliveryLabelOf = (l: TrackerLine): string => DELIVERY_LABEL[deliveryState(l)]
 
 /* ── Filtering ─────────────────────────────────────────────────────────── */
 
@@ -69,10 +60,9 @@ export interface SummaryGroup {
   component: string // verbatim
   category: ComponentCategory
   required: number
-  received: number // verified receipts only
-  remaining: number | null // only when every line in the group is verified
+  received: number // confirmed deliveries
+  remaining: number
   lines: number
-  verifiedLines: number
   deliveredPerWorkbook: number
   pendingPerWorkbook: number
 }
@@ -81,13 +71,12 @@ export function areaSummary(lines: TrackerLine[]): SummaryGroup[] {
   const groups = new Map<string, SummaryGroup>()
   for (const l of lines) {
     const k = `${l.area}|${l.component}`
-    const g = groups.get(k) ?? { area: l.area, component: l.component, category: l.category, required: 0, received: 0, remaining: 0, lines: 0, verifiedLines: 0, deliveredPerWorkbook: 0, pendingPerWorkbook: 0 }
+    const g = groups.get(k) ?? { area: l.area, component: l.component, category: l.category, required: 0, received: 0, remaining: 0, lines: 0, deliveredPerWorkbook: 0, pendingPerWorkbook: 0 }
     g.required += l.requiredQty; g.received += receivedOf(l); g.lines++
-    if (isVerified(l)) g.verifiedLines++
     if (/^delivered$/i.test(l.sourceStatus)) g.deliveredPerWorkbook++; else g.pendingPerWorkbook++
     groups.set(k, g)
   }
-  return [...groups.values()].map((g) => ({ ...g, remaining: g.verifiedLines === g.lines ? Math.max(0, g.required - g.received) : null }))
+  return [...groups.values()].map((g) => ({ ...g, remaining: Math.max(0, g.required - g.received) }))
 }
 
 /** The workbook's own summary (K:N) compared with totals rebuilt from the detailed rows. */
@@ -101,13 +90,11 @@ export function reconcileSummary(state: TrackerState) {
 
 export interface MaterialsProgress {
   lines: number
-  verifiedLines: number
+  /** Lines delivered in full (or over-delivered), partly delivered, and not yet delivered. */
   receivedInFull: number
   partial: number
   nothingReceived: number
-  unverifiedDelivered: number
-  unverifiedPending: number
-  /** Verified received against required, averaged per line; null until at least one receipt is verified. */
+  /** Delivered against required, averaged per line; null when there is nothing to measure. */
   percent: number | null
 }
 
@@ -115,24 +102,22 @@ export function materialsProgress(lines: TrackerLine[]): MaterialsProgress {
   const states = lines.map(deliveryState)
   const count = (s: DeliveryState) => states.filter((x) => x === s).length
   const usable = lines.filter((l) => l.requiredQty > 0)
-  const verified = lines.filter(isVerified).length
-  const percent = verified === 0 || usable.length === 0 ? null : Math.round((usable.reduce((s, l) => s + Math.min(1, receivedOf(l) / l.requiredQty), 0) / usable.length) * 100)
+  const percent = usable.length === 0 ? null : Math.round((usable.reduce((s, l) => s + Math.min(1, receivedOf(l) / l.requiredQty), 0) / usable.length) * 100)
   return {
-    lines: lines.length, verifiedLines: verified,
-    receivedInFull: count('received') + count('over-received'), partial: count('partial'), nothingReceived: count('none-received'),
-    unverifiedDelivered: count('unverified-delivered'), unverifiedPending: count('unverified-pending'), percent,
+    lines: lines.length,
+    receivedInFull: count('received') + count('over-received'), partial: count('partial'), nothingReceived: count('none-received'), percent,
   }
 }
 
 export const unacknowledged = (state: TrackerState) => state.flags.filter((f) => f.severity === 'review' && !state.acknowledged[f.id])
 
-/** Required − total verified received, never below zero. Null while nothing has been verified (unknown, not "all outstanding"). */
+/** Required − total delivered, never below zero. */
 export const outstandingOf = remainingOf
 
 /* ── Sorting and grouping for the management table ─────────────────────── */
 
 export type SortKey = 'area' | 'location' | 'name' | 'category' | 'required' | 'received' | 'outstanding' | 'status' | 'supplier' | 'expected'
-const DELIVERY_RANK: Record<DeliveryState, number> = { 'unverified-pending': 0, 'none-received': 1, partial: 2, 'unverified-delivered': 3, received: 4, 'over-received': 5 }
+const DELIVERY_RANK: Record<DeliveryState, number> = { 'none-received': 0, partial: 1, received: 2, 'over-received': 3 }
 const cmp = (a: string, b: string) => a.localeCompare(b, 'en', { numeric: true })
 
 export function sortLines(lines: TrackerLine[], key: SortKey, dir: 'asc' | 'desc'): TrackerLine[] {
@@ -144,7 +129,7 @@ export function sortLines(lines: TrackerLine[], key: SortKey, dir: 'asc' | 'desc
       case 'category': return CATEGORY_ORDER.indexOf(l.category)
       case 'required': return l.requiredQty
       case 'received': return receivedOf(l)
-      case 'outstanding': return remainingOf(l) ?? Number.POSITIVE_INFINITY
+      case 'outstanding': return remainingOf(l)
       case 'status': return DELIVERY_RANK[deliveryState(l)]
       case 'supplier': return l.supplier ?? ''
       case 'expected': return l.expectedDate ?? '9999-99-99'
@@ -167,12 +152,12 @@ export const groupLabel = (l: TrackerLine, g: GroupKey): string => {
   }
 }
 
-/** Counts for the dashboard header. "Pending" is everything not yet verified as fully received and not claimed delivered. */
+/** Counts for the dashboard header. */
 export function dashboardCounts(lines: TrackerLine[]) {
   const st = lines.map(deliveryState)
   const n = (...s: DeliveryState[]) => st.filter((x) => s.includes(x)).length
   return {
-    total: lines.length, delivered: n('received', 'over-received'), partial: n('partial'), pending: n('none-received', 'unverified-pending'), unverified: n('unverified-delivered'),
+    total: lines.length, delivered: n('received', 'over-received'), partial: n('partial'), pending: n('none-received'),
   }
 }
 
@@ -192,13 +177,13 @@ const safeCell = (v: string | number | null | undefined) => {
   return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded
 }
 
-export const EXPORT_HEADERS = ['Area', 'Footing Type / Location', 'Anchorage Type', 'Component', 'Category', 'Description', 'Specification', 'Size', 'Unit', 'Required Qty', 'Received Qty (verified)', 'Outstanding Qty', 'Delivery Status', 'Workbook Status', 'Supplier', 'PO / Reference', 'Expected Delivery', 'Ordered Qty', 'Notes', 'Archived', 'Source', 'Record ID']
+export const EXPORT_HEADERS = ['Area', 'Footing Type / Location', 'Anchorage Type', 'Component', 'Category', 'Description', 'Specification', 'Size', 'Unit', 'Required Qty', 'Delivered Qty', 'Outstanding Qty', 'Delivery Status', 'Workbook Status', 'Supplier', 'PO / Reference', 'Expected Delivery', 'Ordered Qty', 'Notes', 'Archived', 'Source', 'Record ID']
 
-/** The rows as a CSV that Excel opens directly (UTF-8 with byte-order mark, CRLF). Outstanding is blank when receipts are unverified. */
+/** The rows as a CSV that Excel opens directly (UTF-8 with byte-order mark, CRLF). */
 export function toCsv(lines: TrackerLine[]): string {
   const rows = lines.map((l) => {
     const out = remainingOf(l)
-    return [l.area, l.footingType, l.anchorageType, l.component, CATEGORY_LABEL[l.category], l.description ?? '', l.specification ?? '', l.size ?? '', l.unit ?? '', l.requiredQty, isVerified(l) ? receivedOf(l) : '', out ?? '', deliveryLabelOf(l), l.origin === 'manual' ? '' : l.sourceStatus, l.supplier ?? '', l.poRef ?? '', l.expectedDate ?? '', l.orderedQty ?? '', l.notes, l.archived ? 'Yes' : '', l.origin === 'manual' ? 'Entered in Nexus' : `${l.source.sheet} row ${l.source.row}`, l.id]
+    return [l.area, l.footingType, l.anchorageType, l.component, CATEGORY_LABEL[l.category], l.description ?? '', l.specification ?? '', l.size ?? '', l.unit ?? '', l.requiredQty, receivedOf(l), out, deliveryLabelOf(l), l.origin === 'manual' ? '' : l.sourceStatus, l.supplier ?? '', l.poRef ?? '', l.expectedDate ?? '', l.orderedQty ?? '', l.notes, l.archived ? 'Yes' : '', l.origin === 'manual' ? 'Entered in Nexus' : `${l.source.sheet} row ${l.source.row}`, l.id]
   })
   return '﻿' + [EXPORT_HEADERS, ...rows].map((r) => r.map(safeCell).join(',')).join('\r\n') + '\r\n'
 }

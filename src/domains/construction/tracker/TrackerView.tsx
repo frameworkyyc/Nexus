@@ -72,7 +72,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
         {tab === 'requirements' && (
           <>
             <MaterialsManager lines={all} scopeName={areaId ? 'This area' : 'All areas'} hideArea={!!areaId} projectId={projectId} defaultAreaId={areaId} />
-            <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted">Delivered and Pending from the workbook are statuses, not receipts. A line counts as received only when a delivery is recorded here; Outstanding = required − total verified received, and stays unknown until a receipt is recorded or “nothing received” is confirmed.</p>
+            <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted">A delivery counts once the material has been physically received, checked and confirmed here: confirm all of it, or part of it for a partial delivery. Outstanding = required − delivered. A status in the workbook is shown for reference but is not a delivery.</p>
           </>
         )}
 
@@ -129,19 +129,19 @@ function AreaSummary({ lines }: { lines: TrackerLine[] }) {
   const areas = distinct(groups.map((g) => g.area))
   return (
     <>
-      <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted">Built automatically from the detailed requirements, one row per area and component description. It summarises the lines above; it is never an additional requirement. Remaining is shown only where every line in the group has verified receipts.</p>
+      <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted">Built automatically from the detailed requirements, one row per area and component description. It summarises the lines above; it is never an additional requirement. Delivered counts confirmed deliveries only.</p>
       {areas.map((area) => (
         <section key={area} className="mb-8">
           <h3 className="t-title mb-2">{area}</h3>
           <div className="overflow-x-auto">
             <table className="card-table w-full min-w-[640px] border-collapse text-left text-[13px]">
-              <thead><tr className="border-b border-line">{['Component', 'Required', 'Received (verified)', 'Remaining', 'Workbook status'].map((h, i) => <th key={h} className={`t-label py-3 pr-6 font-medium ${i && i < 4 ? 'text-right' : ''}`}>{h}</th>)}</tr></thead>
+              <thead><tr className="border-b border-line">{['Component', 'Required', 'Delivered', 'Remaining', 'Workbook status'].map((h, i) => <th key={h} className={`t-label py-3 pr-6 font-medium ${i && i < 4 ? 'text-right' : ''}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {groups.filter((g) => g.area === area).map((g) => (
                   <tr key={g.component} className="border-b border-line">
                     <td className="py-3 pr-6">{g.component}<span className="block text-xs text-muted">{g.lines} line{g.lines === 1 ? '' : 's'}</span></td>
                     <td className="py-3 pr-6 text-right tabular-nums">{g.required.toLocaleString('en-CA')}</td>
-                    <td className="py-3 pr-6 text-right">{g.verifiedLines ? <span className="tabular-nums">{g.received.toLocaleString('en-CA')}{g.verifiedLines < g.lines && <span className="text-muted"> ({g.verifiedLines}/{g.lines} lines)</span>}</span> : <span className="text-muted">Not verified</span>}</td>
+                    <td className="py-3 pr-6 text-right tabular-nums">{g.received.toLocaleString('en-CA')}</td>
                     <td className="py-3 pr-6 text-right">{num(g.remaining)}</td>
                     <td className="py-3 pr-6 text-muted">{g.pendingPerWorkbook === 0 ? 'Delivered' : g.deliveredPerWorkbook === 0 ? 'Pending' : `${g.deliveredPerWorkbook} delivered · ${g.pendingPerWorkbook} pending`}</td>
                   </tr>
@@ -209,8 +209,8 @@ function Source() {
       <ul className="list-disc space-y-1.5 pl-5 text-muted">
         <li>Required quantity is the workbook’s calculated value. Its formula is kept and re-evaluated; any disagreement is flagged, not corrected.</li>
         <li>Area summary rows are rebuilt from the detailed lines. The workbook’s own summary is kept only to check them.</li>
-        <li>Received quantity is the sum of receipts recorded in Nexus. Remaining = required − received, shown only once receipts are verified.</li>
-        <li>The Materials percentage counts verified receipts only; “Delivered” lines without receipts count as zero and are listed separately.</li>
+        <li>Delivered quantity is the sum of deliveries confirmed in Nexus (who confirmed each, and when, is kept). Remaining = required − delivered.</li>
+        <li>The Materials percentage counts confirmed deliveries only; a “Delivered” status in the workbook is shown for reference and counts as zero until the delivery is confirmed here.</li>
       </ul>
       <p className="mb-4 mt-8 text-xs text-muted">{server ? 'Saved on the server and shared by everyone with access.' : 'Stored in this browser only. Other users cannot see it and clearing site data removes it.'}</p>
       <div className="flex gap-2">

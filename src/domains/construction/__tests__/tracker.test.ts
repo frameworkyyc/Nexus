@@ -5,7 +5,7 @@ import { buildSeed } from '../seed'
 import { getIndex } from '../selectors'
 import * as A from '../tracker/actions'
 import { importWorkbookFile } from '../tracker/import'
-import { areaIdFor, areaSummary, deliveryState, filterLines, isVerified, materialsProgress, receivedOf, reconcileSummary, remainingOf } from '../tracker/selectors'
+import { areaIdFor, areaSummary, deliveryState, filterLines, materialsProgress, receivedOf, reconcileSummary, remainingOf } from '../tracker/selectors'
 import { emptyTracker, type TrackerState } from '../tracker/types'
 import { readWorkbook } from '@/lib/xlsx'
 import { buildWorkbook, sampleWorkbook } from './xlsxBuilder'
@@ -101,10 +101,9 @@ describe('deliveries: workbook status is not a receipt', () => {
     const bolt = line(s, 4)
     expect(bolt.sourceStatus).toBe('Delivered')
     expect(receivedOf(bolt)).toBe(0)
-    expect(isVerified(bolt)).toBe(false)
-    expect(remainingOf(bolt)).toBeNull()
-    expect(deliveryState(bolt)).toBe('unverified-delivered')
-    expect(deliveryState(line(s, 7))).toBe('unverified-pending')
+    expect(remainingOf(bolt)).toBe(bolt.requiredQty) // nothing confirmed yet, whatever the workbook says
+    expect(deliveryState(bolt)).toBe('none-received')
+    expect(deliveryState(line(s, 7))).toBe('none-received')
   })
 
   it('supports partial deliveries and calculates remaining only once verified', async () => {
@@ -141,17 +140,16 @@ describe('deliveries: workbook status is not a receipt', () => {
     expect(line(s, 4).confirmedNoReceipts).toBe(false)
     expect(err(s, A.confirmNoReceipts(id, true))).toMatch(/Remove the recorded receipts/)
     s = apply(s, A.removeReceipt(id, line(s, 4).receipts[0].id))
-    expect(isVerified(line(s, 4))).toBe(false)
+    expect(line(s, 4).receipts).toHaveLength(0) // a voided receipt leaves the line as it was
   })
 
-  it('area summary shows remaining only when every line is verified', async () => {
+  it('area summary shows what has been delivered and what remains', async () => {
     let s = await loaded()
     const bolts = () => areaSummary(s.lines).find((g) => g.area === 'North Area' && g.component === '3/4" x 460mm Bolt')!
-    expect(bolts().remaining).toBeNull()
+    const total = bolts().required
+    expect(bolts()).toMatchObject({ received: 0, remaining: total })
     s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-10', qty: 24, reference: '', note: '' }, TODAY))
-    expect(bolts()).toMatchObject({ received: 24, remaining: null, verifiedLines: 1, lines: 2 })
-    s = apply(s, A.confirmNoReceipts(line(s, 9).id, true))
-    expect(bolts()).toMatchObject({ remaining: 4 })
+    expect(bolts()).toMatchObject({ received: 24, remaining: total - 24, lines: 2 })
   })
 })
 
@@ -159,18 +157,18 @@ describe('materials progress indicator', () => {
   const idx = getIndex(buildSeed(TODAY))
   const withAreaNames = (s: TrackerState) => ({ ...s, lines: s.lines.map((l) => ({ ...l, area: l.area === 'North Area' ? 'Mole Sieve' : l.area })) })
 
-  it('shows Not tracked until a receipt is verified, however many lines say Delivered', async () => {
+  it('is zero until a delivery is confirmed, however many lines say Delivered in the workbook', async () => {
     const s = withAreaNames(await loaded())
-    expect(materialsProgress(s.lines.filter((l) => l.area === 'Mole Sieve')).percent).toBeNull()
+    expect(materialsProgress(s.lines.filter((l) => l.area === 'Mole Sieve')).percent).toBe(0)
     const ind = materialsIndicator(idx, 'mole-sieve', s)
-    expect(ind.percent).toBeNull()
-    expect(ind.rows.find((r) => r.label.startsWith('Delivered per workbook'))!.value).toBe('5')
+    expect(ind.percent).toBe(0)
+    expect(ind.rows.find((r) => r.label === 'Not yet delivered')!.value).toBe('10')
   })
 
-  it('is a verified-receipts figure: ordered quantities and workbook statuses do not move it', async () => {
+  it('counts confirmed deliveries only: ordered quantities and workbook statuses do not move it', async () => {
     let s = withAreaNames(await loaded())
     s = apply(s, A.setOrdered(line(s, 4).id, 24))
-    expect(materialsIndicator(idx, 'mole-sieve', s).percent).toBeNull()
+    expect(materialsIndicator(idx, 'mole-sieve', s).percent).toBe(0)
     s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-10', qty: 24, reference: '', note: '' }, TODAY))
     const p = materialsIndicator(idx, 'mole-sieve', s).percent
     expect(p).toBe(Math.round((1 / 10) * 100)) // 1 of the area's 10 lines fully received
@@ -194,7 +192,7 @@ describe('filters', () => {
     expect(filterLines(s.lines, { footingType: 'F-11' })).toHaveLength(3)
     expect(filterLines(s.lines, { anchorageType: 'T9' })).toHaveLength(3)
     expect(filterLines(s.lines, { delivery: 'partial' }).map((l) => l.source.row)).toEqual([4])
-    expect(filterLines(s.lines, { delivery: 'unverified-pending' })).toHaveLength(6)
+    expect(filterLines(s.lines, { delivery: 'none-received' })).toHaveLength(s.lines.length - 1)
     expect(filterLines(s.lines, { search: 'ordered as' }).map((l) => l.source.row)).toEqual([4]) // finds workbook comments
     expect(filterLines(s.lines, { search: 'embed', area: 'North Area' })).toHaveLength(0)
   })
