@@ -261,3 +261,37 @@ describe('migration 0016', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '16' })
   })
 })
+
+describe('installation tracking on the server', () => {
+  it('is saved separately from delivery and allocation, with permissions, who and when', async () => {
+    const { db } = await setup()
+    const rows = async () => { const m = await get(db, 'materials'); const c = await get(db, 'construction'); return procurementRows(refreshRequirements(m, c, { log: false }), c) }
+    const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
+    const inst = (qty: number) => ({ key: bolts.key, qty, date: '2026-10-20', note: 'crew A' })
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordInstallation', [inst(10), TODAY])).status).toBe(422) // nothing received yet
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ date: '2026-10-19', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'recordInstallation', [inst(10), TODAY])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordInstallation', [inst(10), TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT qty, note, recorded_by FROM material_installations').all()).toEqual([{ qty: 10, note: 'crew A', recorded_by: 'editor@example.com' }])
+    expect(count(db, 'material_allocations')).toBe(0)
+    expect(await rows().then((r) => r.find((x) => x.name === 'Anchor bolt'))).toMatchObject({ received: 100, installed: 10, stage: 'partially-installed' })
+    const id = (db.raw.prepare('SELECT id FROM material_installations').get() as { id: string }).id
+    expect((await cmd(db, 'editor@example.com', 'materials', 'voidInstallation', [id])).status).toBe(403)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'voidInstallation', [id])).status).toBe(200)
+    expect(count(db, 'material_installations')).toBe(0)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+})
+
+describe('migration 0017', () => {
+  it('adds the installations table without touching existing records', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql', '0013_sole_plate_center_hole.sql', '0014_embed_plate_headed_studs.sql', '0015_procurement.sql', '0016_footing_anchor_bolts.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    const before = db.raw.prepare('SELECT * FROM purchase_orders').all()
+    applyMigrationFile(db.raw, '0017_material_installations.sql')
+    expect(db.raw.prepare('SELECT * FROM purchase_orders').all()).toEqual(before)
+    expect(count(db, 'material_installations')).toBe(0)
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '17' })
+  })
+})

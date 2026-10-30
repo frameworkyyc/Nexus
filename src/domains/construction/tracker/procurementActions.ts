@@ -2,7 +2,7 @@ import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
 import type { ConsolidationSource } from './consolidate'
 import { procurementRows } from './procurement'
-import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, OrderLine, PurchaseOrder, TrackerState } from './types'
+import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 import type { Result, Reducer } from './actions'
 
 /**
@@ -81,6 +81,35 @@ export const cancelPurchaseOrder = (orderId: string): Reducer => audited((s, ctx
   return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, cancelled: true } : x)) }, note(ctx, 'order', o.number, `Purchase order ${o.number} cancelled`)) }
 })
 
+export interface InstallationInput { key: string; qty: number; date: ISODate; note?: string }
+
+/**
+ * Records material installed against one requirement. Installation is its own record: it never changes what was received or allocated, and it can
+ * only cover material that has arrived and is still required. The requirement is Installed only when the whole required quantity is.
+ */
+export const recordInstallation = (input: InstallationInput, today: ISODate): Reducer => audited((s, ctx): Result => {
+  const c = source(ctx)
+  if (!c) return { error: 'The project records are not available, so nothing can be recorded right now.' }
+  const row = procurementRows(s, c).find((r) => r.key === input?.key)
+  if (!row) return { error: 'That material is no longer listed. Reload and try again.' }
+  if (!validDate(input.date)) return { error: 'Enter a valid installation date.' }
+  if (input.date > today) return { error: 'An installation cannot be dated in the future.' }
+  if (!whole(input.qty)) return { error: `${label(row)}: enter a whole number of 1 or more installed.` }
+  if (row.required > 0 && row.installed >= row.required) return { error: `${label(row)}: all ${fmt(row.required)} are already installed.` }
+  if (input.qty + row.installed > row.received) return { error: `Only ${fmt(Math.max(0, row.received - row.installed))} of ${label(row)} has been received and is not yet installed.` }
+  if (input.qty + row.installed > row.required) return { error: `${label(row)}: ${fmt(row.installed)} of ${fmt(row.required)} is already installed, so at most ${fmt(Math.max(0, row.required - row.installed))} more can be recorded.` }
+  const rec: Installation = { ...ref(row), id: id('in'), date: input.date, qty: input.qty, note: clip(input.note, 300), by: ctx?.actor ?? '', at: ctx?.now ?? new Date().toISOString() }
+  const total = row.installed + input.qty
+  return { state: withHistory({ ...s, installations: [...(s.installations ?? []), rec] }, note(ctx, 'installation', row.name, `Installed ${fmt(input.qty)} of ${label(row)} on ${input.date} — ${fmt(total)} of ${fmt(row.required)} installed${total >= row.required ? ' (complete)' : ''}`)) }
+})
+
+/** Voids an installation recorded in error. It stays in the history. */
+export const voidInstallation = (installationId: string): Reducer => audited((s, ctx): Result => {
+  const i = (s.installations ?? []).find((x) => x.id === installationId)
+  if (!i) return { error: 'That installation no longer exists.' }
+  return { state: withHistory({ ...s, installations: (s.installations ?? []).filter((x) => x.id !== installationId) }, note(ctx, 'installation', i.name, `Installation of ${fmt(i.qty)} dated ${i.date} voided (${label(i)})`)) }
+})
+
 export interface DeliveryInput { orderId?: string | null; date: ISODate; reference?: string; note?: string; lines: { key: string; qty: number }[] }
 
 /** Records one shipment: any number of materials, in any number of areas, confirmed once, with who confirmed it and when. */
@@ -122,6 +151,8 @@ export const voidDelivery = (deliveryId: string): Reducer => audited((s, ctx): R
   if (c) {
     const bad = procurementRows(next, c).find((r) => r.allocated > r.received)
     if (bad) return { error: `${label(bad)}: ${fmt(bad.allocated)} has been allocated to foundations, more than would remain received. Reduce the allocation first.` }
+    const used = procurementRows(next, c).find((r) => r.installed > r.received)
+    if (used) return { error: `${label(used)}: ${fmt(used.installed)} has been installed, more than would remain received. Void the installation first.` }
   }
   const total = (s.deliveryLines ?? []).filter((l) => l.deliveryId === deliveryId).reduce((a, l) => a + l.qty, 0)
   return { state: withHistory(next, note(ctx, 'delivery', d.reference || 'Delivery', `Delivery of ${fmt(total)} items dated ${d.date} voided`)) }

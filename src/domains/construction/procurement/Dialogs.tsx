@@ -186,9 +186,9 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
           <p className="text-muted">{row.area} · {CATEGORY_LABEL[row.category]}{specText(row) ? ` · ${specText(row)}` : ''}</p>
           <p className="mt-1 font-medium">{PROC_LABEL[row.status]}{row.orphan && <span className="font-normal text-warn"> · no longer required by the current configuration; orders and deliveries are kept</span>}</p>
         </div>
-        <dl className="grid grid-cols-3 gap-4 sm:grid-cols-6">
+        <dl className="grid grid-cols-3 gap-4 sm:grid-cols-7">
           <Q k="Required" v={row.required} /><Q k="Ordered" v={row.ordered} sub={row.toOrder > 0 ? `${fmt(row.toOrder)} to order` : undefined} /><Q k="Received" v={row.received} />
-          <Q k="Outstanding" v={row.outstanding} /><Q k="Allocated" v={row.allocated} /><Q k="Unallocated" v={row.unallocated} />
+          <Q k="Outstanding" v={row.outstanding} /><Q k="Allocated" v={row.allocated} /><Q k="Unallocated" v={row.unallocated} /><Q k="Installed" v={row.installed} />
         </dl>
         <div className="flex flex-wrap gap-2">
           {access.can('materials.edit') && <Button variant="primary" onClick={onOrder}>Order</Button>}

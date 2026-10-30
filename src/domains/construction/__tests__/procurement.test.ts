@@ -4,7 +4,7 @@ import * as K from '../actions'
 import * as A from '../tracker/actions'
 import { emptyConstruction } from '../empty'
 import { areaTree, consolidate, entryNotes, materialLabel } from '../tracker/consolidate'
-import { procurementRows, procStatus } from '../tracker/procurement'
+import { materialStatus, mergeAcrossAreas, procurementRows, procStatus, progressCounts } from '../tracker/procurement'
 import { expectedTotals, refreshRequirements } from '../tracker/requirements'
 import { emptyTracker, type TrackerState } from '../tracker/types'
 import type { ConstructionState } from '../types'
@@ -398,5 +398,82 @@ describe('anchor bolts installed directly in footings', () => {
     c = build(c, K.configureFoundation(f.id, { quantity: 10 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
     expect(row()).toMatchObject({ required: 76, ordered: 64, toOrder: 12 })
+  })
+})
+
+describe('material status, installation and the overview', () => {
+  it('status follows ordered, received and installed, and only reads "full" when the whole quantity has reached that stage', () => {
+    const s = (required: number, ordered: number, received: number, installed: number) => materialStatus({ required, ordered, received, installed })
+    expect(s(10, 0, 0, 0)).toBe('pending')
+    expect(s(10, 4, 0, 0)).toBe('partially-ordered')
+    expect(s(10, 10, 0, 0)).toBe('ordered')
+    expect(s(10, 12, 3, 0)).toBe('partially-delivered')
+    expect(s(10, 10, 10, 0)).toBe('delivered')
+    expect(s(10, 10, 10, 4)).toBe('partially-installed')
+    expect(s(10, 10, 10, 10)).toBe('installed')
+    expect(s(10, 10, 10, 9)).toBe('partially-installed')
+    expect(s(0, 0, 0, 0)).toBe('pending')
+  })
+
+  it('records installation separately from delivery and allocation, limited to what has arrived and what is required', () => {
+    const { c } = world()
+    let t = tracked(c)
+    const key = rowOf(t, c, 'E-House', 'Anchor bolt').key
+    const inst = (qty: number, date = TODAY) => A.recordInstallation({ key, qty, date }, TODAY)
+    expect(fails(t, c, inst(5))).toMatch(/Only 0 .* has been received/) // nothing has arrived yet
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key, qty: 100 }] }, TODAY), 'sam@example.com')
+    expect(fails(t, c, inst(0))).toMatch(/whole number/)
+    expect(fails(t, c, inst(101))).toMatch(/Only 100/)
+    expect(fails(t, c, A.recordInstallation({ key, qty: 1, date: '2027-01-01' }, TODAY))).toMatch(/future/)
+    t = run(t, c, inst(40), 'sam@example.com')
+    let row = rowOf(t, c, 'E-House', 'Anchor bolt')
+    expect(row).toMatchObject({ installed: 40, received: 100, allocated: 0, stage: 'partially-installed', installable: 60 })
+    expect(t.installations![0]).toMatchObject({ by: 'sam@example.com', at: NOW, qty: 40 })
+    // never "Installed" until the full 184 are in
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key, qty: 84 }] }, TODAY))
+    t = run(t, c, inst(144))
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt').stage).toBe('installed')
+    expect(fails(t, c, inst(1))).toMatch(/already installed/)
+    // a delivery that has been installed from cannot be voided away
+    expect(fails(t, c, A.voidDelivery(t.deliveries![1].id))).toMatch(/installed/)
+    t = run(t, c, A.voidInstallation(t.installations![1].id))
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt').stage).toBe('partially-installed')
+    expect(t.history.filter((h) => h.action === 'installation')).toHaveLength(3)
+    row = rowOf(t, c, 'E-House', 'Anchor bolt')
+    expect(row.received).toBe(184)
+  })
+
+  it('the overview combines matching specifications across areas, keeps each area, and counts each once', () => {
+    const { c } = world()
+    let t = tracked(c)
+    const rows = procurementRows(t, c)
+    const merged = mergeAcrossAreas(rows)
+    const bolts = merged.find((m) => m.category === 'bolt')!
+    expect(bolts.areas.map((a) => [a.area, a.required]).sort()).toEqual([['E-House', 184], ['Pipe Rack', 20]])
+    expect(bolts.required).toBe(204)
+    expect(merged.filter((m) => m.category === 'bolt')).toHaveLength(1) // one line, not one per area
+    expect(merged.reduce((a, m) => a + m.required, 0)).toBe(rows.reduce((a, r) => a + r.required, 0)) // nothing double-counted or dropped
+    // a new area shows up with no extra work
+    const { c: c2 } = world()
+    const c3 = build(c2, K.createArea(c2.projects[0].id, 'Mole Sieve', []))
+    const c4 = build(c3, K.createFoundation(c3.areas.find((a) => a.name === 'Mole Sieve')!.id, 'MS-1', '', null, 2, { groups: [{ anchorageTypeId: c3.anchorageTypes[0].id, count: 1 }] }))
+    t = tracked(c4)
+    expect(mergeAcrossAreas(procurementRows(t, c4)).find((m) => m.category === 'bolt')!.required).toBe(204 + 8)
+    expect(mergeAcrossAreas(procurementRows(t, c4)).find((m) => m.category === 'bolt')!.areas.map((a) => a.area).sort()).toEqual(['E-House', 'Mole Sieve', 'Pipe Rack'])
+  })
+
+  it('gauge counts are in requirements, not units, and Ordered + Outstanding is always the total', () => {
+    const { c } = world()
+    let t = tracked(c)
+    const rows = () => procurementRows(t, c).filter((r) => r.area === 'E-House')
+    expect(progressCounts(rows())).toEqual({ total: 4, ordered: 0, delivered: 0, allocated: 0, outstanding: 4 })
+    const bolt = rowOf(t, c, 'E-House', 'Anchor bolt'), nut = rowOf(t, c, 'E-House', 'Nut')
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-G', supplier: 'Nucor', date: TODAY, lines: [{ key: bolt.key, qty: 184 }, { key: nut.key, qty: 100 }] }, TODAY)) // nuts only partly ordered
+    expect(progressCounts(rows())).toMatchObject({ total: 4, ordered: 1, delivered: 0, outstanding: 3 })
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 184 }] }, TODAY))
+    t = run(t, c, A.setAllocations(bolt.key, [{ foundationId: c.foundations[0].id, qty: 144 }, { foundationId: c.foundations[1].id, qty: 32 }]))
+    expect(progressCounts(rows())).toMatchObject({ total: 4, ordered: 1, delivered: 1, allocated: 0 }) // 176 of 184 allocated: not fully
+    const p = progressCounts(rows())
+    expect(p.ordered + p.outstanding).toBe(p.total)
   })
 })

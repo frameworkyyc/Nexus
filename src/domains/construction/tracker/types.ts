@@ -85,7 +85,7 @@ export interface TrackerLine {
 }
 
 /** A recorded change to a material. Append-only: ordinary controls cannot edit or remove it. */
-export type AuditAction = 'order' | 'delivery' | 'allocation' | 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note' | 'configured'
+export type AuditAction = 'installation' | 'order' | 'delivery' | 'allocation' | 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note' | 'configured'
 export interface AuditEntry {
   id: string
   at: string
@@ -141,6 +141,9 @@ export interface DeliveryLine extends GroupRef { id: string; deliveryId: string;
 /** Received material set aside for one foundation. Distinct from receiving: a bulk delivery never creates these. */
 export interface Allocation { id: string; key: string; foundationId: string; qty: number; by: string; at: string }
 
+/** Material put in place. Recorded against a requirement, separately from receiving and allocating. */
+export interface Installation extends GroupRef { id: string; date: ISODate; qty: number; note: string; by: string; at: string }
+
 export interface TrackerState {
   meta: ImportMeta | null
   lines: TrackerLine[]
@@ -160,6 +163,7 @@ export interface TrackerState {
   deliveries?: Delivery[]
   deliveryLines?: DeliveryLine[]
   allocations?: Allocation[]
+  installations?: Installation[]
 }
 
-export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], suppliers: [], preferredSuppliers: {}, history: [], summary: [], anchorage: [], flags: [], acknowledged: {}, orders: [], orderLines: [], deliveries: [], deliveryLines: [], allocations: [] })
+export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], suppliers: [], preferredSuppliers: {}, history: [], summary: [], anchorage: [], flags: [], acknowledged: {}, orders: [], orderLines: [], deliveries: [], deliveryLines: [], allocations: [], installations: [] })

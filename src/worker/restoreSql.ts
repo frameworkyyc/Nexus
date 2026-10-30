@@ -9,7 +9,7 @@ const ORDER = [
   'companies', 'projects', 'areas', 'anchorage_types', 'anchorage_components', 'foundations', 'foundation_anchorage_groups', 'foundation_bolts', 'plinths', 'activities', 'pours', 'pour_items',
   'fleet_categories', 'vehicles', 'vehicle_assignments', 'odometer_readings', 'service_targets', 'maintenance_records', 'tire_sets', 'tread_measurements',
   'accessory_types', 'accessories', 'accessory_placements', 'inspections', 'inspection_defects',
-  'material_import_batches', 'suppliers', 'category_suppliers', 'material_lines', 'material_line_ops', 'material_receipts', 'manual_materials', 'manual_material_receipts', 'purchase_orders', 'purchase_order_lines', 'procurement_deliveries', 'procurement_delivery_lines', 'material_allocations', 'material_audit', 'workbook_summary_rows', 'anchorage_sheet_rows', 'import_flags', 'flag_acknowledgements',
+  'material_import_batches', 'suppliers', 'category_suppliers', 'material_lines', 'material_line_ops', 'material_receipts', 'manual_materials', 'manual_material_receipts', 'purchase_orders', 'purchase_order_lines', 'procurement_deliveries', 'procurement_delivery_lines', 'material_allocations', 'material_installations', 'material_audit', 'workbook_summary_rows', 'anchorage_sheet_rows', 'import_flags', 'flag_acknowledgements',
   'change_log', 'module_versions', 'schema_info',
 ]
 

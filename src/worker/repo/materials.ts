@@ -1,6 +1,6 @@
 import type { Row, RowSet } from '../db'
 import { supplierKey } from '@/domains/construction/tracker/suppliers'
-import type { Allocation, ComponentCategory, Delivery, DeliveryLine, GroupRef, OrderLine, PurchaseOrder, AnchorageSheetRow, AuditEntry, ImportFlag, ImportMeta, QuantityCalc, RequirementPart, TrackerLine, TrackerState, WorkbookSummaryRow } from '@/domains/construction/tracker/types'
+import type { Allocation, Installation, ComponentCategory, Delivery, DeliveryLine, GroupRef, OrderLine, PurchaseOrder, AnchorageSheetRow, AuditEntry, ImportFlag, ImportMeta, QuantityCalc, RequirementPart, TrackerLine, TrackerState, WorkbookSummaryRow } from '@/domains/construction/tracker/types'
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v))
@@ -52,6 +52,7 @@ export function materialsToRows(state: TrackerState, ctx: MaterialsWriteContext)
     purchase_order_lines: (state.orderLines ?? []).map((l, seq): Row => ({ id: l.id, order_id: l.orderId, group_key: l.key, area_id: l.areaId || null, area: l.area, category: l.category, name: l.name, specification: l.specification, size: l.size, unit: l.unit, qty: l.qty, seq })),
     procurement_deliveries: (state.deliveries ?? []).map((d, seq): Row => ({ id: d.id, order_id: d.orderId || null, delivery_date: d.date, reference: d.reference, note: d.note, received_by: d.by, received_at: d.at, seq })),
     procurement_delivery_lines: (state.deliveryLines ?? []).map((l, seq): Row => ({ id: l.id, delivery_id: l.deliveryId, order_line_id: l.orderLineId || null, group_key: l.key, area_id: l.areaId || null, area: l.area, category: l.category, name: l.name, specification: l.specification, size: l.size, unit: l.unit, qty: l.qty, seq })),
+    material_installations: (state.installations ?? []).map((i, seq): Row => ({ id: i.id, group_key: i.key, area_id: i.areaId || null, area: i.area, category: i.category, name: i.name, specification: i.specification, size: i.size, unit: i.unit, qty: i.qty, install_date: i.date, note: i.note, recorded_by: i.by, recorded_at: i.at, seq })),
     material_allocations: (state.allocations ?? []).map((a, seq): Row => ({ id: a.id, group_key: a.key, foundation_id: a.foundationId, qty: a.qty, allocated_by: a.by, allocated_at: a.at, seq })),
     material_audit: (state.history ?? []).map((h, seq): Row => ({ id: h.id, at: h.at, actor: h.by, action: h.action, material_id: h.materialId, label: h.label, summary: h.summary, changes_json: JSON.stringify(h.changes), seq })),
     workbook_summary_rows: state.summary.map((r, seq): Row => ({ id: r.id, batch_id: batch('workbook_summary_rows', r.id), source_sheet: r.source.sheet, source_row: r.source.row, area: r.area, item: r.item, total_qty: r.totalQty, status: r.status, seq })),
@@ -105,6 +106,7 @@ export function materialsFromRows(rows: RowSet): TrackerState {
     orderLines: (rows.purchase_order_lines ?? []).map((r): OrderLine => ({ id: String(r.id), orderId: String(r.order_id), ...groupRef(r), qty: Number(r.qty) })),
     deliveries: (rows.procurement_deliveries ?? []).map((r): Delivery => ({ id: String(r.id), orderId: s(r.order_id), date: String(r.delivery_date), reference: String(r.reference), note: String(r.note), by: String(r.received_by), at: String(r.received_at) })),
     deliveryLines: (rows.procurement_delivery_lines ?? []).map((r): DeliveryLine => ({ id: String(r.id), deliveryId: String(r.delivery_id), orderLineId: s(r.order_line_id), ...groupRef(r), qty: Number(r.qty) })),
+    installations: (rows.material_installations ?? []).map((r): Installation => ({ id: String(r.id), ...groupRef(r), date: String(r.install_date), qty: Number(r.qty), note: String(r.note), by: String(r.recorded_by), at: String(r.recorded_at) })),
     allocations: (rows.material_allocations ?? []).map((r): Allocation => ({ id: String(r.id), key: String(r.group_key), foundationId: String(r.foundation_id), qty: Number(r.qty), by: String(r.allocated_by), at: String(r.allocated_at) })),
     suppliers: (rows.suppliers ?? []).map((r) => ({ id: String(r.id), name: String(r.name), ...(Number(r.archived) === 1 ? { archived: true } : {}), createdAt: String(r.created_at), createdBy: String(r.created_by) })),
     preferredSuppliers: Object.fromEntries((rows.category_suppliers ?? []).map((r) => [String(r.category), String(r.supplier_id)])) as Partial<Record<ComponentCategory, string>>,

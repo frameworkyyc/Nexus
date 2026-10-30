@@ -47,7 +47,7 @@ describe('a genuinely empty installation', () => {
     for (const t of ['change_log', 'user_roles', 'role_audit', 'material_audit']) expect(count(db, t), t).toBe(0)
     expect([...system].every((t) => count(db, t) >= 0)).toBe(true)
     expect(db.raw.prepare('SELECT name FROM suppliers').all()).toEqual([{ name: 'Nucor' }])
-    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '16' })
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '17' })
   })
 
   it('migrations contain no inserts of operational data (reference data lives in seeds/, never in migrations)', () => {

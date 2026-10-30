@@ -50,6 +50,8 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
   recordDelivery: 'materials.receive',
   voidDelivery: 'materials.void-receipt',
   setAllocations: 'materials.receive',
+  recordInstallation: 'materials.receive',
+  voidInstallation: 'materials.void-receipt',
   addSupplier: 'suppliers.add',
   renameSupplier: 'materials.configure',
   archiveSupplier: 'materials.configure',

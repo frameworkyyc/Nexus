@@ -72,6 +72,7 @@ export const TABLES: TableDef[] = [
   { name: 'purchase_order_lines', pk: 'id', columns: ['id', 'order_id', 'group_key', 'area_id', 'area', 'category', 'name', 'specification', 'size', 'unit', 'qty', 'seq'], module: 'materials', refs: { order_id: 'purchase_orders' } },
   { name: 'procurement_deliveries', pk: 'id', columns: ['id', 'order_id', 'delivery_date', 'reference', 'note', 'received_by', 'received_at', 'seq'], module: 'materials', refs: { order_id: 'purchase_orders' } },
   { name: 'procurement_delivery_lines', pk: 'id', columns: ['id', 'delivery_id', 'order_line_id', 'group_key', 'area_id', 'area', 'category', 'name', 'specification', 'size', 'unit', 'qty', 'seq'], module: 'materials', refs: { delivery_id: 'procurement_deliveries' } },
+  { name: 'material_installations', pk: 'id', columns: ['id', 'group_key', 'area_id', 'area', 'category', 'name', 'specification', 'size', 'unit', 'qty', 'install_date', 'note', 'recorded_by', 'recorded_at', 'seq'], module: 'materials' },
   { name: 'material_allocations', pk: 'id', columns: ['id', 'group_key', 'foundation_id', 'qty', 'allocated_by', 'allocated_at', 'seq'], module: 'materials' },
   { name: 'material_audit', pk: 'id', columns: ['id', 'at', 'actor', 'action', 'material_id', 'label', 'summary', 'changes_json', 'seq'], module: 'materials' },
   { name: 'workbook_summary_rows', pk: 'id', columns: ['id', 'batch_id', 'source_sheet', 'source_row', 'area', 'item', 'total_qty', 'status', 'seq'], module: 'materials', refs: { batch_id: 'material_import_batches' } },
