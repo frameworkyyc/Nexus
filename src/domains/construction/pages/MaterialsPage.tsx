@@ -1,11 +1,14 @@
 import { identity } from '@/app/identity'
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Stat } from '@/components/ui/Stat'
 import { Disclosure } from '@/components/ui/Disclosure'
 import { Tabs } from '@/components/ui/Tabs'
 import { MaterialTracker } from '../tracker/TrackerView'
+import { MaterialsByArea } from '../tracker/manage/MaterialsByArea'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
+import { paths } from '../paths'
 import { useIsServer } from '@/lib/dataSource'
 import { boltRows } from '../selectors'
 import { useConstruction } from '../store'
@@ -16,10 +19,12 @@ type Tab = 'bolts' | 'bulk' | 'orders' | 'deliveries'
 
 export function MaterialsPage() {
   const server = useIsServer()
+  const { projectId = '' } = useParams()
   return (
     <>
-      <PageHeader title="Materials" description={`Materials by area, category and specification. Identical materials are totalled across every foundation in an area; ordering and receiving are in Procurement.`} />
-      <MaterialTracker />
+      <PageHeader title="Materials" actions={!IS_PUBLIC_DEMO ? <Link to={paths.procurement(projectId)} className="inline-flex h-9 items-center rounded-nx border border-line bg-surface px-4 text-[13px] font-medium transition-colors hover:border-ink phone:h-11 phone:text-[15px]">Procurement</Link> : undefined} />
+      <MaterialsByArea />
+      <p className="mt-10 text-xs text-muted"><Link to={paths.materialRecords(projectId)} className="underline underline-offset-4">Material records, import and export</Link></p>
       {!server && (
         <div className="mt-16 border-t border-line">
           <Disclosure summary={<span className="text-xs text-muted">Demonstration procurement data (fictional) — not part of the {identity.trackerName} tracker or its totals</span>}>
@@ -27,6 +32,17 @@ export function MaterialsPage() {
           </Disclosure>
         </div>
       )}
+    </>
+  )
+}
+
+/** The detailed material tools, moved off the Materials page: line items and bulk edits, area summary, anchorage sheet, review, history and source. */
+export function MaterialRecordsPage() {
+  const { projectId = '' } = useParams()
+  return (
+    <>
+      <PageHeader title="Material records" description="Every material line with its orders and deliveries, plus import, export, review and history." actions={<Link to={paths.materials(projectId)} className="text-[13px] underline underline-offset-4">Back to Materials</Link>} />
+      <MaterialTracker records />
     </>
   )
 }

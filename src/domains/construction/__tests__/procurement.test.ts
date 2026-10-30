@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import * as K from '../actions'
 import * as A from '../tracker/actions'
 import { emptyConstruction } from '../empty'
-import { areaTree, consolidate } from '../tracker/consolidate'
+import { areaTree, consolidate, entryNotes } from '../tracker/consolidate'
 import { procurementRows, procStatus } from '../tracker/procurement'
-import { refreshRequirements } from '../tracker/requirements'
+import { expectedTotals, refreshRequirements } from '../tracker/requirements'
 import { emptyTracker, type TrackerState } from '../tracker/types'
 import type { ConstructionState } from '../types'
 
@@ -228,5 +228,78 @@ describe('areas flow through Foundations, Materials and Procurement', () => {
     expect(row()).toMatchObject({ area: 'Control Bldg', ordered: 16, key: orders![0].key })
     expect(areaTree(consolidate(t, c)).map((a) => a.name)).toContain('Control Bldg')
     expect(t.orderLines).toEqual(orders)
+  })
+})
+
+/** The staging E-House: OP1-01-03 is 7 footings of one OP1-D2 anchorage each (4 bolts, 6 nuts and 2 washers per bolt, 1 sole plate). */
+function staging() {
+  let c: ConstructionState = { ...emptyConstruction(), company: { id: '', name: '' } }
+  c = build(c, K.createOrganization({ name: 'Northline' }))
+  c = build(c, K.createProject({ name: 'Terrestrial' }))
+  const pid = c.projects[0].id
+  c = build(c, K.createArea(pid, 'E-House', []))
+  for (const code of ['OP1-D1', 'OP1-D2', 'OP1-D3', 'OP1-D4']) c = build(c, K.addAnchorageType(pid, code, code))
+  const id = Object.fromEntries(c.anchorageTypes.map((t) => [t.code, t.id]))
+  const bolt = (d: string) => ({ kind: 'bolt' as const, qty: 4, diameter: d, length: 460, lengthUnit: 'mm' as const, thread: 'all-thread' as const, nutsPerBolt: 6, washersPerBolt: 2 })
+  c = build(c, K.setAnchorageComponents(id['OP1-D2'], [bolt('3/4"'), { kind: 'sole-plate', qty: 1, size: '6 x 280 x 280 mm' }]))
+  c = build(c, K.setAnchorageComponents(id['OP1-D3'], [bolt('1"'), { kind: 'sole-plate', qty: 1, size: '6 x 300 x 300 mm' }]))
+  c = build(c, K.setAnchorageComponents(id['OP1-D4'], [{ kind: 'embed-plate', qty: 1, size: '16 x 320 x 520 mm' }]))
+  const area = c.areas[0].id
+  const mk = (n: string, q: number, groups: [string, number][]) => { c = build(c, K.createFoundation(area, n, '', null, q, { groups: groups.map(([k, count]) => ({ anchorageTypeId: id[k], count })) })) }
+  mk('OP1-01-01', 18, [['OP1-D1', 1]]); mk('OP1-01-01A', 1, [['OP1-D1', 1], ['OP1-D2', 1]]); mk('OP1-01-01B', 1, [['OP1-D1', 1], ['OP1-D2', 1]])
+  mk('OP1-01-02', 1, [['OP1-D1', 3]]); mk('OP1-01-03', 7, [['OP1-D2', 1]]); mk('OP1-01-04', 1, [['OP1-D3', 1]]); mk('OP1-01-05', 2, [['OP1-D4', 1]])
+  return { c, area, f3: c.foundations.find((f) => f.number === 'OP1-01-03')!.id }
+}
+
+describe('quantity audit: footing quantity × anchorages per footing × quantity per anchorage', () => {
+  it('OP1-01-03 (7 footings × 1 OP1-D2 × 4 bolts) needs 28 bolts, and every material follows the same rule', () => {
+    const { c } = staging()
+    const g = consolidate(tracked(c), c)
+    const total = (cat: string, spec?: RegExp) => g.find((x) => x.category === cat && (!spec || spec.test(x.specification + x.size)))!
+    const bolts = total('bolt', /3\/4/)
+    expect(bolts.contributions.find((x) => x.foundation === 'OP1-01-03')!.qty).toBe(28)
+    expect(bolts.required).toBe(36) // OP1-01-01A 4 + OP1-01-01B 4 + OP1-01-03 28
+    expect(total('nut', /3\/4/).required).toBe(36 * 6)
+    expect(total('washer', /3\/4/).required).toBe(36 * 2)
+    expect(total('sole-plate', /280/).required).toBe(9) // 1 + 1 + 7
+    expect(total('bolt', /1"/).required).toBe(4)
+    expect(total('sole-plate', /300/).required).toBe(1)
+    expect(total('embed-plate').required).toBe(2) // OP1-01-05: 2 footings × 1
+  })
+
+  it('an independent recount agrees with the calculation for every calculated requirement', () => {
+    const { c } = staging()
+    const t = tracked(c)
+    const expected = expectedTotals(c)
+    const calc = t.manual.filter((l) => l.origin === 'anchorage')
+    expect(calc.length).toBe(expected.size)
+    for (const l of calc) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
+  })
+
+  it('Materials and Procurement show the same quantity for every requirement', () => {
+    const { c } = staging()
+    const t = tracked(c)
+    const grouped = consolidate(t, c)
+    const proc = procurementRows(t, c)
+    expect(proc.map((r) => [r.key, r.required]).sort()).toEqual(grouped.map((r) => [r.key, r.required]).sort())
+    for (const g of grouped) expect(g.contributions.reduce((a, x) => a + x.qty, 0), g.name).toBe(g.required)
+  })
+
+  it('an entered fixed 4 on OP1-01-03 is flagged, and counting it on every footing gives 28 without losing its history', () => {
+    const { c, area, f3 } = staging()
+    let t = tracked(c)
+    const typeId = c.anchorageTypes.find((x) => x.code === 'OP1-D2')!.id
+    t = run(t, c, A.addMaterials([{ areaId: area, foundationId: f3, anchorageTypeId: typeId, category: 'bolt', name: 'Anchor bolt', specification: 'ASTM F1554 Gr.55', size: '', unit: 'ea', requiredQty: 4, basis: 'fixed' } as never]))
+    const entered = consolidate(t, c).find((g) => g.lines.some((l) => l.origin === 'manual' && l.component === 'Anchor bolt'))!
+    expect(entered.required).toBe(4)
+    const notes = entryNotes(entered, c, consolidate(t, c))
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatchObject({ foundation: 'OP1-01-03', entered: 4, footings: 7, perFooting: 28, calculated: 28 })
+    const id = entered.lines[0].id
+    t = run(t, c, A.setOrdered(id, 4))
+    t = run(t, c, A.editMaterial(id, { basis: 'per-footing', requiredQty: 4 }))
+    const line = t.manual.find((l) => l.id === id)!
+    expect(line).toMatchObject({ requiredQty: 28, basis: 'per-footing', qtyEach: 4, orderedQty: 4 })
+    expect(t.history.some((h) => h.materialId === id && h.action === 'quantity')).toBe(true)
   })
 })

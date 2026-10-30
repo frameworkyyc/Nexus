@@ -103,3 +103,33 @@ export function areaTree(groups: Consolidated[]): AreaNode[] {
 
 /** "ASTM F1554 Gr.36 · 3/4" x 460 mm" — what tells two specifications apart. */
 export const specText = (g: Pick<GroupRef, 'specification' | 'size'>) => [g.specification, g.size].filter(Boolean).join(' · ')
+
+/** An entered quantity that may not count every physical foundation, or that the Anchorage Library already counts. */
+export interface EntryNote {
+  lineId: string
+  foundationId: string
+  foundation: string
+  entered: number
+  footings: number
+  /** What the same entry comes to when counted on every footing. */
+  perFooting: number
+  /** What the Anchorage Library already calculates for this foundation in this requirement (0 = nothing). */
+  calculated: number
+}
+
+/**
+ * Entered lines are fixed totals: Nexus counts exactly what was typed. On a foundation with several footings that is often a per-footing
+ * figure ("4 bolts") entered once. These are listed so the person can see the difference and decide; nothing is changed automatically.
+ */
+export function entryNotes(g: Consolidated, c: Pick<ConstructionState, 'foundations'>, all: Consolidated[] = [g]): EntryNote[] {
+  const out: EntryNote[] = []
+  for (const l of g.lines) {
+    if (l.origin !== 'manual' || (l.basis ?? 'fixed') !== 'fixed' || !l.foundationId || l.requiredQty <= 0) continue
+    const f = c.foundations.find((x) => x.id === l.foundationId)
+    const footings = f?.quantity ?? 1
+    // Calculated quantity for the same foundation, category and (when the entered line names one) anchorage type, in any specification of the area.
+    const calculated = all.filter((x) => x.areaId === g.areaId && x.category === g.category).flatMap((x) => x.contributions).filter((x) => x.source === 'calculated' && x.foundationId === l.foundationId && (!l.anchorageTypeId || x.anchorageTypeId === l.anchorageTypeId)).reduce((a, x) => a + x.qty, 0)
+    if (footings > 1 || calculated > 0) out.push({ lineId: l.id, foundationId: l.foundationId, foundation: f?.number ?? l.footingType, entered: l.requiredQty, footings, perFooting: l.requiredQty * footings, calculated })
+  }
+  return out
+}

@@ -1,11 +1,14 @@
 import { ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useConstruction } from '../../store'
 import { paths } from '../../paths'
-import { areaTree, consolidate, specText, type Consolidated } from '../consolidate'
-import { useTracker } from '../store'
+import { Button } from '@/components/ui/Button'
+import { useAccess } from '@/lib/access'
+import { archiveMaterials, editMaterial } from '../commands'
+import { areaTree, consolidate, entryNotes, specText, type Consolidated } from '../consolidate'
+import { trackerStore, useTracker } from '../store'
 
 const fmt = (n: number) => n.toLocaleString('en-CA')
 const SOURCE = { calculated: 'Calculated', entered: 'Entered', workbook: 'Workbook' } as const
@@ -25,13 +28,18 @@ export function Chips<T extends string>({ items, value, onChange, label }: { ite
 }
 
 /** The foundations and anchorage types behind one consolidated total. */
-export function Contributions({ g }: { g: Consolidated }) {
+export function Contributions({ g, all }: { g: Consolidated; all?: Consolidated[] }) {
+  const access = useAccess()
+  const { state: construction } = useConstruction()
+  const notes = entryNotes(g, construction, all)
+  const [error, setError] = useState('')
+  const act = async (r: Promise<string | null>) => { setError((await r) ?? '') }
   const calc = g.lines.filter((l) => l.origin === 'anchorage').map((l) => l.calc.expression).filter(Boolean)
   const rows = [...g.contributions].sort((a, b) => a.foundation.localeCompare(b.foundation, 'en', { numeric: true }) || a.anchorage.localeCompare(b.anchorage, 'en', { numeric: true }))
   return (
     <div className="space-y-3 py-3 text-[13px]">
       {rows.length === 0 ? <p className="text-muted">Nothing currently requires this material.</p> : (
-        <table className="w-full max-w-3xl" aria-label={`Where the ${fmt(g.required)} comes from`}>
+        <table data-table="free" className="w-full max-w-3xl" aria-label={`Where the ${fmt(g.required)} comes from`}>
           <thead><tr className="border-b border-line"><th scope="col" className="t-label py-2 font-medium">Foundation</th><th scope="col" className="t-label py-2 font-medium">Anchorage type</th><th scope="col" className="t-label py-2 font-medium">Source</th><th scope="col" className="t-label py-2 font-medium">Quantity</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
@@ -46,17 +54,30 @@ export function Contributions({ g }: { g: Consolidated }) {
           <tfoot><tr><td colSpan={3} className="py-2 font-medium">Total required</td><td className="py-2 text-right font-medium">{fmt(g.required)}</td></tr></tfoot>
         </table>
       )}
-      {calc.length > 0 && <p className="max-w-3xl text-xs text-muted">Calculated from the Anchorage Library and the Foundation Register: {calc.join('; ')}.</p>}
+      {calc.length > 0 && <p className="max-w-3xl text-xs text-muted">{calc.join('; ')}</p>}
+      {notes.map((x) => (
+        <div key={x.lineId} role="note" className="max-w-3xl space-y-2 border-l-2 border-warn pl-3">
+          <p>{x.foundation}: {fmt(x.entered)} was entered as a fixed total{x.footings > 1 ? `, but the foundation has ${fmt(x.footings)} footings (${fmt(x.perFooting)} if counted on every footing)` : ''}.{x.calculated > 0 ? ` The Anchorage Library already calculates ${fmt(x.calculated)} for it, so entering it as well counts it twice.` : ''}</p>
+          {access.can('materials.edit') && (
+            <div className="flex flex-wrap gap-2">
+              {x.footings > 1 && x.calculated === 0 && <Button onClick={() => void act(trackerStore.run(editMaterial(x.lineId, { basis: 'per-footing', requiredQty: x.entered })))}>Count on every footing ({fmt(x.perFooting)})</Button>}
+              {x.calculated > 0 && access.can('materials.archive') && <Button onClick={() => { if (window.confirm('Archive the entered line? It is hidden and kept on record; the calculated quantity stays.')) void act(trackerStore.run(archiveMaterials([x.lineId], true))) }}>Use the calculated quantity</Button>}
+            </div>
+          )}
+        </div>
+      ))}
+      {error && <p role="alert" className="max-w-3xl border-l-2 border-bad pl-3">{error}</p>}
     </div>
   )
 }
 
 /**
- * Materials as a consolidated overview: pick an area, then see its materials by category and specification, each as one line with the total
- * required across every foundation in that area. A line opens to show which foundations and anchorage types make up the total.
+ * Materials: pick an area, see what it needs. Materials are grouped by category, identical specifications are one line with the total across
+ * every foundation in the area, and a line opens to the foundations that make up its total.
  */
 export function MaterialsByArea({ areaId }: { areaId?: string }) {
   const { projectId = '' } = useParams()
+  const [params, setParams] = useSearchParams()
   const { state } = useTracker()
   const { state: construction } = useConstruction()
   const groups = useMemo(() => {
@@ -64,44 +85,30 @@ export function MaterialsByArea({ areaId }: { areaId?: string }) {
     return consolidate(state, construction).filter((g) => (areaId ? g.areaId === areaId : g.areaId ? mine.has(g.areaId) : true) && !(g.removed && g.required === 0))
   }, [state, construction, projectId, areaId])
   const tree = useMemo(() => areaTree(groups), [groups])
-  const [areaKey, setAreaKey] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())
-  const area = tree.find((a) => a.areaKey === areaKey) ?? tree[0]
+  const area = tree.find((a) => a.areaKey === params.get('area')) ?? tree[0]
   const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
-  if (tree.length === 0) return <EmptyState title="No requirements yet" description="Requirements appear here once an anchorage type is configured in the Anchorage Library and assigned to foundations, or materials are added. Identical materials in an area are totalled into one line." />
+  if (tree.length === 0) return <EmptyState title="No materials required yet" description="Configure anchorage types in the Anchorage Library and assign them to foundations, and each area's materials appear here." action={<Link to={paths.anchorage(projectId)} className="text-[13px] underline underline-offset-4">Anchorage types</Link>} />
   return (
-    <div className="space-y-6">
-      {!areaId && (
-        <div className="space-y-2">
-          <p className="t-label">Area</p>
-          <Chips label="Area" value={area.areaKey} onChange={setAreaKey} items={tree.map((a) => ({ id: a.areaKey, label: a.name, count: a.groups.length }))} />
-        </div>
-      )}
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[13px] text-muted">{area.name}: {area.groups.length} material{area.groups.length === 1 ? '' : 's'} in {area.categories.length} categor{area.categories.length === 1 ? 'y' : 'ies'}. Totals are across every foundation in the area and update when foundations or anchorage types change.</p>
-        {area.areaId && <Link to={`${paths.procurement(projectId)}?area=${area.areaId}`} className="text-[13px] underline underline-offset-4">Order and receive in Procurement</Link>}
-      </div>
+    <div className="space-y-8">
+      {!areaId && <Chips label="Area" value={area.areaKey} onChange={(v) => setParams({ area: v }, { replace: true })} items={tree.map((a) => ({ id: a.areaKey, label: a.name }))} />}
       {area.categories.map((cat) => (
         <section key={cat.category} aria-label={cat.label}>
-          <h3 className="t-label mb-1 flex items-baseline gap-2">{cat.label}<span className="font-normal normal-case tracking-normal">{cat.groups.length}</span></h3>
-          <table className="card-table w-full table-fixed text-left text-[13px]">
-            <colgroup><col className="w-10" /><col className="w-[26%]" /><col /><col className="w-28" /><col className="w-16" /><col className="w-36" /></colgroup>
-            <thead><tr className="border-b border-line"><th scope="col" className="t-label w-8 font-medium"><span className="sr-only">Expand</span></th><th scope="col" className="t-label font-medium">Material</th><th scope="col" className="t-label font-medium">Specification</th><th scope="col" className="t-label text-right font-medium">Required</th><th scope="col" className="t-label font-medium">Unit</th><th scope="col" className="t-label font-medium">From</th></tr></thead>
+          <h3 className="t-label mb-1">{cat.label}</h3>
+          <table className="w-full table-fixed text-left text-[13px]">
+            <colgroup><col className="w-10" /><col /><col className="w-28" /></colgroup>
+            <thead><tr className="border-b border-line"><th scope="col"><span className="sr-only">Expand</span></th><th scope="col" className="t-label font-medium">Material</th><th scope="col" className="t-label text-right font-medium">Required</th></tr></thead>
             <tbody>
               {cat.groups.map((g) => {
                 const isOpen = open.has(g.key)
-                const foundations = new Set(g.contributions.map((c) => c.foundationId ?? c.foundation).filter(Boolean)).size
                 return [
                   <tr key={g.key} className="border-b border-line transition-colors hover:bg-hover">
                     <td className="pr-0"><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} what makes up ${g.name} ${specText(g)}`} onClick={() => toggle(g.key)} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
-                    <td className="font-medium"><button type="button" onClick={() => toggle(g.key)} className="text-left">{g.name}</button></td>
-                    <td className="text-muted" title={specText(g)}>{specText(g) || '—'}</td>
-                    <td className="text-right font-medium">{fmt(g.required)}</td>
-                    <td className="text-muted">{g.unit}</td>
-                    <td className="text-muted">{foundations > 0 ? `${foundations} foundation${foundations === 1 ? '' : 's'}` : '—'}</td>
+                    <td><button type="button" onClick={() => toggle(g.key)} className="block w-full text-left"><span className="font-medium">{g.name}</span><span className="block truncate text-xs text-muted" title={specText(g)}>{specText(g) || g.unit}</span></button></td>
+                    <td className="text-right font-medium">{fmt(g.required)}{g.unit && g.unit !== 'ea' && <span className="ml-1 text-xs font-normal text-muted">{g.unit}</span>}</td>
                   </tr>,
-                  isOpen && <tr key={`${g.key}-detail`} data-wide><td colSpan={6} className="border-b border-line bg-hover px-3"><Contributions g={g} /></td></tr>,
+                  isOpen && <tr key={`${g.key}-detail`}><td colSpan={3} data-wrap className="border-b border-line bg-hover px-3"><Contributions g={g} all={groups} /></td></tr>,
                 ]
               })}
             </tbody>

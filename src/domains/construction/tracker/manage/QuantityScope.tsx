@@ -27,6 +27,8 @@ export function QuantityScope({ basis, onBasis, qty, onQty, foundationId, anchor
   const { state } = useConstruction()
   const n = qty.trim() === '' ? NaN : Number(qty)
   const calc = Number.isInteger(n) && n >= 0 ? scopedCalc(state, basis, n, foundationId, anchorageTypeId) : null
+  const footings = state.foundations.find((f) => f.id === foundationId)?.quantity ?? 1
+  const f = state.foundations.find((x) => x.id === foundationId)
   return (
     <div className="space-y-2">
       <div className="grid gap-3 sm:grid-cols-2">
@@ -34,6 +36,7 @@ export function QuantityScope({ basis, onBasis, qty, onQty, foundationId, anchor
         <Field label={basis === 'fixed' ? `${label} required (total) *` : `${label} ${OPTIONS.find((o) => o.value === basis)!.label.toLowerCase()} *`}><Input aria-label={ariaLabel ?? 'Qty required'} inputMode="numeric" value={qty} onChange={(e) => onQty(e.target.value)} /></Field>
       </div>
       <p className="text-xs text-muted">{HELP[basis]}</p>
+      {basis === 'fixed' && f && footings > 1 && <p role="note" className="border-l-2 border-warn pl-3 text-[13px]">{f.number} has {footings} footings. A fixed total counts exactly what you enter; choose “Per footing” to count it on all {footings}.</p>}
       {basis !== 'fixed' && (
         <p role="status" aria-live="polite" className="text-[13px]">
           {calc === null ? <span className="text-muted">Enter the quantity to see the total.</span> : 'error' in calc ? <span className="text-muted">{calc.error}</span> : <><span className="text-muted">{calc.calc.expression.replace(/ = [\d,]+$/, ' = ')}</span><span className="font-medium">{calc.total.toLocaleString('en-CA')} total required</span></>}

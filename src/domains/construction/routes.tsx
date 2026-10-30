@@ -6,7 +6,7 @@ import { FabricationPage } from './pages/FabricationPage'
 import { FoundationPage } from './pages/FoundationPage'
 import { HandoverPage } from './pages/HandoverPage'
 import { IssuesPage } from './pages/IssuesPage'
-import { MaterialsPage } from './pages/MaterialsPage'
+import { MaterialRecordsPage, MaterialsPage } from './pages/MaterialsPage'
 import { AreasPage } from './pages/AreasPage'
 import { PourPage } from './pages/PourPage'
 import { PoursPage } from './pages/PoursPage'
@@ -59,6 +59,7 @@ export const constructionRoutes: RouteObject[] = [
           { index: true, element: <ProjectHome /> },
           { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
+          { path: 'materials/records', element: <MaterialRecordsPage />, handle: text('Material records') },
           ...(IS_PUBLIC_DEMO ? [] : [{ path: 'procurement', element: <ProcurementPage />, handle: text('Procurement') }]),
           { path: 'pours', handle: text('Concrete pours'), children: [{ index: true, element: <PoursPage /> }, { path: ':pourId', element: <PourPage />, handle: { crumb: PourCrumb } satisfies CrumbHandle }] },
           { path: 'fabrication', element: <DemoOnly><FabricationPage /></DemoOnly>, handle: text('Fabrication') },

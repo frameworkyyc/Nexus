@@ -29,7 +29,7 @@ const num = (n: number | null) => (n === null ? <span className="text-muted">—
  * without it, every area of the project is shown. Statuses from the workbook are labelled as such; only receipts recorded
  * here are treated as verified.
  */
-export function MaterialTracker({ areaId }: { areaId?: string }) {
+export function MaterialTracker({ areaId, records = false }: { areaId?: string; records?: boolean }) {
   const { state } = useTracker()
   const { state: construction } = useConstruction()
   const { run } = useTrackerCommand()
@@ -37,7 +37,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
   const access = useAccess()
   const { projectId } = useParams()
   const refs = useMaterialRefs(projectId)
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>(records ? 'requirements' : 'overview')
   const [adding, setAdding] = useState<false | 'one' | 'quick'>(false)
 
   // Names come from the linked project records, so a renamed area, foundation or supplier shows everywhere without touching the materials.
@@ -65,7 +65,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
     <div className="[font-feature-settings:'calt'_0]">
       <AccessBar />
       <div><Tabs<Tab> value={tab} onChange={setTab} items={[
-        { id: 'overview', label: 'By area' }, { id: 'requirements', label: 'Line items', count: scope.length }, { id: 'summary', label: 'Area summary' },
+        ...(records ? [] : [{ id: 'overview' as Tab, label: 'By area' }]), { id: 'requirements', label: 'Line items', count: scope.length }, { id: 'summary', label: 'Area summary' },
         { id: 'anchorage', label: 'Anchorage types' }, { id: 'review', label: 'Review', count: pending.length }, { id: 'activity', label: 'Activity', count: history.length }, { id: 'source', label: 'Source' },
       ]} /></div>
 

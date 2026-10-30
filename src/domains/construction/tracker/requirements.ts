@@ -213,3 +213,25 @@ export function refreshRequirements(s: TrackerState, c: RefSource | undefined, o
   if (!changed) return s
   return { ...s, manual: next, history: opts.log ? [...(s.history ?? []), ...log] : s.history }
 }
+
+/**
+ * The calculated requirements worked out a second, deliberately plain way: for every foundation, footing quantity × plinths of the type ×
+ * quantity of each item per anchorage, counted straight from the plinth records. Used to check `deriveRequirements`; both must agree.
+ */
+export function expectedTotals(c: RefSource): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const f of c.foundations) {
+    if (f.archived) continue
+    const footings = f.quantity ?? 1
+    for (const p of c.plinths) {
+      if (p.foundationId !== f.id || !p.anchorageTypeId) continue
+      for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === p.anchorageTypeId)) {
+        for (const it of itemsOf(comp)) {
+          const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+          out.set(key, (out.get(key) ?? 0) + footings * 1 * it.each)
+        }
+      }
+    }
+  }
+  return out
+}
