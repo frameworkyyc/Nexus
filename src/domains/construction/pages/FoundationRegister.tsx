@@ -5,6 +5,7 @@ import { CARD, MeterBar, Segmented, SortBar } from '@/components/mobile/Cards'
 import { useIsPhone } from '@/lib/useMedia'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Field'
+import { Stat } from '@/components/ui/Stat'
 import { ProgressBar } from '@/components/ui/Progress'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { paths } from '../paths'
@@ -13,6 +14,7 @@ import {
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
+import { foundationQuantity, foundationTotals, plinthsPerFoundation, totalPlinths } from '../foundationQuantity'
 import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
 import { FoundationStateBadge, fraction } from '../ui'
 import type { Area, Foundation, Plinth } from '../types'
@@ -24,6 +26,11 @@ interface Row {
   f: Foundation
   area: Area
   plinths: Plinth[]
+  qty: number
+  /** Plinths on each physical foundation; null = not known. */
+  per: number | null
+  /** Quantity × plinths per foundation; null when the plinth count is not known. */
+  total: number | null
   stats: Stats
   state: FoundationState
   step: string
@@ -49,7 +56,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
       (areaId ? foundationsOf(idx, areaId) : foundationsOfProject(idx, projectId)).filter((f) => showArchived || !f.archived).map((f) => {
         const plinths = idx.plinthsByFoundation.get(f.id) ?? []
         return {
-          f, plinths, area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
+          f, plinths, qty: foundationQuantity(f), per: plinthsPerFoundation(f, plinths.length), total: totalPlinths(f, plinths.length), area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
           types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
         }
       }),
@@ -82,10 +89,20 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
     </th>
   )
 
+  const totals = foundationTotals(visible.map((r) => r.f), visible.flatMap((r) => r.plinths))
   const plinthRows = visible.flatMap((r) => r.plinths.map((p) => ({ r, p })))
 
   return (
     <div>
+      {rows.length > 0 && (
+        <>
+          <dl className="mb-4 grid grid-cols-3 gap-4 border-y border-line py-4" aria-label="Foundation totals">
+            <Stat label="Foundation names" value={totals.designations.toLocaleString('en-CA')} />
+            <Stat label="Physical foundations" value={totals.physical.toLocaleString('en-CA')} sub="Sum of quantities" />
+            <Stat label="Total plinths" value={totals.knownPlinths.toLocaleString('en-CA')} sub={totals.unknownDesignations ? `Excludes ${totals.unknownDesignations} name${totals.unknownDesignations === 1 ? '' : 's'} with unknown plinths` : 'Quantity × plinths per foundation'} />
+          </dl>
+        </>
+      )}
       <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center">
         <Input data-search className="lg:max-w-xs" type="search" placeholder="Search foundation, anchorage, area" aria-label="Search register" value={query} onChange={(e) => setQuery(e.target.value)} />
         <div className="flex flex-wrap gap-3 phone:grid phone:grid-cols-2">
@@ -105,7 +122,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
             </Select>
           )}
         </div>
-        {phone && <SortBar options={[{ key: 'number', label: 'Foundation' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />}
+        {phone && <SortBar options={[{ key: 'number', label: 'Foundation Name' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />}
         {phone && <Segmented label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />}
         <div className="flex flex-wrap items-center gap-3 lg:ml-auto phone:[&>div[role=group]]:hidden"><label className="flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>{!areaId && <AddAreaButton projectId={projectId} />}<AddFoundationButton projectId={projectId} areaId={areaId} />
         <div className="flex gap-1 text-[13px]" role="group" aria-label="Register view">
@@ -115,7 +132,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         </div></div>
       </div>
       <p className="mb-1 text-xs text-muted">
-        {view === 'foundations' ? `${visible.length} of ${rows.length} foundations` : `${plinthRows.length} plinths`} · expand a foundation to see its plinths
+        {view === 'foundations' ? `${visible.length} of ${rows.length} foundation names` : `${plinthRows.length} plinths`} · expand a foundation to see its plinths
       </p>
 
       {!visible.length ? (
@@ -134,7 +151,10 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
             <thead>
               <tr className="border-b border-line">
                 <th className="w-6" />
-                <Th k="number">Foundation</Th>
+                <Th k="number">Foundation Name</Th>
+                <Th hide="sm">Qty</Th>
+                <Th hide>Plinths / foundation</Th>
+                <Th hide>Total plinths</Th>
                 {!areaId && <Th hide>Area</Th>}
                 <Th hide="sm">Anchorage</Th>
                 <Th hide>Footing step</Th>
@@ -158,10 +178,13 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                           <ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                         </button>
                       </td>
-                      <td className="py-3.5 pr-5 text-[13px]">
+                      <td className="min-w-[14rem] py-3.5 pr-5 text-[13px]">
                         <Link to={paths.foundation(projectId, r.f)} className="font-medium underline-offset-4 hover:underline">{r.f.number}</Link>{r.f.archived && <span className="ml-2 text-xs text-muted">Archived</span>}<span className="ml-2 inline-block align-middle"><ManageFoundationButton foundation={r.f} /></span>
-                        <span className="block text-xs text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}<span className="sm:hidden"> · {r.types.join(', ')}</span></span>
+                        <span className="block text-xs text-muted">{[r.f.description, r.per === null ? 'Plinths not known' : `${r.per} plinth${r.per === 1 ? '' : 's'} each`].filter(Boolean).join(' · ')}<span className="sm:hidden"> · Qty {r.qty.toLocaleString('en-CA')} · {r.types.join(', ')}</span></span>
                       </td>
+                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums sm:table-cell">{r.qty.toLocaleString('en-CA')}</td>
+                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{r.per === null ? <span title="Not known">—</span> : r.per}</td>
+                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums lg:table-cell">{r.total === null ? <span className="text-muted" title="Plinths per foundation is not known">—</span> : r.total.toLocaleString('en-CA')}</td>
                       {!areaId && <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.area.name}</td>}
                       <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{r.types.join(', ')}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.step}</td>
@@ -175,7 +198,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                     {isOpen && (
                       <tr className="border-b border-line bg-canvas">
                         <td />
-                        <td colSpan={areaId ? 9 : 10} className="py-3 pr-5">
+                        <td colSpan={areaId ? 12 : 13} className="py-3 pr-5">
                           <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />
                         </td>
                       </tr>
@@ -290,7 +313,8 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
               <Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}{r.f.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</Link>
               <FoundationStateBadge state={r.state.state} blocked={r.state.blocked} />
             </div>
-            <p className="mt-0.5 text-[14px] text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}{!areaId && ` · ${r.area.name}`}</p>
+            <p className="mt-0.5 text-[14px] text-muted">{[r.f.description, !areaId && r.area.name].filter(Boolean).join(' · ')}</p>
+            <p className="text-[14px]">Qty {r.qty.toLocaleString('en-CA')} · {r.per === null ? 'plinths not known' : `${r.per} plinth${r.per === 1 ? '' : 's'} each`}{r.total !== null && <> · <span className="font-medium">{r.total.toLocaleString('en-CA')} total</span></>}</p>
             <p className="text-[14px] text-muted">Anchorage {r.types.join(', ')} · {r.step}</p>
             <div className="mt-3 flex items-center gap-3"><MeterBar value={r.stats.progress} label={`${r.f.number} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.stats.progress}%</span></div>
             <dl className="mt-3 grid grid-cols-3 gap-2 text-center">

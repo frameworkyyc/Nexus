@@ -6,6 +6,7 @@ import { Disclosure } from '@/components/ui/Disclosure'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { CompactSelect, Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { foundationQuantity, plinthsPerFoundation, totalPlinths } from '../foundationQuantity'
 import { ProgressBar } from '@/components/ui/Progress'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Section } from '@/components/ui/Section'
@@ -55,7 +56,7 @@ export function FoundationPage() {
       <Link to={paths.area(projectId, area.id, 'register')} className="mb-5 phone:hidden inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
         <ArrowLeft size={14} strokeWidth={1.5} />{area.name} register
       </Link>
-      <PageHeader title={f.number} description={`${area.name} · ${f.description} · ${plinths.length} plinth${plinths.length === 1 ? '' : 's'}`} actions={<FoundationStateBadge state={fs.state} blocked={fs.blocked} />} />
+      <PageHeader title={f.number} description={[area.name, f.description, `Quantity ${foundationQuantity(f).toLocaleString('en-CA')}`, plinthsPerFoundation(f, plinths.length) === null ? 'Plinths per foundation not known' : `${plinthsPerFoundation(f, plinths.length)} plinth${plinthsPerFoundation(f, plinths.length) === 1 ? '' : 's'} per foundation`, totalPlinths(f, plinths.length) === null ? '' : `${totalPlinths(f, plinths.length)!.toLocaleString('en-CA')} plinths in total`].filter(Boolean).join(' · ')} actions={<FoundationStateBadge state={fs.state} blocked={fs.blocked} />} />
 
       <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
         <Stat label="Construction" value={`${stats.progress}%`} sub={`${stats.elementsPoured.done} of ${stats.elementsPoured.total} elements poured`} />

@@ -4,7 +4,7 @@ import { handleApi, type Env } from '../api'
 import { resetAuthCache } from '../auth'
 import { TABLES } from '../db'
 import { clock, NOW, TODAY } from './helpers'
-import { createTestDb, type TestDb } from './sqliteD1'
+import { applyMigrationFile, createTestDb, type TestDb } from './sqliteD1'
 
 /** A new installation: migrations only, no fixture data, then everything is created by people through the API. */
 const TEAM = 'https://nexus-team.cloudflareaccess.com'
@@ -47,7 +47,7 @@ describe('a genuinely empty installation', () => {
     for (const t of ['change_log', 'user_roles', 'role_audit', 'material_audit']) expect(count(db, t), t).toBe(0)
     expect([...system].every((t) => count(db, t) >= 0)).toBe(true)
     expect(db.raw.prepare('SELECT name FROM suppliers').all()).toEqual([{ name: 'Nucor' }])
-    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '7' })
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '8' })
   })
 
   it('migrations contain no inserts of operational data (reference data lives in seeds/, never in migrations)', () => {
@@ -208,5 +208,78 @@ describe('Cloudflare configuration', () => {
     expect(wrangler.d1_databases).toBeUndefined()
     expect(wrangler.vars.NEXUS_ENV).toBe('demo')
     expect(wrangler.previews.vars.NEXUS_ENV).toBe('staging')
+  })
+})
+
+describe('foundation quantity on the server', () => {
+  async function setupArea() {
+    const db = fresh()
+    await cmd(db, 'admin@example.com', 'construction', 'createOrganization', [{ name: 'Northline' }])
+    const pid = (await cmd(db, 'admin@example.com', 'construction', 'createProject', [{ name: 'P1' }])).body.state.projects[0].id
+    const aid = (await cmd(db, 'admin@example.com', 'construction', 'createArea', [pid, 'E-House', []])).body.state.areas[0].id
+    return { db, pid, aid }
+  }
+  const row = (db: TestDb, name: string) => db.raw.prepare('SELECT id, quantity, plinths_per_foundation AS per FROM foundations WHERE number = ?').get(name) as { id: string; quantity: number; per: number | null }
+
+  it('stores quantity and plinths per foundation in the database, one row per name, and shows them after a reload', async () => {
+    const { db, aid } = await setupArea()
+    const r = await cmd(db, 'admin@example.com', 'construction', 'addFoundations', [aid, [{ number: 'FND-101', description: 'E-House foundation', plinthCount: 4, quantity: 18 }, { number: 'FND-102', description: '', plinthCount: null, quantity: 6 }, { number: 'FND-103', description: '' , plinthCount: 2 }]])
+    expect(r.status).toBe(200)
+    expect(count(db, 'foundations')).toBe(3) // not 18 + 6 + 1
+    expect(row(db, 'FND-101')).toMatchObject({ quantity: 18, per: 4 })
+    expect(row(db, 'FND-102')).toMatchObject({ quantity: 6, per: null }) // unknown stays unknown
+    expect(row(db, 'FND-103')).toMatchObject({ quantity: 1, per: 2 }) // default 1
+    expect(count(db, 'plinths')).toBe(6) // 4 + 0 + 2 plinth records, not multiplied by quantity
+    const state = (await as(db, 'viewer@example.com', 'GET', '/api/state/construction')).body.state
+    expect(state.foundations.map((f: { number: string; quantity: number; plinthsPerFoundation: number | null }) => [f.number, f.quantity, f.plinthsPerFoundation])).toEqual([['FND-101', 18, 4], ['FND-102', 6, null], ['FND-103', 1, 2]])
+  })
+
+  it('rejects zero, negative and decimal quantities, and the database refuses them too', async () => {
+    const { db, aid } = await setupArea()
+    for (const q of [0, -1, 2.5]) expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, `X-${n++}`, '', 1, q])).status, String(q)).toBe(422)
+    expect(count(db, 'foundations')).toBe(0)
+    expect(() => db.raw.exec("INSERT INTO foundations (id, area_id, number, quantity, seq) VALUES ('f-x', '" + aid + "', 'Z', 0, 0)")).toThrow(/CHECK/)
+  })
+
+  it('edits the quantity through the API; only Admins may', async () => {
+    const { db, aid } = await setupArea()
+    await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'FND-101', '', 4, 18])
+    const { id } = row(db, 'FND-101')
+    for (const who of ['editor@example.com', 'viewer@example.com']) expect((await cmd(db, who, 'construction', 'editFoundation', [id, { quantity: 2 }])).status).toBe(403)
+    expect(row(db, 'FND-101').quantity).toBe(18)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'editFoundation', [id, { quantity: 20 }])).status).toBe(200)
+    expect(row(db, 'FND-101')).toMatchObject({ id, quantity: 20, per: 4 })
+    expect((await cmd(db, 'admin@example.com', 'construction', 'editFoundation', [id, { quantity: 0 }])).status).toBe(422)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'editFoundation', [id, { plinthsPerFoundation: 6 }])).status).toBe(200)
+    expect(count(db, 'plinths')).toBe(6)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('materials keep their stable foundation reference and quantities when the foundation quantity changes or it is renamed', async () => {
+    const { db, aid } = await setupArea()
+    await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'FND-101', '', 4, 18])
+    const { id } = row(db, 'FND-101')
+    const add = await cmd(db, 'editor@example.com', 'materials', 'addMaterials', [[material({ areaId: aid, foundationId: id, requiredQty: 24 })]])
+    expect(add.status).toBe(200)
+    await cmd(db, 'admin@example.com', 'construction', 'editFoundation', [id, { quantity: 40 }])
+    await cmd(db, 'admin@example.com', 'construction', 'renameFoundation', [id, 'FND-101A'])
+    expect(db.raw.prepare('SELECT foundation_id, required_qty FROM manual_materials').get()).toEqual({ foundation_id: id, required_qty: 24 })
+    expect((await cmd(db, 'admin@example.com', 'construction', 'archiveFoundation', [id, true])).body.error).toMatch(/1 active material is assigned/)
+    const m = (await as(db, 'viewer@example.com', 'GET', '/api/state/materials')).body.state
+    expect(m.manual[0]).toMatchObject({ foundationId: id, footingType: 'FND-101', requiredQty: 24 }) // snapshot text kept; display follows the record
+  })
+
+  it('migration 0008 keeps every existing foundation: same id, quantity 1, plinths per foundation = its existing plinth records', () => {
+    const db = createTestDb({ migrate: false })
+    for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql']) applyMigrationFile(db.raw, f)
+    db.raw.exec("INSERT INTO companies (id, name) VALUES ('c', 'C'); INSERT INTO projects (id, company_id, name, job_number, status) VALUES ('p', 'c', 'P', '1', 'planning'); INSERT INTO areas (id, project_id, name, sequence) VALUES ('a', 'p', 'A', 1)")
+    db.raw.exec("INSERT INTO foundations (id, area_id, number, description, notes, seq) VALUES ('f-a-1', 'a', '1', 'd', 'n', 0), ('f-a-2', 'a', '2', '', '', 1)")
+    db.raw.exec("INSERT INTO plinths (id, foundation_id, idx, notes, seq) VALUES ('f-a-1-p1', 'f-a-1', 1, '', 0), ('f-a-1-p2', 'f-a-1', 2, '', 1)")
+    const before = db.raw.prepare('SELECT id, area_id, number, description, notes FROM foundations ORDER BY id').all()
+    applyMigrationFile(db.raw, '0008_foundation_quantity.sql')
+    expect(db.raw.prepare('SELECT id, area_id, number, description, notes FROM foundations ORDER BY id').all()).toEqual(before)
+    expect(db.raw.prepare('SELECT id, quantity, plinths_per_foundation AS per FROM foundations ORDER BY id').all()).toEqual([{ id: 'f-a-1', quantity: 1, per: 2 }, { id: 'f-a-2', quantity: 1, per: 0 }])
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM plinths').get()).toEqual({ n: 2 })
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '8' })
   })
 })

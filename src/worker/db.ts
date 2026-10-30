@@ -37,7 +37,7 @@ export const TABLES: TableDef[] = [
   { name: 'projects', pk: 'id', columns: ['id', 'company_id', 'name', 'job_number', 'client', 'location', 'scope', 'status', 'status_note', 'description', 'start_date', 'end_date'], module: 'construction', refs: { company_id: 'companies' } },
   { name: 'areas', pk: 'id', columns: ['id', 'project_id', 'name', 'sequence', 'identifier', 'description', 'archived'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'name']] },
   { name: 'anchorage_types', pk: 'id', columns: ['id', 'project_id', 'code', 'description', 'archived', 'seq'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'code']] },
-  { name: 'foundations', pk: 'id', columns: ['id', 'area_id', 'number', 'description', 'notes', 'archived', 'seq'], module: 'construction', refs: { area_id: 'areas' }, unique: [['area_id', 'number']] },
+  { name: 'foundations', pk: 'id', columns: ['id', 'area_id', 'number', 'description', 'notes', 'archived', 'quantity', 'plinths_per_foundation', 'seq'], module: 'construction', refs: { area_id: 'areas' }, unique: [['area_id', 'number']] },
   { name: 'plinths', pk: 'id', columns: ['id', 'foundation_id', 'idx', 'anchorage_type_id', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations', anchorage_type_id: 'anchorage_types' }, unique: [['foundation_id', 'idx']] },
   { name: 'activities', pk: 'id', columns: ['id', 'scope', 'activity_key', 'foundation_id', 'plinth_id', 'status', 'planned_date', 'actual_date', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations', plinth_id: 'plinths' } },
 

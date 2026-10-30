@@ -17,6 +17,7 @@ import { computeStats, foundationActivities, foundationState, foundationsOf, tal
 import { useConstruction } from '../store'
 import { ExceptionList, fraction, TextLink } from '../ui'
 import type { Activity, Foundation } from '../types'
+import { foundationTotals } from '../foundationQuantity'
 import { PackageDashboard } from './PackageDashboard'
 import { AddFoundationButton, ManageAreaButton } from './AddFoundation'
 import { AreaHandover } from './HandoverPage'
@@ -45,7 +46,7 @@ export function AreaPage() {
   const foundations = foundationsOf(idx, areaId)
   return (
     <>
-      <PageHeader title={area.name} description={[area.identifier, `${foundations.length} foundations · ${foundations.reduce((s, f) => s + (idx.plinthsByFoundation.get(f.id)?.length ?? 0), 0)} plinths`, area.archived ? 'Archived' : '', area.description].filter(Boolean).join(' · ')} actions={<><ManageAreaButton areaId={areaId} /><AddFoundationButton projectId={projectId} areaId={areaId} /></>} />
+      <PageHeader title={area.name} description={[area.identifier, `${foundations.length} foundation name${foundations.length === 1 ? '' : 's'} · ${foundationTotals(foundations, foundations.flatMap((f) => idx.plinthsByFoundation.get(f.id) ?? [])).physical.toLocaleString('en-CA')} foundations`, area.archived ? 'Archived' : '', area.description].filter(Boolean).join(' · ')} actions={<><ManageAreaButton areaId={areaId} /><AddFoundationButton projectId={projectId} areaId={areaId} /></>} />
       <Tabs<Tab> items={tabs} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
       <div className="pt-6">
         {tab === 'overview' && (foundations.length === 0 ? <EmptyState title="No foundations in this area yet" description="Add the foundations to start tracking construction, survey and QA/QC here. Materials can already be added to the area." action={<AddFoundationButton projectId={projectId} areaId={areaId} />} /> : <Overview projectId={projectId} areaId={areaId} />)}

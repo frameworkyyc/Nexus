@@ -68,6 +68,10 @@ export interface Foundation {
   docIds: string[]
   /** Hidden from pickers and the default register view; every record keeps pointing at it. */
   archived?: boolean
+  /** How many physical foundations share this name/design. Absent = 1. This row stays one designation; individual foundations are not modelled yet. */
+  quantity?: number
+  /** Plinths on each individual foundation. null = not known; absent = the number of plinth records this foundation has. */
+  plinthsPerFoundation?: number | null
 }
 
 export interface Plinth {

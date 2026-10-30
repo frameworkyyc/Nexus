@@ -18,7 +18,7 @@ export function constructionToRows(state: ConstructionState): RowSet {
     projects: state.projects.map((p): Row => ({ id: p.id, company_id: p.companyId, name: p.name, job_number: p.jobNumber, client: p.client, location: p.location, scope: p.scope, status: p.status, status_note: p.statusNote, description: p.description ?? '', start_date: p.startDate ?? null, end_date: p.endDate ?? null })),
     areas: state.areas.map((a): Row => ({ id: a.id, project_id: a.projectId, name: a.name, sequence: a.sequence, identifier: a.identifier ?? '', description: a.description ?? '', archived: a.archived ? 1 : 0 })),
     anchorage_types: state.anchorageTypes.map((t, seq): Row => ({ id: t.id, project_id: t.projectId ?? '', code: t.code, description: t.description, archived: t.archived ? 1 : 0, seq })),
-    foundations: state.foundations.map((f, seq): Row => ({ id: f.id, area_id: f.areaId, number: f.number, description: f.description, notes: f.notes, archived: f.archived ? 1 : 0, seq })),
+    foundations: state.foundations.map((f, seq): Row => ({ id: f.id, area_id: f.areaId, number: f.number, description: f.description, notes: f.notes, archived: f.archived ? 1 : 0, quantity: f.quantity ?? 1, plinths_per_foundation: f.plinthsPerFoundation === undefined ? state.plinths.filter((p) => p.foundationId === f.id).length : f.plinthsPerFoundation, seq })),
     plinths: state.plinths.map((p, seq): Row => ({ id: p.id, foundation_id: p.foundationId, idx: p.index, anchorage_type_id: p.anchorageTypeId, notes: p.notes, seq })),
     activities: state.activities.filter((a) => !isDefaultActivity(a)).map((a): Row => ({ id: a.id, scope: a.scope, activity_key: a.key, foundation_id: a.foundationId, plinth_id: a.plinthId, status: a.status, planned_date: a.plannedDate, actual_date: a.actualDate, notes: a.notes, seq: 0 })),
   }
@@ -30,7 +30,7 @@ export function constructionFromRows(rows: RowSet): ConstructionState {
     const r = stored.get(a.id)
     return r ? { ...a, status: String(r.status) as Activity['status'], plannedDate: s(r.planned_date), actualDate: s(r.actual_date), notes: String(r.notes) } : a
   }
-  const foundations = (rows.foundations ?? []).map((r): Foundation => ({ id: String(r.id), areaId: String(r.area_id), number: String(r.number), description: String(r.description), notes: String(r.notes), docIds: [], ...(Number(r.archived) === 1 ? { archived: true } : {}) }))
+  const foundations = (rows.foundations ?? []).map((r): Foundation => ({ id: String(r.id), areaId: String(r.area_id), number: String(r.number), description: String(r.description), notes: String(r.notes), docIds: [], ...(Number(r.archived) === 1 ? { archived: true } : {}), quantity: Number(r.quantity ?? 1), plinthsPerFoundation: r.plinths_per_foundation === null || r.plinths_per_foundation === undefined ? null : Number(r.plinths_per_foundation) }))
   const plinths = (rows.plinths ?? []).map((r): Plinth => ({ id: String(r.id), foundationId: String(r.foundation_id), index: Number(r.idx), anchorageTypeId: s(r.anchorage_type_id), notes: String(r.notes) }))
   const activities: Activity[] = foundations.flatMap((f) => blankActivitiesFor(f, plinths.filter((p) => p.foundationId === f.id)).map(overlay))
   const areas = (rows.areas ?? []).map((r): Area => ({ id: String(r.id), projectId: String(r.project_id), name: String(r.name), sequence: Number(r.sequence), identifier: String(r.identifier ?? ''), description: String(r.description ?? ''), ...(Number(r.archived) === 1 ? { archived: true } : {}) }))

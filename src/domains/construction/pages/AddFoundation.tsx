@@ -4,9 +4,23 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { useAccess } from '@/lib/access'
+import { foundationQuantity, plinthsPerFoundation } from '../foundationQuantity'
 import { addFoundations, archiveArea, archiveFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
 import type { Foundation } from '../types'
+
+/** Quantity text → number; blank means the default of 1. */
+export const parseQuantity = (t: string) => (t.trim() === '' ? 1 : Number(t))
+/** Plinths-per-foundation text → number; blank means not known (never zero). */
+export const parsePlinths = (t: string) => (t.trim() === '' ? null : Number(t))
+/** "Total plinths" shown live while typing: quantity × plinths per foundation, or why it can't be calculated. */
+export function totalText(qty: string, per: string): string {
+  const q = parseQuantity(qty), p = parsePlinths(per)
+  if (!Number.isInteger(q) || q < 1) return 'Enter a quantity of 1 or more'
+  if (p === null) return 'Not known — enter plinths per foundation'
+  if (!Number.isInteger(p) || p < 0) return 'Enter plinths per foundation as a whole number'
+  return (q * p).toLocaleString('en-CA')
+}
 
 /**
  * Adds a foundation (and its plinths) to an area's register. Every activity starts as "not started": adding a foundation records that it
@@ -32,33 +46,36 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
   const [area, setArea] = useState(areaId ?? areas[0]?.id ?? '')
   const [mode, setMode] = useState<'one' | 'many'>('one')
   const [number, setNumber] = useState('')
+  const [quantity, setQuantity] = useState('1')
   const [description, setDescription] = useState('')
-  const [plinths, setPlinths] = useState('1')
+  const [plinths, setPlinths] = useState('')
   const [bulk, setBulk] = useState('')
-  // One foundation per line: "number, description, plinths" (description and plinths optional; plinths default to 1).
-  const parsed = bulk.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [n, d, p] = l.split(/\t|,/).map((x) => x.trim()); return { number: n ?? '', description: d ?? '', plinthCount: p === undefined || p === '' ? 1 : Number(p) } })
-  const save = () => (mode === 'one' ? run(createFoundation(area, number, description, Number(plinths)), onClose) : run(addFoundations(area, parsed), onClose))
+  // One designation per line: "name, quantity, plinths per foundation, description" (everything after the name is optional).
+  const parsed = bulk.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [n, q, p, ...d] = l.split(/\t|,/).map((x) => x.trim()); return { number: n ?? '', quantity: parseQuantity(q ?? ''), plinthCount: parsePlinths(p ?? ''), description: d.join(', ') } })
+  const save = () => (mode === 'one' ? run(createFoundation(area, number, description, parsePlinths(plinths), parseQuantity(quantity)), onClose) : run(addFoundations(area, parsed), onClose))
   return (
     <Modal title="Add foundations" onClose={onClose}>
       <div className="space-y-4 p-6 text-[13px]">
-        <p className="text-muted">Adds foundations and their plinths to the register. Nothing is marked as started or complete. A number already used in the area (even by an archived foundation) is refused.</p>
+        <p className="text-muted">Each entry is a foundation name that may stand for several identical foundations (its quantity). Nothing is marked as started or complete. A name already used in the area (even by an archived foundation) is refused.</p>
         {!areaId && <Field label="Area"><Select aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
         <div className="flex gap-1" role="group" aria-label="How many">
-          {(['one', 'many'] as const).map((m) => <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`rounded-nx px-3 py-1.5 transition-colors phone:h-11 ${mode === m ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{m === 'one' ? 'One foundation' : 'Several at once'}</button>)}
+          {(['one', 'many'] as const).map((m) => <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`rounded-nx px-3 py-1.5 transition-colors phone:h-11 ${mode === m ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{m === 'one' ? 'One foundation name' : 'Several at once'}</button>)}
         </div>
         {mode === 'one' ? (
           <>
+            <Field label="Foundation Name *"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Foundation number"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 21-03" /></Field>
-              <Field label="Number of plinths"><Input inputMode="numeric" value={plinths} onChange={(e) => setPlinths(e.target.value)} /></Field>
+              <Field label="Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
+              <Field label="Plinths per Foundation"><Input inputMode="numeric" value={plinths} onChange={(e) => setPlinths(e.target.value)} placeholder="Not known" /></Field>
             </div>
+            <p className="-mt-2 text-xs text-muted" aria-live="polite">Total plinths: <span className="font-medium text-ink">{totalText(quantity, plinths)}</span> (quantity × plinths per foundation)</p>
             <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
           </>
         ) : (
-          <Field label="One per line: number, description, plinths"><Textarea autoFocus rows={7} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'21-01, Pump pad, 4\n21-02, Pump pad, 4\n21-03'} /></Field>
+          <Field label="One per line: name, quantity, plinths per foundation, description"><Textarea autoFocus rows={7} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'FND-101, 18, 4, Pump pad\nFND-102, 6, 4\nFND-103, 2'} /></Field>
         )}
-        {mode === 'many' && <p className="text-xs text-muted">{parsed.length} foundation{parsed.length === 1 ? '' : 's'} ready. Paste from a spreadsheet if you like (tab-separated works too). Either all are added or none.</p>}
-        <Button variant="primary" disabled={saving || (mode === 'one' ? !number.trim() : parsed.length === 0)} onClick={save}>{saving ? 'Saving…' : mode === 'one' ? 'Add foundation' : `Add ${parsed.length} foundation${parsed.length === 1 ? '' : 's'}`}</Button>
+        {mode === 'many' && <p className="text-xs text-muted">{parsed.length} name{parsed.length === 1 ? '' : 's'} ready · {parsed.reduce((n, r) => n + (Number.isInteger(r.quantity) && r.quantity > 0 ? r.quantity : 0), 0).toLocaleString('en-CA')} physical foundations. Leave quantity blank for 1 and plinths blank if not known. Paste from a spreadsheet if you like (tab-separated works too). Either all are added or none.</p>}
+        <Button variant="primary" disabled={saving || (mode === 'one' ? !number.trim() : parsed.length === 0)} onClick={save}>{saving ? 'Saving…' : mode === 'one' ? 'Add foundation' : `Add ${parsed.length} foundation name${parsed.length === 1 ? '' : 's'}`}</Button>
       </div>
     </Modal>
   )
@@ -118,14 +135,14 @@ function ManageAreaModal({ areaId, onClose }: { areaId: string; onClose: () => v
   )
 }
 
-interface DraftFoundation { number: string; description: string; plinths: string }
+interface DraftFoundation { number: string; quantity: string; description: string; plinths: string }
 function AddAreaModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const { run, saving } = useConstructionCommand()
   const [name, setName] = useState('')
-  const [rows, setRows] = useState<DraftFoundation[]>([{ number: '', description: '', plinths: '1' }])
+  const [rows, setRows] = useState<DraftFoundation[]>([{ number: '', quantity: '1', description: '', plinths: '' }])
   const [identifier, setIdentifier] = useState('')
   const used = rows.filter((r) => r.number.trim() || r.description.trim())
-  const save = () => run(createArea(projectId, name, used.map((r) => ({ number: r.number, description: r.description, plinthCount: Number(r.plinths) })), { identifier }), onClose)
+  const save = () => run(createArea(projectId, name, used.map((r) => ({ number: r.number, description: r.description, plinthCount: parsePlinths(r.plinths), quantity: parseQuantity(r.quantity) })), { identifier }), onClose)
   const set = (i: number, patch: Partial<DraftFoundation>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   return (
     <Modal title="Add construction area" onClose={onClose} wide>
@@ -138,14 +155,15 @@ function AddAreaModal({ projectId, onClose }: { projectId: string; onClose: () =
         <div className="space-y-2">
           <p className="t-label">Foundations</p>
           {rows.map((r, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_5rem_auto] items-end gap-2 phone:grid-cols-2">
-              <Field label="Number"><Input aria-label={`Foundation ${i + 1} number`} value={r.number} onChange={(e) => set(i, { number: e.target.value })} placeholder="e.g. 61-01" /></Field>
+            <div key={i} className="grid grid-cols-[1.4fr_4.5rem_6rem_1.4fr_auto] items-end gap-2 phone:grid-cols-2">
+              <Field label="Foundation Name"><Input aria-label={`Foundation ${i + 1} name`} value={r.number} onChange={(e) => set(i, { number: e.target.value })} placeholder="e.g. FND-101" /></Field>
+              <Field label="Quantity"><Input aria-label={`Foundation ${i + 1} quantity`} inputMode="numeric" value={r.quantity} onChange={(e) => set(i, { quantity: e.target.value })} /></Field>
+              <Field label="Plinths each"><Input aria-label={`Foundation ${i + 1} plinths per foundation`} inputMode="numeric" value={r.plinths} onChange={(e) => set(i, { plinths: e.target.value })} placeholder="Not known" /></Field>
               <Field label="Description"><Input aria-label={`Foundation ${i + 1} description`} value={r.description} onChange={(e) => set(i, { description: e.target.value })} /></Field>
-              <Field label="Plinths"><Input aria-label={`Foundation ${i + 1} plinths`} inputMode="numeric" value={r.plinths} onChange={(e) => set(i, { plinths: e.target.value })} /></Field>
               <Button variant="ghost" aria-label={`Remove foundation ${i + 1}`} disabled={rows.length === 1} onClick={() => setRows(rows.filter((_, j) => j !== i))}><Trash2 size={15} strokeWidth={1.5} /></Button>
             </div>
           ))}
-          <Button onClick={() => setRows([...rows, { number: '', description: '', plinths: '1' }])}><Plus size={14} strokeWidth={1.5} />Add another foundation</Button>
+          <Button onClick={() => setRows([...rows, { number: '', quantity: '1', description: '', plinths: '' }])}><Plus size={14} strokeWidth={1.5} />Add another foundation</Button>
         </div>
         <Button variant="primary" disabled={saving || !name.trim()} onClick={save}>{saving ? 'Saving…' : 'Create area'}</Button>
       </div>
@@ -172,6 +190,10 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [number, setNumber] = useState(f?.number ?? '')
   const [description, setDescription] = useState(f?.description ?? '')
   const [notes, setNotes] = useState(f?.notes ?? '')
+  const records = state.plinths.filter((p) => p.foundationId === id).length
+  const per0 = f ? plinthsPerFoundation(f, records) : null
+  const [quantity, setQuantity] = useState(String(f ? foundationQuantity(f) : 1))
+  const [per, setPer] = useState(per0 === null ? '' : String(per0))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   if (!f) return null
@@ -181,17 +203,24 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
     setSaving(false)
     if (close) onClose()
   }
-  const changed = number.trim() !== f.number || description !== f.description || notes !== f.notes
+  const qtyChanged = parseQuantity(quantity) !== foundationQuantity(f)
+  const perChanged = parsePlinths(per) !== per0
+  const changed = number.trim() !== f.number || description !== f.description || notes !== f.notes || qtyChanged || perChanged
   const save = () => go([
     ...(number.trim() !== f.number ? [() => constructionStore.run(renameFoundation(id, number))] : []),
-    ...(description !== f.description || notes !== f.notes ? [() => constructionStore.run(editFoundation(id, { description, notes }))] : []),
+    ...(description !== f.description || notes !== f.notes || qtyChanged || perChanged ? [() => constructionStore.run(editFoundation(id, { description, notes, ...(qtyChanged ? { quantity: parseQuantity(quantity) } : {}), ...(perChanged ? { plinthsPerFoundation: parsePlinths(per) } : {}) }))] : []),
   ], true)
   return (
     <Modal title={`Foundation ${f.number}`} onClose={onClose}>
       <div className="space-y-4 p-6 text-[13px]">
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default register view. Every record keeps pointing at it.</p>}
-        <p className="text-muted">Renaming changes the number shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected.</p>
-        <Field label="Foundation number"><Input value={number} onChange={(e) => setNumber(e.target.value)} /></Field>
+        <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
+        <Field label="Foundation Name"><Input value={number} onChange={(e) => setNumber(e.target.value)} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
+          <Field label="Plinths per Foundation"><Input inputMode="numeric" value={per} onChange={(e) => setPer(e.target.value)} placeholder="Not known" /></Field>
+        </div>
+        <p className="-mt-2 text-xs text-muted" aria-live="polite">Total plinths: <span className="font-medium text-ink">{totalText(quantity, per)}</span></p>
         <Field label="Description"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
         <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}

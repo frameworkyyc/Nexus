@@ -366,35 +366,40 @@ export const setProjectIssueStatus = (id: string, status: ProjectIssue['status']
 
 const FOUNDATION_NUMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
 
-/** Why a foundation number cannot be used in an area, or null. Archived foundations still hold their number, so it cannot be reused by accident. */
+/** Why a foundation name cannot be used in an area, or null. Archived foundations still hold their number, so it cannot be reused by accident. */
 function numberProblem(s: ConstructionState, areaId: string, number: string, exceptId?: string): string | null {
   const area = s.areas.find((a) => a.id === areaId)
   if (!area) return 'Area not found.'
   if (area.archived) return `${area.name} is archived. Restore it before adding foundations.`
-  if (!FOUNDATION_NUMBER.test(number)) return 'Use letters, digits, dots, dashes or underscores for the foundation number (for example 21-03).'
+  if (!FOUNDATION_NUMBER.test(number)) return 'Use letters, digits, dots, dashes or underscores for the foundation name (for example FND-101).'
   const clash = s.foundations.find((f) => f.areaId === areaId && f.id !== exceptId && f.number.toLowerCase() === number.toLowerCase())
   return clash ? `Foundation ${number} already exists in ${area.name}${clash.archived ? ' (archived — restore it instead)' : ''}.` : null
 }
 
-const newFoundation = (s: ConstructionState, areaId: string, number: string, description: string, plinthCount: number) => {
+const newFoundation = (s: ConstructionState, areaId: string, number: string, description: string, plinthCount: number | null, quantity: number) => {
   let id = `f-${areaId}-${number}`
   for (let n = 2; s.foundations.some((f) => f.id === id); n++) id = `f-${areaId}-${number}-${n}` // an id is never reused, even after a rename
-  const foundation = { id, areaId, number, description: description.trim(), notes: '', docIds: [] as string[] }
-  const plinths = Array.from({ length: plinthCount }, (_, i) => ({ id: `${id}-p${i + 1}`, foundationId: id, index: i + 1, anchorageTypeId: null, notes: '' }))
+  const foundation = { id, areaId, number, description: description.trim(), notes: '', docIds: [] as string[], quantity, plinthsPerFoundation: plinthCount }
+  // One set of plinth records per designation (not per physical foundation). An unknown count creates none and is not treated as zero.
+  const plinths = Array.from({ length: plinthCount ?? 0 }, (_, i) => ({ id: `${id}-p${i + 1}`, foundationId: id, index: i + 1, anchorageTypeId: null, notes: '' }))
   return { foundation, plinths, activities: blankActivitiesFor(foundation, plinths) }
 }
 
-const plinthProblem = (n: number) => (!Number.isInteger(n) || n < 0 || n > 100 ? 'Enter the number of plinths as a whole number from 0 to 100.' : null)
+const MAX_QUANTITY = 1_000_000
+/** Quantity: a whole number, 1 or more. Absent means 1. */
+const quantityProblem = (q: unknown) => (q === undefined || q === null || (typeof q === 'number' && Number.isInteger(q) && q >= 1 && q <= MAX_QUANTITY) ? null : 'Quantity must be a whole number of 1 or more.')
+/** Plinths per foundation: a whole number from 0 to 100, or null when not known. */
+const plinthProblem = (n: unknown) => (n === null || (typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 100) ? null : 'Plinths per foundation must be a whole number from 0 to 100, or left blank if not known.')
 
 /**
- * Adds a foundation, with its plinths, to an area. Every applicable activity starts as "not started"; nothing is recorded as
- * done. A foundation that already exists in the area (archived or not) is refused, not duplicated.
+ * Adds a foundation designation to an area: one row, however many physical foundations (`quantity`) it stands for, with the plinth records of
+ * one foundation. Every applicable activity starts as "not started". A name that already exists in the area (archived or not) is refused.
  */
-export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number): Reducer => (s) => {
+export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1): Reducer => (s) => {
   const num = String(number).trim()
-  const bad = numberProblem(s, areaId, num) ?? plinthProblem(plinthCount)
+  const bad = numberProblem(s, areaId, num) ?? quantityProblem(quantity) ?? plinthProblem(plinthCount)
   if (bad) return fail(bad)
-  const { foundation, plinths, activities } = newFoundation(s, areaId, num, String(description), plinthCount)
+  const { foundation, plinths, activities } = newFoundation(s, areaId, num, String(description), plinthCount, quantity ?? 1)
   return ok({ ...s, foundations: [...s.foundations, foundation], plinths: [...s.plinths, ...plinths], activities: [...s.activities, ...activities] })
 }
 
@@ -407,10 +412,46 @@ export const renameFoundation = (id: string, number: string): Reducer => (s) => 
   return bad ? fail(bad) : ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, number: num } : x)) })
 }
 
-export const editFoundation = (id: string, patch: { description?: string; notes?: string }): Reducer => (s) => {
-  if (!s.foundations.some((x) => x.id === id)) return fail('Foundation not found.')
-  const next = { ...(patch.description !== undefined ? { description: String(patch.description).trim().slice(0, 300) } : {}), ...(patch.notes !== undefined ? { notes: String(patch.notes).slice(0, 2000) } : {}) }
-  return ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, ...next } : x)) })
+const isUntouched = (a: { status: string; plannedDate: unknown; actualDate: unknown; notes: string }) => a.status === 'not-started' && a.plannedDate === null && a.actualDate === null && a.notes === ''
+
+/**
+ * Edits a foundation designation: description, notes, quantity and plinths per foundation. Changing quantity touches nothing else (materials, activities
+ * and plinths are not affected). Changing plinths per foundation adds plinth records, or removes the highest-numbered ones only when nothing has been
+ * recorded on them; otherwise it is refused.
+ */
+export const editFoundation = (id: string, patch: { description?: string; notes?: string; quantity?: number; plinthsPerFoundation?: number | null }): Reducer => (s) => {
+  const f = s.foundations.find((x) => x.id === id)
+  if (!f) return fail('Foundation not found.')
+  const bad = (patch.quantity !== undefined ? quantityProblem(patch.quantity) : null) ?? (patch.plinthsPerFoundation !== undefined ? plinthProblem(patch.plinthsPerFoundation) : null)
+  if (bad) return fail(bad)
+  const next = {
+    ...f,
+    ...(patch.description !== undefined ? { description: String(patch.description).trim().slice(0, 300) } : {}),
+    ...(patch.notes !== undefined ? { notes: String(patch.notes).slice(0, 2000) } : {}),
+    ...(patch.quantity !== undefined ? { quantity: patch.quantity } : {}),
+  }
+  let plinths = s.plinths
+  let activities = s.activities
+  if (patch.plinthsPerFoundation !== undefined) {
+    const mine = s.plinths.filter((p) => p.foundationId === id).sort((a, b) => a.index - b.index)
+    const target = patch.plinthsPerFoundation
+    if (target === null) {
+      if (mine.length > 0) return fail('This foundation already has plinth records, so the count cannot be set back to unknown. Enter the number of plinths.')
+    } else if (target > mine.length) {
+      const added = Array.from({ length: target - mine.length }, (_, i) => ({ id: `${id}-p${mine.length + i + 1}`, foundationId: id, index: mine.length + i + 1, anchorageTypeId: null, notes: '' }))
+      const ids = new Set(added.map((p) => p.id))
+      plinths = [...plinths, ...added]
+      activities = [...activities, ...blankActivitiesFor(next, added).filter((a) => a.plinthId && ids.has(a.plinthId))]
+    } else if (target < mine.length) {
+      const removed = mine.slice(target)
+      const rids = new Set(removed.map((p) => p.id))
+      if (removed.some((p) => p.anchorageTypeId || p.notes) || s.activities.some((a) => a.plinthId && rids.has(a.plinthId) && !isUntouched(a))) return fail('Work or notes have been recorded on the plinths that would be removed, so the count was not reduced.')
+      plinths = plinths.filter((p) => !rids.has(p.id))
+      activities = activities.filter((a) => !(a.plinthId && rids.has(a.plinthId)))
+    }
+    next.plinthsPerFoundation = target
+  }
+  return ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? next : x)), plinths, activities })
 }
 
 /**
@@ -428,7 +469,7 @@ export const archiveFoundation = (id: string, archived: boolean): Reducer => (s,
   return ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, archived } : x)) })
 }
 
-export interface NewFoundation { number: string; description: string; plinthCount: number }
+export interface NewFoundation { number: string; description: string; /** Plinths on each foundation; null = not known. */ plinthCount: number | null; /** Physical foundations sharing this name. Absent = 1. */ quantity?: number }
 
 /** Sets up a new construction area together with its foundations, so the register is complete from the start. */
 export const createArea = (projectId: string, name: string, foundations: NewFoundation[], details: { identifier?: string; description?: string } = {}): Reducer => (s) => {
@@ -446,9 +487,9 @@ export const createArea = (projectId: string, name: string, foundations: NewFoun
   }
   for (const f of foundations ?? []) {
     const num = String(f.number).trim()
-    const bad = numberProblem(next, id, num) ?? plinthProblem(f.plinthCount)
+    const bad = numberProblem(next, id, num) ?? quantityProblem(f.quantity) ?? plinthProblem(f.plinthCount)
     if (bad) return fail(bad)
-    const made = newFoundation(next, id, num, String(f.description ?? ''), f.plinthCount)
+    const made = newFoundation(next, id, num, String(f.description ?? ''), f.plinthCount, f.quantity ?? 1)
     next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
   }
   return ok(next)
@@ -461,9 +502,9 @@ export const addFoundations = (areaId: string, items: NewFoundation[]): Reducer 
   let next = s
   for (const [i, f] of items.entries()) {
     const num = String(f.number).trim()
-    const bad = numberProblem(next, areaId, num) ?? plinthProblem(f.plinthCount)
+    const bad = numberProblem(next, areaId, num) ?? quantityProblem(f.quantity) ?? plinthProblem(f.plinthCount)
     if (bad) return fail(`${items.length > 1 ? `Row ${i + 1}: ` : ''}${bad}`)
-    const made = newFoundation(next, areaId, num, String(f.description ?? ''), f.plinthCount)
+    const made = newFoundation(next, areaId, num, String(f.description ?? ''), f.plinthCount, f.quantity ?? 1)
     next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
   }
   return ok(next)
