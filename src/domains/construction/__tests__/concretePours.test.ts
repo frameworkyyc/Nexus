@@ -71,6 +71,26 @@ describe('anchorage groups', () => {
   })
 })
 
+describe('anchorage type created while configuring a foundation', () => {
+  it('refuses duplicate codes ignoring case and spacing, and a new type is usable straight away and project-wide', () => {
+    let { s, pid, f, A } = world()
+    for (const dup of ['a', '  A ', 'b']) expect(err(s, K.addAnchorageType(pid, dup, ''))).toMatch(/already exists/)
+    s = apply(s, K.addAnchorageType(pid, '  Type   C ', ''))
+    const c = s.anchorageTypes.find((t) => t.code === 'Type C')! // trimmed and single-spaced
+    expect(c.id).toMatch(/^anc-/)
+    s = apply(s, K.configureFoundation(f.id, { groups: s.anchorageGroups!.filter((g) => g.foundationId === f.id).map((g, i) => ({ id: g.id, anchorageTypeId: i === 1 ? c.id : g.anchorageTypeId, count: g.count, dims: g.dims })) }))
+    expect(s.plinths.filter((p) => p.foundationId === f.id).map((p) => p.anchorageTypeId)).toEqual([A, A, c.id]) // second group (one plinth) now uses Type C; plinth ids unchanged
+    // available to other foundations in the project, and offered first for foundations that use it
+    s = apply(s, K.createFoundation(s.areas[0].id, 'OP-102', '', null, 1, { groups: [{ anchorageTypeId: c.id, count: 2 }] }))
+    const other = s.foundations.find((x) => x.number === 'OP-102')!
+    const list = anchorageFor(buildCatalog(s, emptyTracker()), other.id)
+    expect(list.find((a) => a.id === c.id)).toMatchObject({ onFoundation: true })
+    expect(list.map((a) => a.code)).toContain('Type C')
+    // concrete volumes were not disturbed by the type change
+    expect(foundationConcrete(s.foundations.find((x) => x.id === f.id)!, s.plinths, s.anchorageGroups!).total).toBeCloseTo(121.68)
+  })
+})
+
 describe('materials integration', () => {
   it('foundation anchorage types come first in Materials dropdowns, with the same stable ids, and no quantities are generated', () => {
     let { s, pid, f, A } = world()

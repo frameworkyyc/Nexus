@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { useAccess } from '@/lib/access'
 import { foundationConcrete } from '../concrete'
 import { foundationQuantity } from '../foundationQuantity'
-import { addFoundations, archiveArea, archiveFoundation, configureFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
+import { addAnchorageType, addFoundations, archiveArea, archiveFoundation, configureFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
 import type { FoundationConfig } from '../configActions'
 import { configFromDraft, draftFromFoundation, FoundationConfigFields, type ConfigDraft } from './FoundationConfigFields'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
@@ -23,6 +23,15 @@ export function totalText(qty: string, per: string): string {
   if (p === null) return 'Not known — enter plinths per foundation'
   if (!Number.isInteger(p) || p < 0) return 'Enter plinths per foundation as a whole number'
   return (q * p).toLocaleString('en-CA')
+}
+
+/** Adds a code to the project's Anchorage Library and returns the new type's id. Used by the anchorage group fields, so a type can be created while configuring a foundation. */
+async function createAnchorageType(projectId: string, code: string): Promise<{ id: string } | { error: string }> {
+  const e = await constructionStore.run(addAnchorageType(projectId, code, ''))
+  if (e) return { error: e }
+  const key = code.trim().replace(/\s+/g, ' ').toLowerCase()
+  const made = constructionStore.get().anchorageTypes.find((t) => t.projectId === projectId && t.code.toLowerCase() === key)
+  return made ? { id: made.id } : { error: 'The anchorage type was saved but could not be selected. Choose it from the list.' }
 }
 
 /** Runs a configuration against the current records (without saving) to show the concrete it would give, or why it cannot be applied. */
@@ -91,7 +100,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
             <Field label="Foundation Name *"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
             <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
             <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} />
+            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={(code) => createAnchorageType(projectId, code)} />
             {problem && <p role="alert" className="border-l-2 border-bad pl-3">{problem}</p>}
           </>
         ) : (
@@ -249,7 +258,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
         <Field label="Foundation Name"><Input value={number} onChange={(e) => setNumber(e.target.value)} /></Field>
         <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
         <Field label="Description"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} />
+        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
         <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap gap-2">

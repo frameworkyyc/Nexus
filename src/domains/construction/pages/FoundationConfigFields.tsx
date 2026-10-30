@@ -1,6 +1,8 @@
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
+import { SearchSelect } from '@/components/ui/SearchSelect'
+import { useState } from 'react'
 import { hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
 import type { AnchorageGroup, AnchorageType, Dims, Foundation, LengthUnit, Plinth } from '../types'
 import type { FoundationConfig, GroupInput } from '../configActions'
@@ -62,16 +64,33 @@ export function DimsRow({ label, value, onChange, idPrefix }: { label: string; v
  * Footing dimensions and anchorage groups for a foundation design. Dimensions are optional; each group says how many plinths use an
  * anchorage type from the project's library (or none yet) and may carry default plinth dimensions.
  */
-export function FoundationConfigFields({ draft, onChange, types, quantity, preview }: {
+export function FoundationConfigFields({ draft, onChange, types, quantity, preview, onCreateType }: {
   draft: ConfigDraft
   onChange: (d: ConfigDraft) => void
   types: AnchorageType[]
   quantity: number
   preview: FoundationConcrete | string | null
+  /** Adds a type to the project's Anchorage Library and resolves to its id (or why not). Absent = the user may not create types. */
+  onCreateType?: (code: string) => Promise<{ id: string } | { error: string }>
 }) {
+  const [typeError, setTypeError] = useState<{ group: number; message: string } | null>(null)
   const setGroup = (i: number, patch: Partial<GroupDraft>) => onChange({ ...draft, groups: draft.groups.map((g, j) => (j === i ? { ...g, ...patch } : g)) })
   const taken = (i: number) => new Set(draft.groups.filter((_, j) => j !== i).map((g) => g.typeId))
   const total = totalPlinthsOf(draft)
+  const norm = (c: string) => c.trim().replace(/\s+/g, ' ').toLowerCase()
+  /** Picks the existing type with that code, or adds it to the project's library; the new type is selected in this group. Duplicates are never created. */
+  const createType = async (i: number, code: string) => {
+    setTypeError(null)
+    const existing = types.find((t) => norm(t.code) === norm(code))
+    if (existing) {
+      if (taken(i).has(existing.id)) setTypeError({ group: i, message: `${existing.code} is already in another group. Combine them into one group.` })
+      else if (existing.archived) setTypeError({ group: i, message: `${existing.code} exists but is archived. Restore it in the Anchorage Library first.` })
+      else setGroup(i, { typeId: existing.id })
+      return
+    }
+    const r = await onCreateType!(code)
+    if ('error' in r) setTypeError({ group: i, message: r.error }); else setGroup(i, { typeId: r.id })
+  }
   return (
     <div className="space-y-4">
       <fieldset className="space-y-2">
@@ -86,14 +105,15 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
           <div key={g.id ?? `new-${i}`} role="group" aria-label={`Anchorage group ${i + 1}`} className="space-y-2 rounded-nx border border-line p-3">
             <div className="grid grid-cols-[1fr_6rem_auto] items-end gap-2">
               <Field label="Anchorage type">
-                <Select aria-label={`Anchorage type, group ${i + 1}`} value={g.typeId} onChange={(e) => setGroup(i, { typeId: e.target.value })}>
-                  <option value="">Not assigned yet</option>
-                  {types.filter((t) => !t.archived || t.id === g.typeId).map((t) => <option key={t.id} value={t.id} disabled={taken(i).has(t.id)}>{t.code}{t.archived ? ' (archived)' : ''}</option>)}
-                </Select>
+                <SearchSelect label={`Anchorage type, group ${i + 1}`} value={g.typeId} emptyLabel="Not assigned yet" placeholder="Type or choose a code…"
+                  options={types.filter((t) => (!t.archived || t.id === g.typeId) && !taken(i).has(t.id)).map((t) => ({ value: t.id, label: t.code, hint: t.description || undefined }))}
+                  onChange={(v) => { setTypeError(null); setGroup(i, { typeId: v }) }}
+                  onCreate={onCreateType ? (code) => void createType(i, code) : undefined} createLabel={(t) => `Add new anchorage type “${t}”`} />
               </Field>
               <Field label="Plinths"><Input aria-label={`Plinths, group ${i + 1}`} inputMode="numeric" value={g.count} onChange={(e) => setGroup(i, { count: e.target.value })} /></Field>
               <Button variant="ghost" aria-label={`Remove group ${i + 1}`} disabled={draft.groups.length === 0} onClick={() => onChange({ ...draft, groups: draft.groups.filter((_, j) => j !== i) })}><Trash2 size={15} strokeWidth={1.5} /></Button>
             </div>
+            {typeError?.group === i && <p role="alert" className="text-xs text-bad">{typeError.message}</p>}
             <details open={hasAnyDim(configDims(g.dims))}>
               <summary className="cursor-pointer text-xs text-muted">Default plinth dimensions (optional)</summary>
               <div className="mt-2"><DimsRow label={`Plinth dimensions, group ${i + 1}`} value={g.dims} onChange={(dims) => setGroup(i, { dims })} idPrefix={`group-${i}`} /></div>

@@ -82,7 +82,7 @@ export function SearchSelect({ label, value, options, onChange, placeholder = 'S
         <ChevronDown size={14} strokeWidth={1.5} aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
       </div>
       {open && (
-        <ul ref={list} id={`${id}-list`} role="listbox" aria-label={label} className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-nx border border-line bg-surface py-1 text-[13px] shadow-lg">
+        <ul ref={list} id={`${id}-list`} role="listbox" aria-label={label} className="absolute z-30 mt-1 max-h-64 w-full min-w-[min(15rem,calc(100vw-2rem))] overflow-auto rounded-nx border border-line bg-surface py-1 text-[13px] shadow-lg">
           {rows.length === 0 && <li className="px-3 py-2.5 text-muted" role="presentation">No match</li>}
           {rows.map((r, i) => {
             const heading = groupOf(i) && groupOf(i) !== groupOf(i - 1) ? groupOf(i) : null
