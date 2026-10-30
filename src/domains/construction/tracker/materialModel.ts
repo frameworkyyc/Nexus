@@ -37,7 +37,6 @@ export interface MaterialInput {
 /** The project records a change is checked against. */
 export interface Env { catalog: Catalog; suppliers: SupplierRecord[] }
 
-const exists = <T extends { id: string }>(xs: T[], id: string) => xs.some((x) => x.id === id)
 
 /**
  * Why a material (or a change to one) cannot be saved, or null. `current` is the record being edited: a value it already holds is
@@ -47,7 +46,9 @@ export function validateMaterial(m: Partial<MaterialInput>, env: Env, current?: 
   const partial = !!current
   if (!partial || m.areaId !== undefined) {
     if (!m.areaId) return 'Select an area.'
-    if (!exists(env.catalog.areas, m.areaId)) return 'Select an area from the project’s areas.'
+    const area = env.catalog.areas.find((a) => a.id === m.areaId)
+    if (!area) return 'Select an area from the project’s areas.'
+    if (area.archived && m.areaId !== current?.areaId) return 'That area is archived.'
   }
   if (!partial || m.name !== undefined) if (!clean(m.name)) return 'Material name is required.'
   for (const k of ['name', 'description', 'specification', 'size', 'unit', 'poRef', 'notes'] as const) if (typeof m[k] === 'string' && (m[k] as string).length > MAX_TEXT) return `${k} is too long (500 characters at most).`
@@ -70,7 +71,11 @@ export function validateMaterial(m: Partial<MaterialInput>, env: Env, current?: 
       if (!areaId && !current) return 'Select an area first.'
     }
   }
-  if (m.anchorageTypeId && !exists(env.catalog.anchorage, m.anchorageTypeId)) return 'Select an anchorage type from the project’s library.'
+  if (m.anchorageTypeId) {
+    const a = env.catalog.anchorage.find((x) => x.id === m.anchorageTypeId)
+    if (!a) return 'Select an anchorage type from the project’s library.'
+    if (a.archived && m.anchorageTypeId !== current?.anchorageTypeId) return 'That anchorage type is archived.'
+  }
   if (m.supplierId) {
     const sup = env.suppliers.find((x) => x.id === m.supplierId)
     if (!sup) return 'Select a supplier from the supplier directory.'

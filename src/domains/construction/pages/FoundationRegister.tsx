@@ -9,7 +9,7 @@ import { ProgressBar } from '@/components/ui/Progress'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { paths } from '../paths'
 import {
-  BOLT_STAGE_LABEL, FOUNDATION_STATE_LABEL, computeStats, footingActivities, footingStep, foundationState, foundationsOf, percent, plinthActivities, plinthBoltStage,
+  BOLT_STAGE_LABEL, FOUNDATION_STATE_LABEL, computeStats, footingActivities, footingStep, foundationState, foundationsOf, foundationsOfProject, percent, plinthActivities, plinthBoltStage,
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
@@ -46,14 +46,14 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
 
   const rows = useMemo<Row[]>(
     () =>
-      foundationsOf(idx, areaId).filter((f) => showArchived || !f.archived).map((f) => {
+      (areaId ? foundationsOf(idx, areaId) : foundationsOfProject(idx, projectId)).filter((f) => showArchived || !f.archived).map((f) => {
         const plinths = idx.plinthsByFoundation.get(f.id) ?? []
         return {
           f, plinths, area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
           types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
         }
       }),
-    [idx, areaId, showArchived],
+    [idx, areaId, projectId, showArchived],
   )
 
   const q = query.trim().toLowerCase()
@@ -101,7 +101,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
           {!areaId && (
             <Select className="w-44 phone:w-full phone:col-span-2" aria-label="Filter by area" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
               <option value="all">All areas</option>
-              {state.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {state.areas.filter((a) => a.projectId === projectId && (showArchived || !a.archived)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </Select>
           )}
         </div>
@@ -119,7 +119,13 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
       </p>
 
       {!visible.length ? (
-        <EmptyState title="No foundations match" description="Adjust the search or filters." />
+        rows.length === 0 ? (
+          <EmptyState
+            title={state.areas.some((a) => a.projectId === projectId && !a.archived) ? 'No foundations yet' : 'No construction areas yet'}
+            description={state.areas.some((a) => a.projectId === projectId && !a.archived) ? 'Add foundations to build this register. Materials, survey and QA/QC then use them automatically.' : 'Create an area first, then add its foundations. You can add several foundations at once.'}
+            action={<div className="flex flex-wrap justify-center gap-2">{!areaId && !state.areas.some((a) => a.projectId === projectId && !a.archived) && <AddAreaButton projectId={projectId} />}<AddFoundationButton projectId={projectId} areaId={areaId} /></div>}
+          />
+        ) : <EmptyState title="No foundations match" description="Adjust the search or filters." />
       ) : phone ? (
         <RegisterCards view={view} visible={visible} plinthRows={plinthRows} open={open} toggleOpen={toggleOpen} projectId={projectId} areaId={areaId} />
       ) : view === 'foundations' ? (

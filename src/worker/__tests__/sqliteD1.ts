@@ -16,10 +16,15 @@ class Stmt implements D1Statement {
 
 export interface TestDb { d1: D1; raw: DatabaseSync; failNextBatch: (message: string) => void }
 
-export function createTestDb(opts: { migrate?: boolean } = {}): TestDb {
+/**
+ * An in-memory database with the real migrations applied. By default the REEF reference fixture (seeds/reef) is added on top so tests have a
+ * project and fleet to work with; pass `{ seed: false }` for the genuinely empty database a new installation starts with.
+ */
+export function createTestDb(opts: { migrate?: boolean; seed?: boolean } = {}): TestDb {
   const raw = new DatabaseSync(':memory:')
   raw.exec('PRAGMA foreign_keys = ON')
   if (opts.migrate !== false) for (const f of readdirSync('migrations').filter((x) => x.endsWith('.sql')).sort()) raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+  if (opts.migrate !== false && opts.seed !== false) applySeeds(raw)
   let failure: string | null = null
   const d1: D1 = {
     prepare: (sql) => new Stmt(raw, sql),
@@ -40,4 +45,5 @@ export function createTestDb(opts: { migrate?: boolean } = {}): TestDb {
   return { d1, raw, failNextBatch: (m) => { failure = m } }
 }
 
+export const applySeeds = (raw: DatabaseSync) => { for (const f of readdirSync('seeds/reef').filter((x) => x.endsWith('.sql')).sort()) raw.exec(readFileSync(`seeds/reef/${f}`, 'utf8')) }
 export const applyMigrationFile = (raw: DatabaseSync, name: string) => raw.exec(readFileSync(`migrations/${name}`, 'utf8'))

@@ -20,13 +20,13 @@ export type Permission =
   | 'view'
   | 'materials.add' | 'materials.edit' | 'materials.receive' | 'materials.bulk' | 'materials.import'
   | 'materials.archive' | 'materials.void-receipt' | 'materials.configure'
-  | 'suppliers.add' | 'foundations.manage'
+  | 'suppliers.add' | 'structure.manage'
   | 'data.edit' // any other module's records, until those modules get their own permissions
   | 'access.manage'
 
 const VIEWER: Permission[] = ['view']
 const EDITOR: Permission[] = [...VIEWER, 'materials.add', 'materials.edit', 'materials.receive', 'materials.bulk', 'materials.import', 'suppliers.add', 'data.edit']
-const ADMIN: Permission[] = [...EDITOR, 'materials.archive', 'materials.void-receipt', 'materials.configure', 'foundations.manage', 'access.manage']
+const ADMIN: Permission[] = [...EDITOR, 'materials.archive', 'materials.void-receipt', 'materials.configure', 'structure.manage', 'access.manage']
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = { viewer: VIEWER, editor: EDITOR, admin: ADMIN }
 
 export const can = (role: Role | null | undefined, permission: Permission) => !!role && ROLE_PERMISSIONS[role].includes(permission)
@@ -51,7 +51,7 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
 }
 
 /** Foundation and area setup is an Admin task; everything else in construction stays at `data.edit`. */
-const CONSTRUCTION_COMMANDS: Record<string, Permission> = { createFoundation: 'foundations.manage', renameFoundation: 'foundations.manage', editFoundation: 'foundations.manage', archiveFoundation: 'foundations.manage', createArea: 'foundations.manage' }
+const CONSTRUCTION_COMMANDS: Record<string, Permission> = { createOrganization: 'structure.manage', updateOrganization: 'structure.manage', createProject: 'structure.manage', updateProject: 'structure.manage', createFoundation: 'structure.manage', renameFoundation: 'structure.manage', editFoundation: 'structure.manage', archiveFoundation: 'structure.manage', createArea: 'structure.manage', addFoundations: 'structure.manage', editArea: 'structure.manage', archiveArea: 'structure.manage', addAnchorageType: 'structure.manage', editAnchorageType: 'structure.manage', archiveAnchorageType: 'structure.manage' }
 
 export function permissionForCommand(module: string, name: string): Permission {
   if (module === 'materials') return MATERIALS_COMMANDS[name] ?? 'materials.configure'

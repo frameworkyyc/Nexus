@@ -31,7 +31,7 @@ export function AccessNotice() {
   return (
     <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted">
       {server
-        ? 'Records are saved on the server and shown on every device you sign in from. Only approved accounts can reach this site (Cloudflare Access). Roles inside Nexus (fleet manager, project supervisor, project user) are designed but not enforced: everyone who signs in can change everything.'
+        ? 'Records are saved on the server and shown on every device you sign in from. Access is controlled by Cloudflare Access and by your Nexus role (Viewer, Editor or Admin), which the server checks on every change.'
         : 'Records are stored in this browser only, so other users and devices do not see them. Role-based access (fleet managers, project supervisors, project users) is designed but not enforced: there is no sign-in yet, so these pages are not secure.'}
     </p>
   )

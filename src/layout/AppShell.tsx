@@ -6,6 +6,7 @@ import { useIsPhone } from '@/lib/useMedia'
 import { BottomNav } from './BottomNav'
 import { DataGate } from './DataGate'
 import { MobileHeader } from './MobileHeader'
+import { OnboardingGate } from './OnboardingGate'
 import { MoreSheet } from './MoreSheet'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
@@ -25,7 +26,7 @@ export function AppShell() {
           <MobileHeader onMenu={() => setNavOpen(true)} />
           <div className="pl-safe pr-safe">
             <main className="px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-5">
-              <DataGate><Outlet /></DataGate>
+              <DataGate><OnboardingGate><Outlet /></OnboardingGate></DataGate>
             </main>
           </div>
           <BottomNav />
@@ -42,7 +43,7 @@ export function AppShell() {
           <TopBar onMenu={() => setNavOpen(true)} />
           <main className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
-              <DataGate><Outlet /></DataGate>
+              <DataGate><OnboardingGate><Outlet /></OnboardingGate></DataGate>
             </div>
           </main>
         </div>

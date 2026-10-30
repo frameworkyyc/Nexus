@@ -60,3 +60,15 @@ export function createPersistedStore<T>({ key, version, seed, migrate }: Options
     use: () => useSyncExternalStore(subscribe, () => current),
   }
 }
+
+/**
+ * An in-memory store with the same interface and nothing written to the browser. Used by the application (non-demo) bundle, which keeps
+ * no operational records on this device: they live in the database. It only ever holds an empty "nothing loaded yet" value.
+ */
+export function createEphemeralStore<T>(seed: () => T): PersistedStore<T> {
+  const listeners = new Set<() => void>()
+  let current = seed()
+  const set = (next: T) => { current = next; listeners.forEach((l) => l()) }
+  const subscribe = (l: () => void) => { listeners.add(l); return () => listeners.delete(l) }
+  return { get: () => current, set, reset: () => set(seed()), use: () => useSyncExternalStore(subscribe, () => current) }
+}

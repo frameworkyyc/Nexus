@@ -1,4 +1,3 @@
-import { identity } from '@/app/identity'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { CARD, MeterBar, SortBar } from '@/components/mobile/Cards'
@@ -11,7 +10,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { IN_DELIVERY, PROJECT_STATUS_LABEL, PROJECT_STATUS_RANK, PROJECT_STATUS_TONE } from '../config'
 import { deriveExceptions } from '../exceptions'
 import { paths } from '../paths'
-import { projectSummaries, type ProjectSummary } from '../selectors'
+import { foundationsOfProject, projectSummaries, type ProjectSummary } from '../selectors'
 import { useConstruction } from '../store'
 import type { ProjectStatus } from '../types'
 
@@ -28,6 +27,7 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'status', dir: 1 })
   const [shown, setShown] = useState(pageSize)
 
+  const hasFoundations = (id: string) => foundationsOfProject(idx, id).length > 0
   const all = useMemo(() => projectSummaries(idx, (id) => deriveExceptions(idx, today, id)), [idx, today])
   const q = query.trim().toLowerCase()
   const rows = useMemo(() => {
@@ -76,8 +76,8 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
                   <span className="min-w-0 text-[17px] font-medium leading-snug">{r.project.name}</span>
                   <StatusBadge tone={PROJECT_STATUS_TONE[r.project.status]} label={PROJECT_STATUS_LABEL[r.project.status]} className="mt-0.5 shrink-0 text-[14px]" />
                 </span>
-                <span className="mt-1 block text-[14px] text-muted">Job {r.project.jobNumber} · {r.project.client}</span>
-                <span className="mt-3 flex items-center gap-3"><MeterBar value={r.progress} label={`${r.project.name} completion`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.progress}%</span></span>
+                <span className="mt-1 block text-[14px] text-muted">{[r.project.jobNumber && `Job ${r.project.jobNumber}`, r.project.client].filter(Boolean).join(' · ')}</span>
+                {r.project.tracking === 'detailed' && !hasFoundations(r.project.id) ? <span className="mt-3 block text-[13px] text-muted">Progress not tracked yet</span> : <span className="mt-3 flex items-center gap-3"><MeterBar value={r.progress} label={`${r.project.name} completion`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.progress}%</span></span>}
               </Link>
             </li>
           ))}
@@ -101,7 +101,7 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
                     <span className="block text-xs text-muted"><span className="sm:hidden">Job {r.project.jobNumber} · </span>{r.project.client}</span>
                   </td>
                   <td className="hidden py-3.5 pr-5 font-mono text-xs text-muted sm:table-cell">{r.project.jobNumber}</td>
-                  <td className="py-3.5 pr-5"><ProgressBar value={r.progress} width="w-16 sm:w-28" /></td>
+                  <td className="py-3.5 pr-5">{r.project.tracking === 'detailed' && !hasFoundations(r.project.id) ? <span className="text-xs text-muted">Not tracked yet</span> : <ProgressBar value={r.progress} width="w-16 sm:w-28" />}</td>
                   <td className="py-3.5 pr-2"><StatusBadge tone={PROJECT_STATUS_TONE[r.project.status]} label={PROJECT_STATUS_LABEL[r.project.status]} /></td>
                 </tr>
               ))}
@@ -112,7 +112,7 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
       {rows.length > shown && (
         <div className="mt-4 flex justify-center"><Button onClick={() => setShown(shown + pageSize)}>Show {Math.min(pageSize, rows.length - shown)} more</Button></div>
       )}
-      <p className="mt-4 text-xs text-muted">Completion is calculated from activity records for projects with detailed tracking (such as {identity.trackerName}) and is the reported figure for the others. Status is always recorded by a person.</p>
+      <p className="mt-4 text-xs text-muted">Completion is calculated from activity records for projects with detailed tracking  and is the reported figure for the others. Status is always recorded by a person.</p>
     </div>
   )
 }

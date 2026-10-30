@@ -37,6 +37,6 @@ describe('command tagging', () => {
   it('destructive and demonstration-only actions are not accepted by the server', () => {
     expect(SERVER_COMMANDS.materials).not.toHaveProperty('clearTracker')
     for (const name of ['allocate', 'createPurchaseOrder', 'receiveDelivery', 'createFabrication', 'recordAcceptance', 'setReportedProgress', 'addDocument']) expect(SERVER_COMMANDS.construction).not.toHaveProperty(name)
-    expect(Object.keys(SERVER_COMMANDS.construction).sort()).toEqual(['archiveFoundation', 'createArea', 'createFoundation', 'editFoundation', 'renameFoundation', 'setFoundationNotes', 'setPlinthNotes', 'setProjectStatus', 'updateActivity'])
+    expect(Object.keys(SERVER_COMMANDS.construction).sort()).toEqual(['addAnchorageType', 'addFoundations', 'archiveAnchorageType', 'archiveArea', 'archiveFoundation', 'createArea', 'createFoundation', 'createOrganization', 'createProject', 'editAnchorageType', 'editArea', 'editFoundation', 'renameFoundation', 'setFoundationNotes', 'setPlinthNotes', 'setProjectStatus', 'updateActivity', 'updateOrganization', 'updateProject'])
   })
 })

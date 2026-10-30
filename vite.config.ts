@@ -18,6 +18,17 @@ const demoIdentity = (): Plugin => ({
   },
 })
 
+/** Tests run against a realistic project and fleet fixture instead of the (empty) application identity. Never part of a build. */
+const fixtureIdentity = (): Plugin => ({
+  name: 'nexus-test-identity-fixture',
+  enforce: 'pre',
+  async resolveId(source, importer, options) {
+    if (!/identity$/.test(source)) return null
+    const r = await this.resolve(source, importer, { ...options, skipSelf: true })
+    return r && identityOf(r.id) && !/__fixtures__/.test(importer ?? '') ? r.id.replace(/identity\.ts$/, '__fixtures__/identity.reef.ts') : null
+  },
+})
+
 /** Fails the build if anything that identifies the real organization, project or fleet reached a public bundle. */
 const demoGuard = (): Plugin => ({
   name: 'nexus-demo-guard',
@@ -34,10 +45,10 @@ const demoGuard = (): Plugin => ({
   },
 })
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
   const bundle = resolveBundle(process.env)
   return {
-    plugins: [...(bundle === 'demo' ? [demoIdentity()] : []), react(), tailwindcss(), ...(bundle === 'demo' ? [demoGuard()] : [])],
+    plugins: [...(bundle === 'demo' ? [demoIdentity()] : []), ...(mode === 'test' ? [fixtureIdentity()] : []), react(), tailwindcss(), ...(bundle === 'demo' ? [demoGuard()] : [])],
     define: { __NEXUS_BUNDLE__: JSON.stringify(bundle) },
     resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   }

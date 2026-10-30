@@ -1,6 +1,6 @@
 import { Menu } from 'lucide-react'
 import { Link, useMatches, type Params } from 'react-router-dom'
-import { tenant } from '@/app/tenant'
+import { useTenant } from '@/app/tenant'
 import type { ComponentType } from 'react'
 import { SyncIndicator } from './SyncIndicator'
 
@@ -11,6 +11,7 @@ export interface CrumbHandle {
 }
 
 export function TopBar({ onMenu }: { onMenu: () => void }) {
+  const tenant = useTenant()
   const crumbs = useMatches().filter((m) => (m.handle as CrumbHandle | undefined)?.crumb)
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 sm:px-8">
@@ -33,7 +34,7 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
       </div>
       <div className="flex items-center gap-4">
         <SyncIndicator />
-        <span className="hidden text-[13px] text-muted sm:inline">{tenant.organization}</span>
+        <span className="hidden text-[13px] text-muted sm:inline">{tenant.organization || 'Nexus'}</span>
         <div aria-label="User avatar placeholder" className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-micro font-medium text-white">
           {tenant.userInitials}
         </div>

@@ -15,6 +15,8 @@ export interface Vehicle {
   vin: string | null // null = not recorded
   licencePlate: string | null // null = not recorded
   notes: string
+  /** A road vehicle or a piece of equipment. Absent = vehicle. */
+  kind?: 'vehicle' | 'equipment'
   /** Planning estimate of the vehicle's total service life in km. null = not set. Reaching it never marks the vehicle unsafe. */
   expectedLifeKm: number | null
   /** Days between inspections. null = the weekly default (7). */

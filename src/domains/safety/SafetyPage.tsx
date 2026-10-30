@@ -28,6 +28,14 @@ export function SafetyPage() {
   const defects = vehicles.flatMap((x) => x.defects.map((d) => ({ ...d, vehicle: x.v })))
   const open = construction.deficiencies.filter((d) => d.status === 'open')
   const closed = construction.deficiencies.filter((d) => d.status === 'closed')
+  if (fleet.vehicles.length === 0 && construction.deficiencies.length === 0) {
+    return (
+      <>
+        <PageHeader title="Safety" description="Inspections, defects and deficiencies." />
+        <EmptyState title="No safety records yet" description="Inspections and defects appear here once vehicles or equipment are added to Fleet and inspections are recorded. Nothing is shown until then." />
+      </>
+    )
+  }
   const needInspection = vehicles.filter((x) => x.insp.cadence === 'overdue' || x.insp.cadence === 'due' || x.insp.cadence === 'unknown').length
   const projectId = construction.projects.find((p) => p.tracking === 'detailed')?.id ?? ''
 

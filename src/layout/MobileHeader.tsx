@@ -2,7 +2,7 @@ import { ChevronLeft, Menu, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useMatches } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
-import { tenant } from '@/app/tenant'
+import { useTenant } from '@/app/tenant'
 import { PRIMARY_NAV, activePrimary } from '@/app/primaryNav'
 import type { CrumbHandle } from './TopBar'
 
@@ -11,6 +11,7 @@ import type { CrumbHandle } from './TopBar'
  * the organization), a search button on screens that have a search field, and the menu. Safe-area aware and sticky.
  */
 export function MobileHeader({ onMenu }: { onMenu: () => void }) {
+  const tenant = useTenant()
   const { pathname } = useLocation()
   const crumbs = useMatches().filter((m) => (m.handle as CrumbHandle | undefined)?.crumb)
   const [hasSearch, setHasSearch] = useState(false)
@@ -45,7 +46,7 @@ export function MobileHeader({ onMenu }: { onMenu: () => void }) {
             <Link to="/" aria-label="Nexus home" className="grid h-11 w-11 shrink-0 place-items-center"><span className="grid h-8 w-8 place-items-center rounded-lg bg-ink text-[15px] font-semibold text-white">N</span></Link>
             <div className="min-w-0 flex-1 px-1 leading-tight">
               <p className="text-[15px] font-semibold tracking-[0.26em]">NEXUS</p>
-              <p className="truncate text-[12.5px] text-muted">{tenant.organization}</p>
+              <p className="truncate text-[12.5px] text-muted">{tenant.organization || 'Nexus'}</p>
             </div>
           </>
         )}

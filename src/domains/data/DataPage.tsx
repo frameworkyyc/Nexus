@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Section } from '@/components/ui/Section'
 import { api, ApiError } from '@/lib/api'
-import { reloadAll, setViewDemo, useBackend, useSyncStatus } from '@/lib/dataSource'
+import { reloadAll,  useBackend, useSyncStatus } from '@/lib/dataSource'
 import { formatDate } from '@/lib/format'
 import type { Backup, IntegrityReport } from '@/worker/service'
 import type { MigrationBundle, MigrationReport } from '@/worker/migrate'
@@ -27,14 +27,7 @@ export function DataPage() {
         <div><dt className="t-label">Signed in as</dt><dd className="mt-1 break-all text-[15px]">{server ? backend.user ?? '—' : '—'}</dd></div>
         <div><dt className="t-label">Last saved</dt><dd className="mt-1 text-[15px]">{sync.lastSavedAt ? new Date(sync.lastSavedAt).toLocaleTimeString('en-CA') : '—'}</dd></div>
       </dl>
-      {!server && <p className="mt-4 max-w-2xl text-[13px] text-muted">{backend.reason ?? (backend.serverAvailable ? 'You chose to view demonstration data in this tab.' : 'The app is showing demonstration data.')} Nothing entered now is saved to a server or visible on other devices.</p>}
-      {backend.serverAvailable && (
-        <p className="mt-3 text-[13px]">
-          {server
-            ? <button className="text-muted underline underline-offset-4 hover:text-ink" onClick={() => setViewDemo(true)}>View fictional demonstration data in this tab</button>
-            : <button className="underline underline-offset-4" onClick={() => { setViewDemo(false); void reloadAll() }}>Return to saved project data</button>}
-        </p>
-      )}
+      {!server && <p className="mt-4 max-w-2xl text-[13px] text-muted">{backend.reason ?? 'Saved data is not available.'} Nothing entered now is saved to a server or visible on other devices.</p>}
       {server && <ServerBackup />}
       <BrowserData server={server} />
       {server && <Migration />}

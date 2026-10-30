@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { getBackend, reloadAll, setViewDemo, startBackend, useBackend } from '@/lib/dataSource'
+import { getBackend, reloadAll, startBackend, useBackend } from '@/lib/dataSource'
 
 /** Holds the screens back until the app knows whether it is showing saved or demonstration data, and has loaded it. */
 export function DataGate({ children }: { children: ReactNode }) {
@@ -19,7 +19,16 @@ export function DataGate({ children }: { children: ReactNode }) {
       <EmptyState
         title="Sign-in needed"
         description={backend.reason ?? 'This browser is not signed in, so saved data cannot be shown.'}
-        action={<div className="flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={() => window.location.reload()}>Reload and sign in</Button><Button variant="ghost" onClick={() => { setViewDemo(true); void startBackend() }}>View demonstration data instead</Button></div>}
+        action={<div className="flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={() => window.location.reload()}>Reload and sign in</Button></div>}
+      />
+    )
+  }
+  if (backend.mode === 'unavailable') {
+    return (
+      <EmptyState
+        title="Saved data isn’t set up yet"
+        description={`${backend.reason ?? 'The database is not available.'} Nexus keeps every record in its database and never in this browser, so there is nothing to show until that is configured. See docs/OPERATIONS.md for the steps.`}
+        action={<Button variant="primary" onClick={() => void startBackend()}>Check again</Button>}
       />
     )
   }

@@ -230,6 +230,7 @@ describe('migration 0005 on an existing database', () => {
   it('adds the new structures without changing or losing any existing material record', () => {
     const db = createTestDb({ migrate: false })
     for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql']) db.raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+    db.raw.exec(readFileSync('seeds/reef/0002_seed_reef_and_fleet.sql', 'utf8'))
     db.raw.exec("INSERT INTO material_import_batches (id, file_name, file_size, sha256, imported_at, counts_json, seq) VALUES ('b1','w.xlsx',1,NULL,'2026-10-01T00:00:00Z','{}',0)")
     db.raw.exec("INSERT INTO material_lines (id, batch_id, source_sheet, source_row, area, footing_type, anchorage_type, footings, plinths, bolts, component, category, required_qty, calc_json, source_status, seq) VALUES ('l1','b1','Material List',4,'North','F1','A1',1,1,1,'Bolt','bolt',24,'{}','Delivered',0)")
     db.raw.exec("INSERT INTO material_line_ops (line_id, ordered_qty, confirmed_no_receipts, notes) VALUES ('l1', 24, 0, 'kept')")
@@ -364,6 +365,7 @@ describe('materials reference project records on the server', () => {
   it('migration 0006 on an existing database keeps every record and links nothing by itself', () => {
     const db = createTestDb({ migrate: false })
     for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql']) db.raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+    db.raw.exec(readFileSync('seeds/reef/0002_seed_reef_and_fleet.sql', 'utf8'))
     db.raw.exec("INSERT INTO foundations (id, area_id, number, description, notes, seq) VALUES ('f1', 'mole-sieve', '21-01', 'd', 'n', 0)")
     db.raw.exec("INSERT INTO manual_materials (id, area, location, anchorage_ref, category, name, required_qty, supplier, seq) VALUES ('mm1', 'Mole Sieve', '21-01', 'AB-1', 'bolt', 'Bolt', 5, 'Vendor', 0)")
     applyMigrationFile(db.raw, '0006_material_entry_references.sql')

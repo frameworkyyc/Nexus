@@ -40,13 +40,13 @@ const emptyRow = (): QuickRow => ({ name: '', specification: '', size: '', qty: 
  * area, foundation, anchorage and supplier choices), or Quick Add: one set of shared choices and many rows, any row able to use its own
  * category, anchorage type or supplier without disturbing the others.
  */
-export function AddMaterialModal({ initial, duplicate, title = 'Add material', projectId, onClose }: { initial?: MaterialInput; duplicate?: boolean; title?: string; projectId?: string; onClose: () => void }) {
+export function AddMaterialModal({ initial, duplicate, title = 'Add material', projectId, startQuick, onClose }: { initial?: MaterialInput; duplicate?: boolean; title?: string; projectId?: string; /** Open in Quick Add (several) mode. */ startQuick?: boolean; onClose: () => void }) {
   const toast = useToast()
   const access = useAccess()
   const refs = useMaterialRefs(projectId)
   const { catalog } = refs
   const start = initial ?? blankMaterial()
-  const [mode, setMode] = useState<Mode>('one')
+  const [mode, setMode] = useState<Mode>(startQuick ? 'quick' : 'one')
   const [m, setM] = useState<MaterialInput>(start)
   // Shared supplier: `manual` = the person chose it (or chose "none"), so changing the category never replaces it.
   const [supplier, setSupplier] = useState<{ id: string; manual: boolean }>({ id: start.supplierId, manual: !!start.supplierId })
@@ -62,7 +62,7 @@ export function AddMaterialModal({ initial, duplicate, title = 'Add material', p
   const sharedSupplier = supplierEffective(m.category)
   const supplierName = (id: string) => refs.suppliers.find((s) => s.id === id)?.name ?? ''
 
-  const areaOptions: SelectOption[] = catalog.areas.map((a) => ({ value: a.id, label: a.name }))
+  const areaOptions: SelectOption[] = catalog.areas.filter((a) => !a.archived).map((a) => ({ value: a.id, label: a.name }))
   const foundationOptions: SelectOption[] = foundations.map((f) => ({ value: f.id, label: f.number, hint: f.description || undefined }))
   const anchorageOptions: SelectOption[] = anchorageFor(catalog, m.foundationId).map((a) => ({ value: a.id, label: a.code, hint: a.description || undefined, group: m.foundationId ? (a.onFoundation ? 'Used on this foundation' : 'Other anchorage types') : undefined }))
   const supplierOptions: SelectOption[] = refs.activeSuppliers.map((s) => ({ value: s.id, label: s.name }))
@@ -130,10 +130,13 @@ export function AddMaterialModal({ initial, duplicate, title = 'Add material', p
           <Field label="Foundation"><SearchSelect label="Foundation" value={m.foundationId} options={foundationOptions} onChange={(id) => set({ foundationId: id })} disabled={!m.areaId} emptyLabel="No foundation (area-level)" placeholder={m.areaId ? (foundations.length ? 'Select a foundation' : 'No foundations in this area') : 'Select an area first'} /></Field>
           <Field label="Anchorage type"><SearchSelect label="Anchorage type" value={m.anchorageTypeId} options={anchorageOptions} onChange={(id) => set({ anchorageTypeId: id })} emptyLabel="None" placeholder="Search by code or description" /></Field>
         </div>
-        {m.areaId && foundations.length === 0 && (
-          <p className="-mt-3 text-xs text-muted">This area has no foundations yet. {access.can('foundations.manage') ? <>Add them in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link>.</> : 'An administrator can add them in the Foundation Register.'}</p>
+        {catalog.areas.filter((a) => !a.archived).length === 0 && (
+          <p role="status" className="-mt-3 border-l-2 border-warn pl-3 text-xs">This project has no construction areas yet, so there is nothing to select. {access.can('structure.manage') ? <>Create an area in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link> first.</> : 'Ask an administrator to create the areas first.'}</p>
         )}
-        {m.areaId && foundations.length > 0 && access.can('foundations.manage') && <p className="-mt-3 text-xs text-muted">Foundation missing? Add it in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link>.</p>}
+        {m.areaId && foundations.length === 0 && (
+          <p className="-mt-3 text-xs text-muted">This area has no foundations yet. {access.can('structure.manage') ? <>Add them in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link>.</> : 'An administrator can add them in the Foundation Register.'}</p>
+        )}
+        {m.areaId && foundations.length > 0 && access.can('structure.manage') && <p className="-mt-3 text-xs text-muted">Foundation missing? Add it in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link>.</p>}
 
         {mode === 'one' ? (
           <>

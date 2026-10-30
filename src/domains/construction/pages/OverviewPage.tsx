@@ -8,6 +8,7 @@ import { companyIssues } from '../portfolio'
 import { portfolioCounts } from '../selectors'
 import { useConstruction } from '../store'
 import { ProjectPortfolio } from './ProjectPortfolio'
+import { EditOrganizationButton, NewProjectButton, NoProjects } from './Setup'
 
 const dot = { high: 'bg-bad', medium: 'bg-warn' }
 
@@ -17,9 +18,17 @@ export function OverviewPage() {
   const [shown, setShown] = useState(6)
   const counts = portfolioCounts(state.projects)
   const issues = companyIssues(idx, today)
+  if (state.projects.length === 0) {
+    return (
+      <>
+        <PageHeader title="Overview" description={state.company.name} actions={<EditOrganizationButton />} />
+        <NoProjects />
+      </>
+    )
+  }
   return (
     <>
-      <PageHeader title="Overview" description={state.company.name} />
+      <PageHeader title="Overview" description={state.company.name} actions={<><EditOrganizationButton /><NewProjectButton /></>} />
       <dl className="grid grid-cols-3 border-y border-line divide-x divide-line [&>div]:py-6 [&>div]:px-4 sm:[&>div]:px-8 [&>div:first-child]:pl-0">
         <Stat label="Active projects" value={counts.active} />
         <Stat label="At risk" value={counts.atRisk} />
@@ -56,10 +65,11 @@ export function OverviewPage() {
 }
 
 export function ProjectsPage() {
+  const { state } = useConstruction()
   return (
     <>
-      <PageHeader title="Projects" />
-      <ProjectPortfolio pageSize={25} />
+      <PageHeader title="Projects" actions={<NewProjectButton />} />
+      {state.projects.length === 0 ? <NoProjects /> : <ProjectPortfolio pageSize={25} />}
     </>
   )
 }

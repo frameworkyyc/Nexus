@@ -142,22 +142,30 @@ describe('saved-data mode', () => {
   })
 })
 
-describe('demonstration mode', () => {
-  it('is used when no server answers, keeps data in the browser, and never calls the command API', async () => {
+describe('no server (application bundle)', () => {
+  it('never falls back to browser-held records: it reports the database as unavailable and refuses changes', async () => {
     respond = () => json({ error: 'not found' }, 404)
-    const local = createPersistedStore<S>({ key: `test.${Math.random()}`, version: 1, seed: () => ({ items: [] }) })
+    const local = createPersistedStore<S>({ key: `test.${Math.random()}`, version: 1, seed: () => ({ items: ['old browser record'] }) })
     const store = createModuleStore<S>('fleet', local, () => ({ items: [] }))
     await startBackend()
-    expect(getBackend().mode).toBe('demo')
-    expect(await store.run(wire('d'))).toBeNull()
-    expect(store.get().items).toEqual(['d'])
+    expect(getBackend().mode).toBe('unavailable')
+    expect(store.get()).toEqual({ items: [] }) // the browser copy is not shown
+    expect(await store.run(wire('d'))).toMatch(/not available/)
+    expect(local.get().items).toEqual(['old browser record']) // and not changed
     expect(calls.some((c) => c.url === '/api/commands')).toBe(false)
   })
 
-  it('stays in demonstration mode when Access is not configured (fail closed), even if a database is bound', async () => {
+  it('stays unavailable when Access is not configured (fail closed), even if a database is bound, and says what is missing', async () => {
     respond = (c) => (c.url === '/api/health' ? json({ ok: true, database: true, access: false }) : json({ error: 'x' }, 503))
     await startBackend()
-    expect(getBackend()).toMatchObject({ mode: 'demo', serverAvailable: false })
-    expect(getBackend().reason).toMatch(/Access control is not configured/)
+    expect(getBackend()).toMatchObject({ mode: 'unavailable', serverAvailable: false })
+    expect(getBackend().reason).toMatch(/ACCESS_TEAM_DOMAIN and ACCESS_AUD/)
+  })
+
+  it('says when the database binding is missing', async () => {
+    respond = (c) => (c.url === '/api/health' ? json({ ok: true, database: false, access: true }) : json({ error: 'x' }, 503))
+    await startBackend()
+    expect(getBackend()).toMatchObject({ mode: 'unavailable' })
+    expect(getBackend().reason).toMatch(/binding named DB/)
   })
 })

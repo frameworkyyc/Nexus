@@ -14,6 +14,7 @@
     "test": "vitest run",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.dev.jsonc",
     "dev:full": "npm run build && npm run db:migrate:local && wrangler dev --config wrangler.dev.jsonc",
+    "dev:demo": "NEXUS_BUNDLE=demo vite",
     "build:demo": "tsc --noEmit && NEXUS_BUNDLE=demo vite build"
   },
   "dependencies": {

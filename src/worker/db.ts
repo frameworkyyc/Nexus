@@ -33,14 +33,15 @@ export interface TableDef {
  * (enforced by D1) are always satisfied inside a batch.
  */
 export const TABLES: TableDef[] = [
-  { name: 'companies', pk: 'id', columns: ['id', 'name'], module: 'reference' },
-  { name: 'projects', pk: 'id', columns: ['id', 'company_id', 'name', 'job_number', 'client', 'location', 'scope', 'status', 'status_note'], module: 'construction', refs: { company_id: 'companies' } },
-  { name: 'areas', pk: 'id', columns: ['id', 'project_id', 'name', 'sequence'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'name']] },
+  { name: 'companies', pk: 'id', columns: ['id', 'name', 'legal_name', 'location', 'contact_name', 'contact_email', 'contact_phone', 'website', 'notes'], module: 'reference' },
+  { name: 'projects', pk: 'id', columns: ['id', 'company_id', 'name', 'job_number', 'client', 'location', 'scope', 'status', 'status_note', 'description', 'start_date', 'end_date'], module: 'construction', refs: { company_id: 'companies' } },
+  { name: 'areas', pk: 'id', columns: ['id', 'project_id', 'name', 'sequence', 'identifier', 'description', 'archived'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'name']] },
+  { name: 'anchorage_types', pk: 'id', columns: ['id', 'project_id', 'code', 'description', 'archived', 'seq'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'code']] },
   { name: 'foundations', pk: 'id', columns: ['id', 'area_id', 'number', 'description', 'notes', 'archived', 'seq'], module: 'construction', refs: { area_id: 'areas' }, unique: [['area_id', 'number']] },
-  { name: 'plinths', pk: 'id', columns: ['id', 'foundation_id', 'idx', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations' }, unique: [['foundation_id', 'idx']] },
+  { name: 'plinths', pk: 'id', columns: ['id', 'foundation_id', 'idx', 'anchorage_type_id', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations', anchorage_type_id: 'anchorage_types' }, unique: [['foundation_id', 'idx']] },
   { name: 'activities', pk: 'id', columns: ['id', 'scope', 'activity_key', 'foundation_id', 'plinth_id', 'status', 'planned_date', 'actual_date', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations', plinth_id: 'plinths' } },
 
-  { name: 'vehicles', pk: 'id', columns: ['id', 'company_id', 'unit_number', 'year', 'make', 'model', 'vin', 'licence_plate', 'notes', 'expected_life_km', 'inspection_interval_days', 'seq'], module: 'fleet', refs: { company_id: 'companies' }, unique: [['unit_number']] },
+  { name: 'vehicles', pk: 'id', columns: ['id', 'company_id', 'unit_number', 'year', 'make', 'model', 'vin', 'licence_plate', 'notes', 'kind', 'expected_life_km', 'inspection_interval_days', 'seq'], module: 'fleet', refs: { company_id: 'companies' }, unique: [['unit_number']] },
   { name: 'vehicle_assignments', pk: 'id', columns: ['id', 'vehicle_id', 'project_id', 'start_date', 'end_date', 'seq'], module: 'fleet', refs: { vehicle_id: 'vehicles', project_id: 'projects' } },
   { name: 'odometer_readings', pk: 'id', columns: ['id', 'vehicle_id', 'reading_date', 'reading', 'unit', 'review', 'flag', 'corrects_id', 'note', 'review_note', 'reviewed_date', 'seq'], module: 'fleet', refs: { vehicle_id: 'vehicles' } },
   { name: 'service_targets', pk: 'id', columns: ['id', 'vehicle_id', 'odometer', 'set_date', 'note', 'service_type', 'warn_within_km', 'interval_km', 'seq'], module: 'fleet', refs: { vehicle_id: 'vehicles' } },

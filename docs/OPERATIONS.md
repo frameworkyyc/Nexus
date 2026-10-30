@@ -131,3 +131,24 @@ server, so the app shows demonstration data.
 
 Production must get its own D1 database, its own Access application and its own bindings (`d1_databases` and `ACCESS_*` at the
 top level of `wrangler.jsonc`). Do that on the promotion branch, never by pointing production at the staging database.
+
+## Fresh installation (staging) — what a new customer sees
+
+Staging is a blank installation. Nothing is seeded: the migrations create the schema and nothing else (the only rows are the supplier
+directory entry and preference **Anchor bolts → Nucor**). The first screen is *Welcome to Nexus → Create organization*; then the first
+project, its areas and foundations, the anchorage library, materials and fleet are all created by people, in the database.
+
+* **Database**: `nexus-staging` is bound to the staging preview as `DB` (`wrangler.jsonc` → `previews.d1_databases`). Production
+  (`nexus-production`) is not referenced anywhere in the config. Migrations `0001`–`0007` are applied; `schema_version` is `7`.
+  Apply future ones with `npx wrangler d1 migrations apply nexus-staging --remote` (the *staging* database only); never run a migration or
+  seed against production by hand.
+* **Reference data** that used to be in migrations (the sample organization, project, areas and vehicles) now lives in `seeds/reef/` and
+  is applied only by the automated tests. Never apply it to a real database.
+* **No browser-held records**: the application bundle never stores operational data in the browser and never falls back to it. If the
+  database or Cloudflare Access is missing it shows "Saved data isn't set up yet" and says which. Old browser keys from earlier staging
+  builds (`nexus.demo.*`, `nexus.reef.*`) are neither read nor deleted.
+* **First administrator**: set `INITIAL_ADMIN_EMAIL` on the staging preview (or insert the first row of `user_roles`). That verified identity
+  becomes Admin and can create the organization; nobody else gains a role by signing in.
+* **Still required for real sign-in**: a Cloudflare Access application for `staging.nexus.frameworktools.ca`, then `ACCESS_TEAM_DOMAIN` and
+  `ACCESS_AUD` in `previews.vars`. Until then the API refuses every request (fail closed).
+* **Local full-stack run** (real Worker, local SQLite D1): `npm run build && npx wrangler d1 migrations apply DB --local --config wrangler.dev.jsonc && npx wrangler dev --config wrangler.dev.jsonc`.

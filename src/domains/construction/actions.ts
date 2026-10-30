@@ -370,6 +370,7 @@ const FOUNDATION_NUMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
 function numberProblem(s: ConstructionState, areaId: string, number: string, exceptId?: string): string | null {
   const area = s.areas.find((a) => a.id === areaId)
   if (!area) return 'Area not found.'
+  if (area.archived) return `${area.name} is archived. Restore it before adding foundations.`
   if (!FOUNDATION_NUMBER.test(number)) return 'Use letters, digits, dots, dashes or underscores for the foundation number (for example 21-03).'
   const clash = s.foundations.find((f) => f.areaId === areaId && f.id !== exceptId && f.number.toLowerCase() === number.toLowerCase())
   return clash ? `Foundation ${number} already exists in ${area.name}${clash.archived ? ' (archived — restore it instead)' : ''}.` : null
@@ -430,7 +431,7 @@ export const archiveFoundation = (id: string, archived: boolean): Reducer => (s,
 export interface NewFoundation { number: string; description: string; plinthCount: number }
 
 /** Sets up a new construction area together with its foundations, so the register is complete from the start. */
-export const createArea = (projectId: string, name: string, foundations: NewFoundation[]): Reducer => (s) => {
+export const createArea = (projectId: string, name: string, foundations: NewFoundation[], details: { identifier?: string; description?: string } = {}): Reducer => (s) => {
   if (!s.projects.some((p) => p.id === projectId)) return fail('Project not found.')
   const clean = String(name).trim().replace(/\s+/g, ' ')
   if (!clean || clean.length > 60) return fail('Enter an area name of 60 characters or fewer.')
@@ -438,7 +439,7 @@ export const createArea = (projectId: string, name: string, foundations: NewFoun
   const slug = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'area'
   let id = `area-${slug}`
   for (let n = 2; s.areas.some((a) => a.id === id); n++) id = `area-${slug}-${n}`
-  const area = { id, projectId, name: clean, sequence: Math.max(0, ...s.areas.filter((a) => a.projectId === projectId).map((a) => a.sequence)) + 1 }
+  const area = { id, projectId, name: clean, identifier: String(details.identifier ?? '').trim().slice(0, 40), description: String(details.description ?? '').trim().slice(0, 300), sequence: Math.max(0, ...s.areas.filter((a) => a.projectId === projectId).map((a) => a.sequence)) + 1 }
   let next: ConstructionState = {
     ...s, areas: [...s.areas, area],
     handover: [...s.handover, { areaId: id, requirements: DEFAULT_HANDOVER_REQUIREMENTS.map((r, i) => ({ id: `${id}-req-${i + 1}`, label: r.label, metric: r.metric, done: false, doneDate: null, note: '' })), acceptance: 'not-submitted' as const, submittedDate: null, acceptedDate: null, acceptedBy: '', notes: '' }],
@@ -451,4 +452,164 @@ export const createArea = (projectId: string, name: string, foundations: NewFoun
     next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
   }
   return ok(next)
+}
+
+/** Adds several foundations to one area at once (a whole register). All are checked first: every one is added or none is. */
+export const addFoundations = (areaId: string, items: NewFoundation[]): Reducer => (s) => {
+  if (!Array.isArray(items) || items.length === 0) return fail('Enter at least one foundation.')
+  if (items.length > 200) return fail('Add 200 foundations or fewer at a time.')
+  let next = s
+  for (const [i, f] of items.entries()) {
+    const num = String(f.number).trim()
+    const bad = numberProblem(next, areaId, num) ?? plinthProblem(f.plinthCount)
+    if (bad) return fail(`${items.length > 1 ? `Row ${i + 1}: ` : ''}${bad}`)
+    const made = newFoundation(next, areaId, num, String(f.description ?? ''), f.plinthCount)
+    next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
+  }
+  return ok(next)
+}
+
+/* ── Organization, projects, areas, anchorage library (saved project data) ── */
+
+const text = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
+const slug = (v: string, fallback: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || fallback
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const isoDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T00:00:00`).getTime())
+
+export interface OrganizationInput { name: string; legalName?: string; location?: string; contactName?: string; contactEmail?: string; contactPhone?: string; website?: string; notes?: string }
+
+function organizationFrom(input: Partial<OrganizationInput>, base: ConstructionState['company']): ConstructionState['company'] | string {
+  const next = { ...base }
+  if (input.name !== undefined) { const n = text(input.name, 80); if (n.length < 2) return 'Enter the organization name (at least 2 characters).'; next.name = n }
+  const fields = { legalName: 80, location: 120, contactName: 80, contactEmail: 120, contactPhone: 40, website: 120, notes: 500 } as const
+  for (const [k, max] of Object.entries(fields) as [keyof typeof fields, number][]) if (input[k] !== undefined) next[k] = text(input[k], max)
+  if (next.contactEmail && !EMAIL.test(next.contactEmail)) return 'Enter a valid contact email address.'
+  return next
+}
+
+/** Creates the organization. A new installation has none; only one can exist. */
+export const createOrganization = (input: OrganizationInput): Reducer => (s) => {
+  if (s.company.id) return fail('An organization already exists.')
+  const company = organizationFrom(input, { id: `org-${slug(text(input.name, 80), 'organization')}`, name: '' })
+  return typeof company === 'string' ? fail(company) : ok({ ...s, company })
+}
+
+export const updateOrganization = (patch: Partial<OrganizationInput>): Reducer => (s) => {
+  if (!s.company.id) return fail('Create the organization first.')
+  const company = organizationFrom(patch, s.company)
+  return typeof company === 'string' ? fail(company) : ok({ ...s, company })
+}
+
+export interface ProjectInput { name: string; jobNumber?: string; client?: string; location?: string; description?: string; scope?: string; startDate?: string | null; endDate?: string | null; status?: ProjectStatus }
+const STATUSES: ProjectStatus[] = ['planning', 'active', 'at-risk', 'delayed', 'on-hold', 'complete']
+
+function projectProblem(s: ConstructionState, input: Partial<ProjectInput>, exceptId?: string): string | null {
+  if (input.name !== undefined) {
+    const n = text(input.name, 100)
+    if (n.length < 2) return 'Enter the project name (at least 2 characters).'
+    if (s.projects.some((p) => p.id !== exceptId && p.name.toLowerCase() === n.toLowerCase())) return `A project named ${n} already exists.`
+  }
+  if (input.status !== undefined && !STATUSES.includes(input.status)) return 'Choose a project status.'
+  for (const k of ['startDate', 'endDate'] as const) if (input[k] && !isoDate(input[k])) return 'Enter valid dates.'
+  return null
+}
+
+/** Creates a project. Only the name is required; it starts with no areas, foundations, materials, assignments or progress. */
+export const createProject = (input: ProjectInput): Reducer => (s) => {
+  if (!s.company.id) return fail('Create the organization first.')
+  const bad = projectProblem(s, input)
+  if (bad) return fail(bad)
+  if (input.startDate && input.endDate && input.endDate < input.startDate) return fail('The expected completion date is before the start date.')
+  const name = text(input.name, 100)
+  let id = `proj-${slug(name, 'project')}`
+  for (let n = 2; s.projects.some((p) => p.id === id); n++) id = `proj-${slug(name, 'project')}-${n}`
+  const project = {
+    id, companyId: s.company.id, name, jobNumber: text(input.jobNumber, 40), client: text(input.client, 100), location: text(input.location, 120), scope: text(input.scope, 120), status: input.status ?? 'planning',
+    statusNote: '', tracking: 'detailed' as const, reportedProgress: null, description: text(input.description, 500), startDate: input.startDate || null, endDate: input.endDate || null,
+  }
+  return ok({ ...s, projects: [...s.projects, project] })
+}
+
+export const updateProject = (id: string, patch: Partial<ProjectInput>): Reducer => (s) => {
+  const p = s.projects.find((x) => x.id === id)
+  if (!p) return fail('Project not found.')
+  const bad = projectProblem(s, patch, id)
+  if (bad) return fail(bad)
+  const next = { ...p }
+  if (patch.name !== undefined) next.name = text(patch.name, 100)
+  for (const [k, max] of [['jobNumber', 40], ['client', 100], ['location', 120], ['scope', 120], ['description', 500]] as const) if (patch[k] !== undefined) next[k] = text(patch[k], max)
+  if (patch.startDate !== undefined) next.startDate = patch.startDate || null
+  if (patch.endDate !== undefined) next.endDate = patch.endDate || null
+  if (patch.status !== undefined) next.status = patch.status
+  if (next.startDate && next.endDate && next.endDate < next.startDate) return fail('The expected completion date is before the start date.')
+  return ok({ ...s, projects: s.projects.map((x) => (x.id === id ? next : x)) })
+}
+
+/** Renames or describes an area. Its id, foundations and every record pointing at it are unaffected. */
+export const editArea = (areaId: string, patch: { name?: string; identifier?: string; description?: string }): Reducer => (s) => {
+  const a = s.areas.find((x) => x.id === areaId)
+  if (!a) return fail('Area not found.')
+  const next = { ...a }
+  if (patch.name !== undefined) {
+    const n = text(patch.name, 60)
+    if (!n) return fail('Enter an area name of 60 characters or fewer.')
+    if (s.areas.some((x) => x.id !== areaId && x.projectId === a.projectId && x.name.toLowerCase() === n.toLowerCase())) return fail(`An area named ${n} already exists.`)
+    next.name = n
+  }
+  if (patch.identifier !== undefined) next.identifier = text(patch.identifier, 40)
+  if (patch.description !== undefined) next.description = text(patch.description, 300)
+  return ok({ ...s, areas: s.areas.map((x) => (x.id === areaId ? next : x)) })
+}
+
+/** Archiving hides an area from pickers and lists. Refused while active materials are assigned to it, and when materials cannot be checked. */
+export const archiveArea = (areaId: string, archived: boolean): Reducer => (s, ctx) => {
+  const a = s.areas.find((x) => x.id === areaId)
+  if (!a) return fail('Area not found.')
+  if (archived) {
+    if (!ctx?.materials) return fail('Materials could not be checked, so this area was not archived.')
+    const used = [...ctx.materials.lines, ...ctx.materials.manual].filter((l) => !l.archived && l.areaId === areaId).length
+    if (used > 0) return fail(`${used} active material${used === 1 ? ' is' : 's are'} assigned to ${a.name}. Move or archive them first.`)
+  }
+  return ok({ ...s, areas: s.areas.map((x) => (x.id === areaId ? { ...x, archived } : x)) })
+}
+
+const ANCHORAGE_CODE = /^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,39}$/
+const anchorageClash = (s: ConstructionState, projectId: string, code: string, exceptId?: string) => s.anchorageTypes.find((t) => t.id !== exceptId && (t.projectId ?? projectId) === projectId && t.code.toLowerCase() === code.toLowerCase())
+
+/** Adds an anchorage type to the project's library. A code that already exists (even archived) is refused, so a definition is never duplicated. */
+export const addAnchorageType = (projectId: string, code: string, description: string): Reducer => (s) => {
+  if (!s.projects.some((p) => p.id === projectId)) return fail('Project not found.')
+  const c = text(code, 40)
+  if (!ANCHORAGE_CODE.test(c)) return fail('Enter an anchorage code using letters, digits, spaces, dots, dashes or slashes (for example AB-101).')
+  const clash = anchorageClash(s, projectId, c)
+  if (clash) return fail(`Anchorage type ${clash.code} already exists${clash.archived ? ' (archived — restore it instead)' : ''}.`)
+  let id = `anc-${projectId}-${slug(c, 'type')}`
+  for (let n = 2; s.anchorageTypes.some((t) => t.id === id); n++) id = `anc-${projectId}-${slug(c, 'type')}-${n}`
+  return ok({ ...s, anchorageTypes: [...s.anchorageTypes, { id, projectId, code: c, description: text(description, 200), bolts: [], hardware: [] }] })
+}
+
+/** Renames or describes an anchorage type. Materials and plinths point at its id, so none are affected. */
+export const editAnchorageType = (id: string, patch: { code?: string; description?: string }): Reducer => (s) => {
+  const t = s.anchorageTypes.find((x) => x.id === id)
+  if (!t) return fail('Anchorage type not found.')
+  const next = { ...t }
+  if (patch.code !== undefined) {
+    const c = text(patch.code, 40)
+    if (!ANCHORAGE_CODE.test(c)) return fail('Enter an anchorage code using letters, digits, spaces, dots, dashes or slashes.')
+    if (t.projectId && anchorageClash(s, t.projectId, c, id)) return fail(`Anchorage type ${c} already exists.`)
+    next.code = c
+  }
+  if (patch.description !== undefined) next.description = text(patch.description, 200)
+  return ok({ ...s, anchorageTypes: s.anchorageTypes.map((x) => (x.id === id ? next : x)) })
+}
+
+export const archiveAnchorageType = (id: string, archived: boolean): Reducer => (s, ctx) => {
+  const t = s.anchorageTypes.find((x) => x.id === id)
+  if (!t) return fail('Anchorage type not found.')
+  if (archived) {
+    if (!ctx?.materials) return fail('Materials could not be checked, so this anchorage type was not archived.')
+    const used = [...ctx.materials.lines, ...ctx.materials.manual].filter((l) => !l.archived && l.anchorageTypeId === id).length
+    if (used > 0) return fail(`${used} active material${used === 1 ? ' uses' : 's use'} anchorage type ${t.code}. Change them first.`)
+  }
+  return ok({ ...s, anchorageTypes: s.anchorageTypes.map((x) => (x.id === id ? { ...x, archived } : x)) })
 }

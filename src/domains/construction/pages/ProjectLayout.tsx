@@ -59,8 +59,8 @@ export function ProjectLayout() {
     { to: paths.fleet(projectId), full: 'Fleet', short: 'Fleet' },
   ]
   // Procurement, fabrication and handover have no saved records yet, so saved-data mode leaves them out rather than showing fiction.
-  const sections = server ? allSections.filter((x) => ![paths.fabrication(projectId), paths.anchorage(projectId), paths.handover(projectId)].includes(x.to)) : allSections
-  const areaItems = state.areas.map((a) => ({ to: paths.area(projectId, a.id), label: a.name }))
+  const sections = server ? allSections.filter((x) => ![paths.fabrication(projectId), paths.handover(projectId)].includes(x.to)) : allSections
+  const areaItems = state.areas.filter((a) => a.projectId === projectId && !a.archived).map((a) => ({ to: paths.area(projectId, a.id), label: a.name }))
   const link = (s: (typeof sections)[number]) => (
     <NavLink key={s.to} to={s.to} end={s.end} className={({ isActive }) => `${tab} ${isActive ? on : off}`}>
       <span className="hidden lg:inline">{s.full}</span>
@@ -79,7 +79,7 @@ export function ProjectLayout() {
       </div>
       <nav aria-label="Project sections" className="hidden gap-6 border-b border-line md:flex">
         {link(sections[0])}
-        <NavMenu label={currentArea ? currentArea.name : 'Areas'} active={!!currentArea} items={areaItems} />
+        {areaItems.length ? <NavMenu label={currentArea ? currentArea.name : 'Areas'} active={!!currentArea} items={areaItems} /> : <NavLink to={paths.register(projectId)} className={`${tab} ${off}`}>Areas</NavLink>}
         {sections.slice(1).map(link)}
       </nav>
       <div className="pt-8">

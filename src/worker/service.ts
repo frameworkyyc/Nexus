@@ -92,7 +92,8 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
     // Rules that look at another module's records get them from the server's own database, never from the request.
     const refs: Record<string, unknown> = {}
     if (module === 'materials') refs.construction = (await readModule(db, 'construction')).state
-    if (module === 'construction' && name === 'archiveFoundation') refs.materials = (await readModule(db, 'materials')).state
+    if (module === 'fleet') refs.construction = (await readModule(db, 'construction')).state
+    if (module === 'construction' && ['archiveFoundation', 'archiveArea', 'archiveAnchorageType'].includes(name)) refs.materials = (await readModule(db, 'materials')).state
     try { result = creator(...args)(snap.state, { actor, now: now.toISOString(), ...refs }) } catch (e) { throw new HttpError(400, `The change could not be applied: ${messageOf(e)}`, 'command-failed') }
     if (result.error !== undefined) throw new HttpError(422, result.error, 'rejected')
     const spec = MODULES[module]

@@ -8,9 +8,9 @@ import type { TrackerLine, TrackerState } from './types'
  * survey and QA/QC all agree. Anchorage codes that exist only in the imported workbook are offered too (id `wb:<code>`) unless
  * the project library already defines the same code.
  */
-export interface CatalogArea { id: string; name: string }
+export interface CatalogArea { id: string; name: string; archived: boolean }
 export interface CatalogFoundation { id: string; areaId: string; number: string; description: string; archived: boolean }
-export interface CatalogAnchorage { id: string; code: string; description: string; foundationIds: string[]; source: 'project' | 'workbook' }
+export interface CatalogAnchorage { id: string; code: string; description: string; foundationIds: string[]; source: 'project' | 'workbook'; archived: boolean }
 export interface Catalog { areas: CatalogArea[]; foundations: CatalogFoundation[]; anchorage: CatalogAnchorage[] }
 
 export type CatalogSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'>
@@ -20,13 +20,13 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 export const WORKBOOK_ANCHORAGE_PREFIX = 'wb:'
 
 export function buildCatalog(c: CatalogSource, t: Pick<TrackerState, 'lines' | 'anchorage'>, projectId?: string): Catalog {
-  const areas = c.areas.filter((a) => !projectId || a.projectId === projectId).sort((a, b) => a.sequence - b.sequence).map((a): CatalogArea => ({ id: a.id, name: a.name }))
+  const areas = c.areas.filter((a) => !projectId || a.projectId === projectId).sort((a, b) => a.sequence - b.sequence).map((a): CatalogArea => ({ id: a.id, name: a.name, archived: !!a.archived }))
   const areaIds = new Set(areas.map((a) => a.id))
   const foundations = c.foundations.filter((f) => areaIds.has(f.areaId)).map((f): CatalogFoundation => ({ id: f.id, areaId: f.areaId, number: f.number, description: f.description, archived: !!f.archived }))
   const byNumber = new Map<string, CatalogFoundation[]>()
   for (const f of foundations) byNumber.set(norm(f.number), [...(byNumber.get(norm(f.number)) ?? []), f])
   const anchorage = new Map<string, CatalogAnchorage>()
-  for (const a of c.anchorageTypes) anchorage.set(norm(a.code), { id: a.id, code: a.code, description: a.description, foundationIds: [], source: 'project' })
+  for (const a of c.anchorageTypes.filter((x) => !projectId || !x.projectId || x.projectId === projectId)) anchorage.set(norm(a.code), { id: a.id, code: a.code, description: a.description, foundationIds: [], source: 'project', archived: !!a.archived })
   const link = (code: string, foundationText: string, projectOnly = false) => {
     const entry = anchorage.get(norm(code))
     if (!entry || projectOnly) return
@@ -39,10 +39,10 @@ export function buildCatalog(c: CatalogSource, t: Pick<TrackerState, 'lines' | '
   }
   for (const l of t.lines) {
     if (!l.anchorageType) continue
-    if (!anchorage.has(norm(l.anchorageType))) anchorage.set(norm(l.anchorageType), { id: `${WORKBOOK_ANCHORAGE_PREFIX}${l.anchorageType}`, code: l.anchorageType, description: 'From the imported workbook', foundationIds: [], source: 'workbook' })
+    if (!anchorage.has(norm(l.anchorageType))) anchorage.set(norm(l.anchorageType), { id: `${WORKBOOK_ANCHORAGE_PREFIX}${l.anchorageType}`, code: l.anchorageType, description: 'From the imported workbook', foundationIds: [], source: 'workbook', archived: false })
     link(l.anchorageType, l.footingType)
   }
-  for (const r of t.anchorage) if (r.anchorageType && !anchorage.has(norm(r.anchorageType))) anchorage.set(norm(r.anchorageType), { id: `${WORKBOOK_ANCHORAGE_PREFIX}${r.anchorageType}`, code: r.anchorageType, description: 'From the imported workbook', foundationIds: [], source: 'workbook' })
+  for (const r of t.anchorage) if (r.anchorageType && !anchorage.has(norm(r.anchorageType))) anchorage.set(norm(r.anchorageType), { id: `${WORKBOOK_ANCHORAGE_PREFIX}${r.anchorageType}`, code: r.anchorageType, description: 'From the imported workbook', foundationIds: [], source: 'workbook', archived: false })
   return { areas, foundations, anchorage: [...anchorage.values()].sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true })) }
 }
 
@@ -52,7 +52,7 @@ export const foundationsOfArea = (cat: Catalog, areaId: string | null | undefine
 /** Anchorage options with the types used on the selected foundation first. */
 export function anchorageFor(cat: Catalog, foundationId: string | null | undefined) {
   const here = (a: CatalogAnchorage) => !!foundationId && a.foundationIds.includes(foundationId)
-  return [...cat.anchorage].sort((a, b) => Number(here(b)) - Number(here(a)) || a.code.localeCompare(b.code, 'en', { numeric: true })).map((a) => ({ ...a, onFoundation: here(a) }))
+  return cat.anchorage.filter((a) => !a.archived).sort((a, b) => Number(here(b)) - Number(here(a)) || a.code.localeCompare(b.code, 'en', { numeric: true })).map((a) => ({ ...a, onFoundation: here(a) }))
 }
 
 export interface Display { area: string; foundation: string; anchorage: string; supplier: string }

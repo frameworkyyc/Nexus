@@ -3,7 +3,9 @@ import type { Accessory, AccessoryCategory, AccessoryPlacement, Defect, FleetSta
 import { countsAsCurrent, currentAssignment, currentOilTarget, currentServiceTarget, isOilChange, latestOdometer, odometerHistory } from './selectors'
 
 export type Result = { state: FleetState; error?: undefined } | { error: string; state?: undefined }
-export type Reducer = (s: FleetState) => Result
+/** Records from other modules, supplied by the server (or the demo), never by a request. */
+export interface Ctx { actor?: string; now?: string; construction?: { company: { id: string }; projects: { id: string }[] } }
+export type Reducer = (s: FleetState, ctx?: Ctx) => Result
 
 let seq = 0
 const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -12,7 +14,9 @@ const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${(seq++
  * Moves a vehicle to another project (or unassigns it with projectId = null). The earlier assignment is closed, not
  * rewritten, so the vehicle's history stays intact. `validProjectIds` comes from the project registry.
  */
-export const reassignVehicle = (vehicleId: string, projectId: string | null, validProjectIds: string[], today: ISODate): Reducer => (s) => {
+export const reassignVehicle = (vehicleId: string, projectId: string | null, validProjectIds: string[], today: ISODate): Reducer => (s, ctx) => {
+  // With saved data the project list comes from the server's own records, not from the request.
+  if (ctx?.construction) validProjectIds = ctx.construction.projects.map((p) => p.id)
   if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
   if (projectId !== null && !validProjectIds.includes(projectId)) return { error: 'That project does not exist.' }
   const current = currentAssignment(s, vehicleId)
@@ -102,6 +106,35 @@ export const recordMaintenance = (vehicleId: string, input: { date: ISODate; ser
   }
   const rec: MaintenanceRecord = { id: nextId('mnt'), vehicleId, date: input.date, serviceType: input.serviceType.trim(), odometer: input.odometer, description: input.description.trim(), notes: input.notes.trim() }
   return { state: { ...s, maintenance: [...s.maintenance, rec] } }
+}
+
+/* ── Adding assets ─────────────────────────────────────────────────────── */
+
+export interface NewAsset { unitNumber: string; kind: 'vehicle' | 'equipment'; year: number; make: string; model: string; vin: string; licencePlate: string; notes: string }
+
+/**
+ * Adds a vehicle or piece of equipment to the organization's fleet, optionally assigning it to a project. It starts with no odometer,
+ * inspections, maintenance or service targets: nothing is assumed. Unit numbers are unique. Needs the organization to exist.
+ */
+export const addVehicle = (input: NewAsset, projectId: string | null, today: ISODate): Reducer => (s, ctx) => {
+  const org = ctx?.construction?.company.id
+  if (!org) return { error: 'Create the organization before adding fleet assets.' }
+  const unit = String(input.unitNumber ?? '').trim()
+  if (!unit || unit.length > 40) return { error: 'Enter a unit number (40 characters or fewer).' }
+  if (s.vehicles.some((x) => x.unitNumber.toLowerCase() === unit.toLowerCase())) return { error: `Unit ${unit} already exists.` }
+  if (input.kind !== 'vehicle' && input.kind !== 'equipment') return { error: 'Choose vehicle or equipment.' }
+  if (!Number.isInteger(input.year) || input.year < 1950 || input.year > 2100) return { error: 'Enter a valid model year.' }
+  if (!String(input.make).trim() || !String(input.model).trim()) return { error: 'Enter the make and model.' }
+  if (projectId !== null && !ctx?.construction?.projects.some((p) => p.id === projectId)) return { error: 'That project does not exist.' }
+  const slug = unit.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'asset'
+  let id = `veh-${slug}`
+  for (let n = 2; s.vehicles.some((x) => x.id === id); n++) id = `veh-${slug}-${n}`
+  const vehicle: Vehicle = {
+    id, companyId: org, unitNumber: unit, kind: input.kind, year: input.year, make: String(input.make).trim(), model: String(input.model).trim(), vin: String(input.vin ?? '').trim() || null,
+    licencePlate: String(input.licencePlate ?? '').trim() || null, notes: String(input.notes ?? '').trim(), expectedLifeKm: null, inspectionIntervalDays: null,
+  }
+  const assignments = projectId ? [...s.assignments, { id: nextId('asg'), vehicleId: id, projectId, startDate: today, endDate: null }] : s.assignments
+  return { state: { ...s, vehicles: [...s.vehicles, vehicle], assignments } }
 }
 
 /* ── Vehicle details ───────────────────────────────────────────────────── */

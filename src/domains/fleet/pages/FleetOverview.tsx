@@ -9,6 +9,8 @@ import { fleetPaths } from '../paths'
 import { fleetCounts, fleetRow, vehicleTitle } from '../selectors'
 import { useFleet, useFleetActor, useProjectRegistry } from '../store'
 import { AccessNotice, FleetFooter } from '../ui'
+import { AddAssetButton } from '../AddAsset'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 /** The office view: every vehicle across every project, from the same records the project views use. */
 export function FleetOverview() {
@@ -28,9 +30,17 @@ export function FleetOverview() {
   const defects = rows.reduce((s, r) => s + r.defects, 0)
   const held = rows.reduce((s, r) => s + r.flaggedReadings, 0)
 
+  if (state.vehicles.length === 0) {
+    return (
+      <>
+        <PageHeader title="Fleet" description="Vehicles and equipment owned by the organization and where they are assigned." />
+        <EmptyState title="No vehicles or equipment yet" description="Add your first asset. You can then assign it to a project and record odometer readings, inspections, maintenance, tires and accessories." action={<AddAssetButton />} />
+      </>
+    )
+  }
   return (
     <>
-      <PageHeader title="Fleet" description="Vehicles owned by the organization and where they are assigned." />
+      <PageHeader title="Fleet" description="Vehicles and equipment owned by the organization and where they are assigned." actions={<AddAssetButton />} />
       <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-5">
         <Stat label="Vehicles" value={counts.vehicles} />
         <Stat label="Assigned" value={counts.assigned} sub={counts.unassigned ? `${counts.unassigned} unassigned` : undefined} />

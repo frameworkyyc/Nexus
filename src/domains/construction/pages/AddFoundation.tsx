@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { useAccess } from '@/lib/access'
-import { archiveFoundation, createArea, createFoundation, editFoundation, renameFoundation } from '../commands'
+import { addFoundations, archiveArea, archiveFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
 import type { Foundation } from '../types'
 
@@ -16,10 +16,10 @@ import type { Foundation } from '../types'
 export function AddFoundationButton({ projectId, areaId }: { projectId: string; areaId?: string }) {
   const access = useAccess()
   const [open, setOpen] = useState(false)
-  if (!access.can('foundations.manage')) return null
+  if (!access.can('structure.manage')) return null
   return (
     <>
-      <Button onClick={() => setOpen(true)}><Plus size={14} strokeWidth={1.5} />Add foundation</Button>
+      <Button onClick={() => setOpen(true)}><Plus size={14} strokeWidth={1.5} />Add foundations</Button>
       {open && <AddFoundationModal projectId={projectId} areaId={areaId} onClose={() => setOpen(false)} />}
     </>
   )
@@ -28,23 +28,37 @@ export function AddFoundationButton({ projectId, areaId }: { projectId: string; 
 function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string; areaId?: string; onClose: () => void }) {
   const { state } = useConstruction()
   const { run, saving } = useConstructionCommand()
-  const areas = state.areas.filter((a) => a.projectId === projectId)
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived)
   const [area, setArea] = useState(areaId ?? areas[0]?.id ?? '')
+  const [mode, setMode] = useState<'one' | 'many'>('one')
   const [number, setNumber] = useState('')
   const [description, setDescription] = useState('')
   const [plinths, setPlinths] = useState('1')
-  const save = () => run(createFoundation(area, number, description, Number(plinths)), onClose)
+  const [bulk, setBulk] = useState('')
+  // One foundation per line: "number, description, plinths" (description and plinths optional; plinths default to 1).
+  const parsed = bulk.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [n, d, p] = l.split(/\t|,/).map((x) => x.trim()); return { number: n ?? '', description: d ?? '', plinthCount: p === undefined || p === '' ? 1 : Number(p) } })
+  const save = () => (mode === 'one' ? run(createFoundation(area, number, description, Number(plinths)), onClose) : run(addFoundations(area, parsed), onClose))
   return (
-    <Modal title="Add foundation" onClose={onClose}>
+    <Modal title="Add foundations" onClose={onClose}>
       <div className="space-y-4 p-6 text-[13px]">
-        <p className="text-muted">Adds the foundation and its plinths to the register. Nothing is marked as started or complete. A number already used in the area (even by an archived foundation) is refused.</p>
+        <p className="text-muted">Adds foundations and their plinths to the register. Nothing is marked as started or complete. A number already used in the area (even by an archived foundation) is refused.</p>
         {!areaId && <Field label="Area"><Select aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Foundation number"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 21-03" /></Field>
-          <Field label="Number of plinths"><Input inputMode="numeric" value={plinths} onChange={(e) => setPlinths(e.target.value)} /></Field>
+        <div className="flex gap-1" role="group" aria-label="How many">
+          {(['one', 'many'] as const).map((m) => <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`rounded-nx px-3 py-1.5 transition-colors phone:h-11 ${mode === m ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{m === 'one' ? 'One foundation' : 'Several at once'}</button>)}
         </div>
-        <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
-        <Button variant="primary" disabled={saving || !number.trim()} onClick={save}>{saving ? 'Saving…' : 'Add foundation'}</Button>
+        {mode === 'one' ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Foundation number"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 21-03" /></Field>
+              <Field label="Number of plinths"><Input inputMode="numeric" value={plinths} onChange={(e) => setPlinths(e.target.value)} /></Field>
+            </div>
+            <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+          </>
+        ) : (
+          <Field label="One per line: number, description, plinths"><Textarea autoFocus rows={7} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'21-01, Pump pad, 4\n21-02, Pump pad, 4\n21-03'} /></Field>
+        )}
+        {mode === 'many' && <p className="text-xs text-muted">{parsed.length} foundation{parsed.length === 1 ? '' : 's'} ready. Paste from a spreadsheet if you like (tab-separated works too). Either all are added or none.</p>}
+        <Button variant="primary" disabled={saving || (mode === 'one' ? !number.trim() : parsed.length === 0)} onClick={save}>{saving ? 'Saving…' : mode === 'one' ? 'Add foundation' : `Add ${parsed.length} foundation${parsed.length === 1 ? '' : 's'}`}</Button>
       </div>
     </Modal>
   )
@@ -54,7 +68,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
 export function AddAreaButton({ projectId }: { projectId: string }) {
   const access = useAccess()
   const [open, setOpen] = useState(false)
-  if (!access.can('foundations.manage')) return null
+  if (!access.can('structure.manage')) return null
   return (
     <>
       <Button onClick={() => setOpen(true)}><Plus size={14} strokeWidth={1.5} />Add area</Button>
@@ -63,19 +77,64 @@ export function AddAreaButton({ projectId }: { projectId: string }) {
   )
 }
 
+/** Rename, describe, archive or restore an area. Administrators only. */
+export function ManageAreaButton({ areaId }: { areaId: string }) {
+  const access = useAccess()
+  const [open, setOpen] = useState(false)
+  if (!access.can('structure.manage')) return null
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>Manage area</Button>
+      {open && <ManageAreaModal areaId={areaId} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+function ManageAreaModal({ areaId, onClose }: { areaId: string; onClose: () => void }) {
+  const { state } = useConstruction()
+  const a = state.areas.find((x) => x.id === areaId)
+  const [name, setName] = useState(a?.name ?? '')
+  const [identifier, setIdentifier] = useState(a?.identifier ?? '')
+  const [description, setDescription] = useState(a?.description ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  if (!a) return null
+  const go = async (p: Promise<string | null>, close: boolean) => { setSaving(true); const e = await p; setSaving(false); setError(e); if (!e && close) onClose() }
+  return (
+    <Modal title={`Area · ${a.name}`} onClose={onClose}>
+      <div className="space-y-4 p-6 text-[13px]">
+        {a.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and lists. Its foundations and every record pointing at it are kept.</p>}
+        <Field label="Area name"><Input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label="Identifier (optional)"><Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="e.g. A-100" /></Field>
+        <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <p className="text-xs text-muted">Renaming never affects foundations, materials or other records: they point at the area itself.</p>
+        {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" disabled={saving || !name.trim()} onClick={() => void go(constructionStore.run(editArea(areaId, { name, identifier, description })), true)}>{saving ? 'Saving…' : 'Save changes'}</Button>
+          <Button disabled={saving} onClick={() => { if (a.archived || window.confirm(`Archive ${a.name}? It is hidden from pickers and lists; nothing is deleted.`)) void go(constructionStore.run(archiveArea(areaId, !a.archived)), false) }}>{a.archived ? 'Restore' : 'Archive'}</Button>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 interface DraftFoundation { number: string; description: string; plinths: string }
 function AddAreaModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const { run, saving } = useConstructionCommand()
   const [name, setName] = useState('')
   const [rows, setRows] = useState<DraftFoundation[]>([{ number: '', description: '', plinths: '1' }])
+  const [identifier, setIdentifier] = useState('')
   const used = rows.filter((r) => r.number.trim() || r.description.trim())
-  const save = () => run(createArea(projectId, name, used.map((r) => ({ number: r.number, description: r.description, plinthCount: Number(r.plinths) }))), onClose)
+  const save = () => run(createArea(projectId, name, used.map((r) => ({ number: r.number, description: r.description, plinthCount: Number(r.plinths) })), { identifier }), onClose)
   const set = (i: number, patch: Partial<DraftFoundation>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   return (
     <Modal title="Add construction area" onClose={onClose} wide>
       <div className="space-y-4 p-6 text-[13px]">
         <p className="text-muted">Define the area and its foundations together. More foundations can be added later from the Foundation Register. Nothing is marked as started.</p>
-        <Field label="Area name *"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Control Building" /></Field>
+        <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+          <Field label="Area name *"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Control Building" /></Field>
+          <Field label="Identifier (optional)"><Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="e.g. A-100" /></Field>
+        </div>
         <div className="space-y-2">
           <p className="t-label">Foundations</p>
           {rows.map((r, i) => (
@@ -98,7 +157,7 @@ function AddAreaModal({ projectId, onClose }: { projectId: string; onClose: () =
 export function ManageFoundationButton({ foundation }: { foundation: Foundation }) {
   const access = useAccess()
   const [open, setOpen] = useState(false)
-  if (!access.can('foundations.manage')) return null
+  if (!access.can('structure.manage')) return null
   return (
     <>
       <Button variant="ghost" className="h-8 px-2 text-xs" aria-label={`Manage foundation ${foundation.number}`} onClick={() => setOpen(true)}>Manage</Button>

@@ -13,15 +13,21 @@ import { Button } from '@/components/ui/Button'
 import { setProjectIssueStatus, addProjectIssue, setReportedProgress } from '../actions'
 import { useState } from 'react'
 import { formatShortDate } from '@/lib/format'
+import { EditProjectButton, GettingStarted } from './Setup'
 
 function ProjectHeader({ projectId }: { projectId: string }) {
   const { state } = useConstruction()
   const project = state.projects.find((p) => p.id === projectId)!
   return (
-    <header>
-      <h1 className="t-display">{project.name}</h1>
-      <p className="mt-1 text-[13px] text-muted">Job {project.jobNumber} · {state.company.name} · {project.scope}</p>
-      <p className="text-[13px] text-muted">{project.location} · Client: {project.client}</p>
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h1 className="t-display">{project.name}</h1>
+        <p className="mt-1 text-[13px] text-muted">{[project.jobNumber && `Job ${project.jobNumber}`, state.company.name, project.scope].filter(Boolean).join(' · ')}</p>
+        <p className="text-[13px] text-muted">{[project.location, project.client && `Client: ${project.client}`].filter(Boolean).join(' · ')}</p>
+        {project.description && <p className="mt-2 max-w-2xl text-[13px]">{project.description}</p>}
+        {(project.startDate || project.endDate) && <p className="mt-1 text-xs text-muted">{[project.startDate && `Starts ${formatShortDate(project.startDate)}`, project.endDate && `Expected completion ${formatShortDate(project.endDate)}`].filter(Boolean).join(' · ')}</p>}
+      </div>
+      <EditProjectButton projectId={projectId} />
     </header>
   )
 }
@@ -32,9 +38,23 @@ export function ProjectDashboard() {
   const { state, idx, today } = useConstruction()
   const project = state.projects.find((p) => p.id === projectId)!
   const overall = computeStats(idx, foundationsOfProject(idx, projectId))
-  const areas = state.areas.filter((a) => a.projectId === projectId).map((area) => ({ area, progress: computeStats(idx, foundationsOf(idx, area.id)).progress, status: areaStatus(idx, area.id) }))
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).map((area) => ({ area, progress: computeStats(idx, foundationsOf(idx, area.id)).progress, status: areaStatus(idx, area.id) }))
   const exceptions = deriveExceptions(idx, today, projectId)
   const critical = exceptions.filter((e) => e.severity === 'high').length
+
+  // Nothing is tracked until foundations exist: show what to do next instead of 0% bars and empty lists.
+  if (foundationsOfProject(idx, projectId).length === 0) {
+    return (
+      <>
+        <ProjectHeader projectId={projectId} />
+        <dl className="mt-8 grid grid-cols-1 border-y border-line sm:grid-cols-2 sm:divide-x sm:divide-line">
+          <div className="py-6 sm:pr-8"><dt className="t-label">Progress</dt><dd className="mt-2 text-[15px] text-muted">Not tracked yet — add foundations to start.</dd></div>
+          <div className="border-t border-line py-6 sm:border-t-0 sm:pl-8"><dt className="t-label mb-2">Status</dt><dd><StatusEditor project={project} /></dd></div>
+        </dl>
+        <GettingStarted projectId={projectId} />
+      </>
+    )
+  }
 
   return (
     <>

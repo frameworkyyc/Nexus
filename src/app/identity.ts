@@ -1,9 +1,8 @@
 import type { ConstructionState } from '@/domains/construction/types'
 import type { TrackerState } from '@/domains/construction/tracker/types'
 /**
- * Everything that identifies the real organization, project and fleet in the seed data lives in THIS file, and nowhere else in the
- * client bundle. The public demo is built with `identity.demo.ts` swapped in for it (see vite.config.ts), so the public bundle never
- * contains these strings; `scripts/check-demo-bundle.mjs` enforces that on every demo build.
+ * What the seed/demo code needs to know about a project and fleet. The application bundle uses the neutral values below (nothing is
+ * seeded); the public demo build swaps in `identity.demo.ts` (fictional); the tests swap in a fixture. See vite.config.ts.
  *
  * Both files must satisfy `Identity`.
  */
@@ -46,28 +45,25 @@ export interface Identity {
   }
 }
 
+/**
+ * The identity of an installation that has not been configured: no organization, project, areas or fleet. Everything real comes from the
+ * database once the user creates it (organization setup, projects, areas, foundations, vehicles). Nothing here names a real company.
+ */
 export const identity: Identity = {
-  organization: 'Progressive',
-  userInitials: 'PC',
-  companyId: 'progressive',
-  project: {
-    id: 'reef', name: 'REEF', jobNumber: '928', client: 'Ridley Terminals Partners', location: 'Ridley Island, British Columbia', scope: 'Concrete Foundations',
-    statusNote: 'Anchor bolt delivery is late and one footing is blocked (recorded).',
-  },
-  areas: [['mole-sieve', 'Mole Sieve'], ['propane-bog', 'Propane BOG'], ['piperack', 'Piperack'], ['locomotive-shelter', 'Locomotive Shelter'], ['e-house', 'E-House']],
-  foundationPrefixes: ['21', '22', '31', '41', '51'],
-  anchorageCodes: ['OP1-01', 'OP1-02', 'OP1-03', 'OP2-01', 'OP2-02', 'OP3-01'],
-  numberStem: '928',
-  storageKeys: { fleet: 'nexus.demo.fleet', construction: 'nexus.demo.construction', tracker: 'nexus.reef.materialTracker' },
-  trackerName: 'REEF',
+  organization: '',
+  userInitials: '',
+  companyId: '',
+  project: { id: '', name: '', jobNumber: '', client: '', location: '', scope: '', statusNote: '' },
+  areas: [],
+  foundationPrefixes: [],
+  anchorageCodes: ['', '', '', '', '', ''],
+  numberStem: '',
+  // Unused by the application bundle, which keeps no operational records in this browser. Kept distinct from every other key.
+  storageKeys: { fleet: 'nexus.app.unused.fleet', construction: 'nexus.app.unused.construction', tracker: 'nexus.app.unused.materialTracker' },
+  trackerName: 'project',
   fleet: {
-    units: [['T6010', 2026, 'Ford', 'F-350'], ['T6005', 2026, 'Ford', 'F-350'], ['LV167', 2024, 'GMC', '3500'], ['LV174', 2024, 'GMC', '3500']],
-    primary: {
-      unit: 'T6010', odometerKm: 11_856, nextOilAtKm: 13_551, oilIntervalKm: 5_000, oilWarnWithinKm: 2_000, lifespanKm: 180_000,
-      tire: { manufacturer: 'Bridgestone', model: 'Dueler A/T', origin: 'Original factory tires', lifeKm: 60_000 },
-      accessory: { name: '750 L Tidy Tank', specification: '750 L' },
-      note: 'Verified information supplied for this unit; date not recorded.',
-    },
+    units: [],
+    primary: { unit: '', odometerKm: 0, nextOilAtKm: 0, oilIntervalKm: 0, oilWarnWithinKm: 0, lifespanKm: 0, tire: { manufacturer: '', model: '', origin: '', lifeKm: 0 }, accessory: { name: '', specification: '' }, note: '' },
     extras: false,
   },
 }

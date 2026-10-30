@@ -20,7 +20,7 @@ function ProjectCrumb({ params }: { params: Params<string> }) {
   const { projectId } = params
   const { state } = useConstruction()
   const project = state.projects.find((p) => p.id === projectId)
-  return <>{project ? `${project.name} · Job ${project.jobNumber}` : 'Project'}</>
+  return <>{project ? `${project.name}${project.jobNumber ? ` · Job ${project.jobNumber}` : ''}` : 'Project'}</>
 }
 function AreaCrumb({ params }: { params: Params<string> }) {
   const { areaId } = params
@@ -49,7 +49,7 @@ export const constructionRoutes: RouteObject[] = [
           { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
           { path: 'fabrication', element: <DemoOnly><FabricationPage /></DemoOnly>, handle: text('Fabrication') },
-          { path: 'anchorage', element: <DemoOnly><AnchoragePage /></DemoOnly>, handle: text('Anchorage types') },
+          { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },
           { path: 'handover', element: <DemoOnly><HandoverPage /></DemoOnly>, handle: text('Handover') },
           { path: 'issues', element: <IssuesPage />, handle: text('Issues') },
           ...projectFleetRoutes,

@@ -18,6 +18,7 @@ import { useConstruction } from '../store'
 import { ExceptionList, fraction, TextLink } from '../ui'
 import type { Activity, Foundation } from '../types'
 import { PackageDashboard } from './PackageDashboard'
+import { AddFoundationButton, ManageAreaButton } from './AddFoundation'
 import { AreaHandover } from './HandoverPage'
 import { FoundationRegister } from './FoundationRegister'
 import { BoltTable, BulkTable } from './materials/Tables'
@@ -44,10 +45,10 @@ export function AreaPage() {
   const foundations = foundationsOf(idx, areaId)
   return (
     <>
-      <PageHeader title={area.name} description={`${foundations.length} foundations · ${foundations.reduce((s, f) => s + (idx.plinthsByFoundation.get(f.id)?.length ?? 0), 0)} plinths`} />
+      <PageHeader title={area.name} description={[area.identifier, `${foundations.length} foundations · ${foundations.reduce((s, f) => s + (idx.plinthsByFoundation.get(f.id)?.length ?? 0), 0)} plinths`, area.archived ? 'Archived' : '', area.description].filter(Boolean).join(' · ')} actions={<><ManageAreaButton areaId={areaId} /><AddFoundationButton projectId={projectId} areaId={areaId} /></>} />
       <Tabs<Tab> items={tabs} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
       <div className="pt-6">
-        {tab === 'overview' && <Overview projectId={projectId} areaId={areaId} />}
+        {tab === 'overview' && (foundations.length === 0 ? <EmptyState title="No foundations in this area yet" description="Add the foundations to start tracking construction, survey and QA/QC here. Materials can already be added to the area." action={<AddFoundationButton projectId={projectId} areaId={areaId} />} /> : <Overview projectId={projectId} areaId={areaId} />)}
         {tab === 'register' && <FoundationRegister projectId={projectId} areaId={areaId} />}
         {tab === 'construction' && <Construction projectId={projectId} areaId={areaId} />}
         {tab === 'materials' && <AreaMaterials projectId={projectId} areaId={areaId} />}

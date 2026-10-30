@@ -14,8 +14,9 @@ import type { ModuleName } from '@/shared/registry'
  * server  — saved records, read from and written to the server database.
  * demo    — fictional demonstration data kept in this browser only (also the fallback when no server is configured).
  * blocked — a server exists but this browser is not signed in (or its sign-in expired).
+ * unavailable — the application bundle has no database / Access to talk to. Nothing is shown or kept in this browser instead.
  */
-export type Mode = 'checking' | 'server' | 'demo' | 'blocked'
+export type Mode = 'checking' | 'server' | 'demo' | 'blocked' | 'unavailable'
 export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string }
 
 let backend: BackendState = { mode: 'checking', serverAvailable: false }
@@ -25,13 +26,6 @@ export const getBackend = () => backend
 const subscribeBackend = (l: () => void) => { backendListeners.add(l); return () => backendListeners.delete(l) }
 export const useBackend = () => useSyncExternalStore(subscribeBackend, getBackend)
 export const useIsServer = () => useBackend().mode === 'server'
-
-const VIEW_KEY = 'nexus.view'
-const viewDemo = () => { try { return sessionStorage.getItem(VIEW_KEY) === 'demo' } catch { return false } }
-export function setViewDemo(on: boolean) {
-  try { if (on) sessionStorage.setItem(VIEW_KEY, 'demo'); else sessionStorage.removeItem(VIEW_KEY) } catch { /* ignore */ }
-  setBackend({ ...backend, mode: on ? 'demo' : backend.serverAvailable ? 'server' : 'demo' })
-}
 
 const stores: ModuleStore<never>[] = []
 
@@ -48,13 +42,14 @@ export async function startBackend(): Promise<void> {
   setBackend({ mode: 'checking', serverAvailable: false })
   const health = await api<{ database?: boolean; access?: boolean; environment?: string }>('GET', '/api/health').catch(() => null)
   if (!health || !health.database || !health.access) {
-    setBackend({ mode: 'demo', serverAvailable: false, reason: !health ? 'No server is attached to this app (local development).' : !health.database ? 'The database is not connected.' : 'Access control is not configured, so saved data is switched off.' })
+    // Never fall back to browser-held records: without the database the app says what is missing and stops.
+    setBackend({ mode: 'unavailable', serverAvailable: false, reason: !health ? 'The Nexus server could not be reached.' : !health.database ? 'The database is not connected to this environment (the D1 binding named DB is missing).' : 'Cloudflare Access is not configured for this environment (ACCESS_TEAM_DOMAIN and ACCESS_AUD are empty), so saved data is switched off.' })
     return
   }
   try {
     const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string }>('GET', '/api/session')
-    setBackend({ mode: viewDemo() ? 'demo' : 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion })
-    if (!viewDemo()) await Promise.all(stores.map((m) => m.load()))
+    setBackend({ mode: 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion })
+    await Promise.all(stores.map((m) => m.load()))
   } catch (e) {
     if (e instanceof ApiError && e.authRequired) setBackend({ mode: 'blocked', serverAvailable: true, reason: e.message })
     else setBackend({ mode: 'blocked', serverAvailable: true, reason: e instanceof Error ? e.message : 'The server could not be reached.' })
@@ -124,6 +119,7 @@ export function createModuleStore<S>(module: ModuleName, local: PersistedStore<S
     },
     run(reducer: Reducer<S>) {
       if (!isServer()) {
+        if (backend.mode !== 'demo') { const msg = 'Saved data is not available, so nothing was changed.'; notify(msg); return Promise.resolve(msg) }
         const result = reducer(local.get(), contexts.get(module)?.())
         if (result.error !== undefined) { notify(result.error); return Promise.resolve(result.error) }
         local.set(result.state as S)

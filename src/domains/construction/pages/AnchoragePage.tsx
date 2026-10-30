@@ -1,3 +1,5 @@
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
+import { AnchorageLibrary } from './AnchorageLibrary'
 import { ChevronRight } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -11,6 +13,12 @@ import { useConstruction, useRun } from '../store'
 import type { AnchorageType } from '../types'
 
 export function AnchoragePage() {
+  // The application keeps the project's library in the database; the fictional bolt/hardware view below is the public demo's.
+  if (!IS_PUBLIC_DEMO) return <AnchorageLibrary />
+  return <DemoAnchoragePage />
+}
+
+function DemoAnchoragePage() {
   const { projectId = '' } = useParams()
   const { state, idx } = useConstruction()
   const [open, setOpen] = useState<string | null>(null)

@@ -1,7 +1,8 @@
 import { identity } from '@/app/identity'
 import { useCallback, useMemo } from 'react'
 import { useToast } from '@/components/ui/Toast'
-import { createPersistedStore } from '@/lib/createPersistedStore'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
+import { createEphemeralStore, createPersistedStore } from '@/lib/createPersistedStore'
 import { createModuleStore, getBackend, useSaver } from '@/lib/dataSource'
 import { notify } from '@/lib/notify'
 import { todayISO } from '@/lib/date'
@@ -28,12 +29,9 @@ export function migrateConstruction(data: unknown, from: number): ConstructionSt
  * Construction records. In saved-data mode they come from the server: the real REEF project and areas, plus the foundations
  * and activity records people have entered (nothing demonstrative). In demonstration mode they are the fictional seed, in this browser.
  */
-const constructionLocal = createPersistedStore({
-  key: identity.storageKeys.construction,
-  version: 2,
-  seed: () => buildSeed(todayISO()),
-  migrate: migrateConstruction,
-})
+const constructionLocal = IS_PUBLIC_DEMO
+  ? createPersistedStore({ key: identity.storageKeys.construction, version: 2, seed: () => buildSeed(todayISO()), migrate: migrateConstruction })
+  : createEphemeralStore(emptyConstruction) // the application keeps no operational records in the browser
 
 export const constructionStore = createModuleStore<ConstructionState>('construction', constructionLocal, emptyConstruction, notify)
 

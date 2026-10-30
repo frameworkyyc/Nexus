@@ -1,6 +1,7 @@
 import { identity } from '@/app/identity'
 import { useMemo } from 'react'
-import { createPersistedStore } from '@/lib/createPersistedStore'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
+import { createEphemeralStore, createPersistedStore } from '@/lib/createPersistedStore'
 import { createModuleStore, useSaver } from '@/lib/dataSource'
 import { notify } from '@/lib/notify'
 import { todayISO } from '@/lib/date'
@@ -49,14 +50,11 @@ export function migrateFleet(data: unknown, from: number): FleetState {
  * Fleet records. With a server (saved-data mode) they live in the database and every change is confirmed by the server before
  * it is shown as saved. Without one (demonstration mode, local development) they stay in this browser, as before.
  */
-const fleetLocal = createPersistedStore({
-  key: identity.storageKeys.fleet,
-  version: 5,
-  seed: buildFleetSeed,
-  migrate: migrateFleet,
-})
-
 const emptyFleet = (): FleetState => ({ vehicles: [], assignments: [], odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [] })
+
+const fleetLocal = IS_PUBLIC_DEMO
+  ? createPersistedStore({ key: identity.storageKeys.fleet, version: 5, seed: buildFleetSeed, migrate: migrateFleet })
+  : createEphemeralStore(emptyFleet) // the application keeps no operational records in the browser
 
 export const fleetStore = createModuleStore<FleetState>('fleet', fleetLocal, emptyFleet, notify)
 /** The browser-held copy: read for backups and migration, never written in saved-data mode. */

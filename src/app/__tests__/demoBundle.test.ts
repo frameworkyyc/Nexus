@@ -45,8 +45,18 @@ describe('public demo bundle', () => {
     expect(all).not.toContain('Data & backups')
   })
 
-  it('the guard has teeth: the real-data bundle trips it', () => {
-    const { files } = build('app')
-    expect(findForbidden(Object.values(files).join('\n')).length).toBeGreaterThan(10)
+  it('the guard has teeth: the realistic project fixture trips it', () => {
+    const fixture = readFileSync('src/app/__fixtures__/identity.reef.ts', 'utf8')
+    expect(findForbidden(fixture).length).toBeGreaterThan(10)
   })
-}, 120_000)
+
+  it('the application (staging/production) bundle is a blank installation: no REEF data, no demonstration data, no browser-held operational records', () => {
+    const { ok, files, out } = build('app')
+    expect(ok, out).toBe(true)
+    const all = Object.values(files).join('\n')
+    expect(all.length).toBeGreaterThan(100_000)
+    expect(findForbidden(all)).toEqual([])
+    for (const demo of ['Demo Construction Co.', 'Harbour Point', 'Sample Fastener Supply', 'nexus.public-demo.', 'Demo Environment', 'Reset Demo']) expect(all, demo).not.toContain(demo)
+    for (const real of ['T6010', 'LV167', 'Mole Sieve', 'Ridley', 'AltaGas']) expect(all, real).not.toContain(real)
+  })
+}, 180_000)

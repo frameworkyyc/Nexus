@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { DEMO_DESCRIPTION, DEMO_LABEL } from '@/app/demoConfig'
 import { MODULES } from '@/app/modules'
-import { tenant } from '@/app/tenant'
+import { useTenant } from '@/app/tenant'
 import { BottomSheet } from '@/components/ui/BottomSheet'
 import { useBackend } from '@/lib/dataSource'
 import { resetWholeDemo } from './DemoBadge'
@@ -14,6 +14,7 @@ const row = 'flex min-h-[52px] items-center justify-between gap-3 border-b borde
 
 /** Phone menu: secondary navigation, the demo controls and where the data lives. Primary destinations are in the bottom bar. */
 export function MoreSheet({ onClose }: { onClose: () => void }) {
+  const tenant = useTenant()
   const { mode, environment } = useBackend()
   const secondary = MODULES.filter((m) => m.path && !PRIMARY_IDS.has(m.id))
   const planned = MODULES.filter((m) => !m.path)
@@ -43,7 +44,7 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
         ))}
       </ul>
       <div className="px-4 py-5 text-[14px] text-muted">
-        <p className="font-medium text-ink">{tenant.organization}</p>
+        <p className="font-medium text-ink">{tenant.organization || 'Nexus'}</p>
         <p className="mt-0.5">{mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Sample data kept in this browser only' : 'Demonstration data · fictional records'}</p>
       </div>
     </BottomSheet>

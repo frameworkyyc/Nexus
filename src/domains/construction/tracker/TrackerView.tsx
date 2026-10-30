@@ -37,7 +37,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
   const { projectId } = useParams()
   const refs = useMaterialRefs(projectId)
   const [tab, setTab] = useState<Tab>('requirements')
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<false | 'one' | 'quick'>(false)
 
   // Names come from the linked project records, so a renamed area, foundation or supplier shows everywhere without touching the materials.
   const all = useMemo(() => resolveLines(areaId ? linesForArea(state, construction.areas, areaId) : allLines(state), refs.catalog, refs.suppliers), [state, construction.areas, areaId, refs])
@@ -49,10 +49,10 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
         <AccessBar />
         <EmptyState
           title="No materials yet"
-          description={`Add materials one at a time, or import the ${identity.trackerName} material tracker workbook to bring in every requirement by area, footing type and anchorage type. The workbook is read in this browser; it is not uploaded.`}
-          action={<div className="flex flex-wrap justify-center gap-2">{access.can('materials.add') && <Button variant="primary" onClick={() => setAdding(true)}>Add material</Button>}{access.can('materials.import') && <ImportButton />}</div>}
+          description={`Nothing has been added for this ${identity.trackerName} yet. Add materials one at a time, add several for a foundation in one go, or import an existing Excel material tracker. Areas, foundations, anchorage types and suppliers come from what you have set up.`}
+          action={<div className="flex flex-wrap justify-center gap-2">{access.can('materials.add') && <Button variant="primary" onClick={() => setAdding('one')}>Add material</Button>}{access.can('materials.add') && <Button onClick={() => setAdding('quick')}>Quick add several</Button>}{access.can('materials.import') && <ImportButton />}</div>}
         />
-        {adding && <AddMaterialModal projectId={projectId} initial={blankMaterial({ areaId: areaId ?? '' })} onClose={() => setAdding(false)} />}
+        {adding && <AddMaterialModal projectId={projectId} startQuick={adding === 'quick'} initial={blankMaterial({ areaId: areaId ?? '' })} onClose={() => setAdding(false)} />}
       </>
     )
   }

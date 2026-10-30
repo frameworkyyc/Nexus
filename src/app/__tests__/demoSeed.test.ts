@@ -9,7 +9,6 @@ const { buildSeed, buildPortfolio } = await import('@/domains/construction/seed'
 const { fleetRow, inspectionStatus } = await import('@/domains/fleet/selectors')
 const { oilIndicator, lifespanIndicator, tireIndicator } = await import('@/domains/fleet/indicators')
 const { identity } = await import('@/app/identity')
-const { tenant } = await import('@/app/tenant')
 
 const TODAY = '2026-10-23'
 const flagged = (text: string) => DEMO_FORBIDDEN.filter((re) => re.test(text)).map(String)
@@ -17,7 +16,6 @@ const flagged = (text: string) => DEMO_FORBIDDEN.filter((re) => re.test(text)).m
 describe('public demo seed data (fictional identity)', () => {
   it('uses the fictional identity', () => {
     expect(identity.organization).toBe('Demo Construction Co.')
-    expect(tenant.organization).toBe('Demo Construction Co.')
   })
 
   it('construction seed contains nothing that identifies the real project, client, site or areas', () => {

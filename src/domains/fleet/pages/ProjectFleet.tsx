@@ -11,6 +11,7 @@ import { fleetPaths } from '../paths'
 import { fleetRow, vehiclesForProject } from '../selectors'
 import { useFleet, useFleetActor, useProjectRegistry } from '../store'
 import { AccessNotice } from '../ui'
+import { AddAssetButton } from '../AddAsset'
 import type { Vehicle } from '../types'
 
 type Modal = { kind: 'odometer' | 'inspection' | 'service'; vehicle: Vehicle } | null
@@ -36,7 +37,7 @@ export function ProjectFleet() {
 
   return (
     <>
-      <PageHeader title="Fleet" description={`Vehicles currently assigned to ${project?.name ?? 'this project'}. Records are shared with the organization fleet.`} actions={<Link to="/fleet" className="text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">Organization fleet</Link>} />
+      <PageHeader title="Fleet" description={`Vehicles currently assigned to ${project?.name ?? 'this project'}. Records are shared with the organization fleet.`} actions={<><AddAssetButton projectId={projectId} /><Link to="/fleet" className="text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">Organization fleet</Link></>} />
       <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
         <Stat label="Vehicles" value={rows.length} />
         <Stat label="Inspection due" value={overdue} sub="None recorded or over 7 days" />
@@ -57,7 +58,7 @@ export function ProjectFleet() {
               </>
             )}
           />
-        ) : <EmptyState title="No vehicles assigned" description="Assign vehicles to this project from the organization fleet." />}
+        ) : <EmptyState title="No vehicles assigned" description="Add a vehicle or piece of equipment to this project, or assign one that already exists in the organization fleet." action={<AddAssetButton projectId={projectId} />} />}
       </div>
       <AccessNotice />
       {modal?.kind === 'odometer' && <OdometerModal vehicle={modal.vehicle} onClose={() => setModal(null)} />}

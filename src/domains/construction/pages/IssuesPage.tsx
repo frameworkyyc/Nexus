@@ -26,7 +26,7 @@ export function IssuesPage() {
       <div className="mb-3 flex flex-wrap gap-3">
         <Select className="w-44" aria-label="Filter by area" value={area} onChange={(e) => setArea(e.target.value)}>
           <option value="all">All areas</option>
-          {state.areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {state.areas.filter((a) => a.projectId === projectId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </Select>
         <Select className="w-44" aria-label="Filter by type" value={category} onChange={(e) => setCategory(e.target.value as IssueCategory | 'all')}>
           <option value="all">All types</option>

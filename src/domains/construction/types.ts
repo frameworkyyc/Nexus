@@ -4,9 +4,17 @@ export type { ISODate }
 
 /* ── Hierarchy: Company → Project → Area → Foundation → Plinth ─────────── */
 
+/** The organization. An id of '' means it has not been created yet (a new installation). */
 export interface Company {
   id: string
   name: string
+  legalName?: string
+  location?: string
+  contactName?: string
+  contactEmail?: string
+  contactPhone?: string
+  website?: string
+  notes?: string
 }
 
 /** Recorded by a person. Never inferred from completion percentages. */
@@ -25,6 +33,10 @@ export interface Project {
   /** 'detailed' projects derive progress from activity records; 'summary' projects carry a reported figure. */
   tracking: 'detailed' | 'summary'
   reportedProgress: number | null // used only when tracking === 'summary'
+  description?: string
+  startDate?: ISODate | null
+  /** Expected completion. */
+  endDate?: ISODate | null
 }
 
 export interface ProjectIssue {
@@ -41,6 +53,10 @@ export interface Area {
   projectId: string
   name: string
   sequence: number
+  identifier?: string
+  description?: string
+  /** Hidden from pickers and lists by default; every record keeps pointing at it. */
+  archived?: boolean
 }
 
 export interface Foundation {
@@ -78,6 +94,8 @@ export type HardwareKind = 'nut' | 'washer'
 /** Defined once; referenced by any number of plinths. Values are demonstration data only. */
 export interface AnchorageType {
   id: string
+  projectId?: string
+  archived?: boolean
   code: string // e.g. OP1-02
   description: string
   bolts: { specId: string; qtyPerPlinth: number }[]

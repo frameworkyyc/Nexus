@@ -28,3 +28,4 @@ export const setVehiclePlanning = tagged.setVehiclePlanning
 export const addDefect = tagged.addDefect
 export const resolveDefect = tagged.resolveDefect
 export const reopenDefect = tagged.reopenDefect
+export const addVehicle = tagged.addVehicle

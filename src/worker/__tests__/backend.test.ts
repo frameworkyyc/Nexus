@@ -12,7 +12,7 @@ describe('migrations', () => {
   it('create the schema and seed the real REEF project and fleet', async () => {
     const { d1, raw } = createTestDb()
     const v = (await d1.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>())?.value
-    expect(v).toBe('6')
+    expect(v).toBe('7')
     expect((await d1.prepare('SELECT COUNT(*) AS n FROM vehicles').first<{ n: number }>())?.n).toBe(4)
     expect((await d1.prepare('SELECT name FROM areas ORDER BY sequence').all<{ name: string }>()).results.map((r) => r.name)).toEqual(['Mole Sieve', 'Propane BOG', 'Piperack', 'Locomotive Shelter', 'E-House'])
     expect(raw.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 })
@@ -43,14 +43,15 @@ describe('migrations', () => {
   it('the server seed is identical to the browser seed, so migrating the two never conflicts', async () => {
     const s = session()
     const { body } = await s.call('GET', '/api/state/fleet')
-    expect(body.state).toEqual(buildFleetSeed())
+    const stripKind = (st: { vehicles: object[] }) => ({ ...st, vehicles: st.vehicles.map((v) => { const rest = { ...(v as Record<string, unknown>) }; delete rest.kind; return rest }) })
+    expect(stripKind(body.state)).toEqual(buildFleetSeed()) // `kind` is new, and absent from the browser fixture
   })
 
   it('re-running the seed migration never overwrites newer information', async () => {
     const s = session()
     await command(s, 'fleet', 'recordOdometer', ['veh-T6010', { date: '2026-10-20', reading: 12_500, note: '' }, TODAY])
     await command(s, 'fleet', 'replaceTireSet', ['veh-T6010', { manufacturer: 'Nokian', model: 'Hakka', size: '', classes: ['winter'], studded: 'yes', origin: '', installDate: null, installOdometer: 12_500, condition: 'unknown', notes: '' }, { date: null, odometer: 12_500 }, TODAY])
-    applyMigrationFile(s.db.raw, '0002_seed_reef_and_fleet.sql')
+    s.db.raw.exec(readFileSync('seeds/reef/0002_seed_reef_and_fleet.sql', 'utf8')) // re-applying the REEF fixture
     const { body } = await s.call('GET', '/api/state/fleet')
     expect(body.state.odometer.filter((r: { vehicleId: string }) => r.vehicleId === 'veh-T6010')).toHaveLength(2)
     expect(body.state.tireSets.filter((t: { vehicleId: string }) => t.vehicleId === 'veh-T6010')).toHaveLength(2)
@@ -137,7 +138,8 @@ describe('Fleet persists to the database', () => {
 
   it('the tire-threshold migration upgrades an existing database without changing its rows', () => {
     const old = createTestDb({ migrate: false })
-    for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql']) old.raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+    old.raw.exec(readFileSync('migrations/0001_core_schema.sql', 'utf8'))
+    old.raw.exec(readFileSync('seeds/reef/0002_seed_reef_and_fleet.sql', 'utf8')) // the REEF fixture, as the old migration applied it
     const rowBefore = old.raw.prepare("SELECT id, manufacturer, install_odometer FROM tire_sets WHERE vehicle_id = 'veh-T6010'").get()
     applyMigrationFile(old.raw, '0003_tire_thresholds.sql')
     expect(old.raw.prepare("SELECT id, manufacturer, install_odometer, expected_life_km, replace_at_mm FROM tire_sets WHERE vehicle_id = 'veh-T6010'").get()).toEqual({ ...rowBefore, expected_life_km: null, replace_at_mm: null })
@@ -148,9 +150,10 @@ describe('Fleet persists to the database', () => {
   it('migration 0004 upgrades an existing database, fills only empty planning values and keeps genuine history', () => {
     const upgrade = (prepare: (raw: ReturnType<typeof createTestDb>['raw']) => void) => {
       const db = createTestDb({ migrate: false })
-      for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql']) db.raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+      for (const f of ['migrations/0001_core_schema.sql', 'seeds/reef/0002_seed_reef_and_fleet.sql', 'migrations/0003_tire_thresholds.sql']) db.raw.exec(readFileSync(f, 'utf8'))
       prepare(db.raw)
       applyMigrationFile(db.raw, '0004_vehicle_planning_and_demo_inspections.sql')
+      db.raw.exec(readFileSync('seeds/reef/0004_t6010_values_and_demo_inspections.sql', 'utf8')) // the REEF fixture part of the old migration
       return db.raw
     }
     // Fresh pre-0004 database: configured values and four labelled demo inspections are added.

@@ -43,8 +43,8 @@
       // First administrator (docs/MATERIALS.md): set to the email of the person who should administer staging. It is used only while
       // no administrator exists, and only for a request Cloudflare Access has verified. Leave unset to provision the first admin with SQL instead.
       // "INITIAL_ADMIN_EMAIL": "<ADMIN_EMAIL>"
-    }
-    // Add after creating the STAGING database (docs/OPERATIONS.md, step 2):
-    // "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "<STAGING_DATABASE_ID>" }]
+    },
+    // The STAGING database only. Never put nexus-production here. Migrations 0001-0007 are applied to it (docs/OPERATIONS.md).
+    "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150", "migrations_dir": "migrations" }]
   }
 }

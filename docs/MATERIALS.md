@@ -80,4 +80,4 @@ are looked up, so renaming an area, foundation or supplier never breaks an assoc
   exact, unambiguous match can be linked (one by one or "Link all exact matches") and anything else needs a record chosen.
 * **Limitation**: the construction anchorage library is not stored on the server yet, so with saved data the anchorage list is the project
   library (when present) plus the workbook's anchorage codes. Editing anchorage types stays in the existing anchorage page.
-* Staging checklist addition: apply migration `0006` after `0005`.
+* Staging checklist addition: apply migrations `0006` and `0007` after `0005` (see docs/OPERATIONS.md, "Fresh installation").

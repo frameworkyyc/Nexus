@@ -1,5 +1,6 @@
 import { identity } from '@/app/identity'
-import { createPersistedStore } from '@/lib/createPersistedStore'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
+import { createEphemeralStore, createPersistedStore } from '@/lib/createPersistedStore'
 import { createModuleStore, setModuleContext, useSaver } from '@/lib/dataSource'
 import { constructionStore } from '../store'
 import { buildSeed } from '../seed'
@@ -12,7 +13,7 @@ import { emptyTracker, type TrackerState } from './types'
  * is the same on every device. Without one it stays in this browser, apart from the demonstration data and untouched by
  * "Reset demo data".
  */
-const trackerLocal = createPersistedStore<TrackerState>({
+const trackerLocal = !IS_PUBLIC_DEMO ? createEphemeralStore(emptyTracker) : createPersistedStore<TrackerState>({
   key: identity.storageKeys.tracker, version: 3, seed: () => identity.trackerSeed?.(buildSeed(todayISO())) ?? emptyTracker(),
   // Older versions lacked manually entered materials, history and the supplier directory. Everything a person imported or entered stays
   // exactly as it is; values not tied to project records are kept as written and flagged for reconciliation, never rewritten.
