@@ -6,6 +6,7 @@ import { useIsPhone } from '@/lib/useMedia'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Field'
 import { Stat } from '@/components/ui/Stat'
+import { FilterToolbar, ViewToggle } from '@/components/ui/Toolbar'
 import { ProgressBar } from '@/components/ui/Progress'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { paths } from '../paths'
@@ -103,37 +104,50 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
           </dl>
         </>
       )}
-      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <Input data-search className="lg:max-w-xs" type="search" placeholder="Search foundation, anchorage, area" aria-label="Search register" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div className="flex flex-wrap gap-3 phone:grid phone:grid-cols-2">
-          <Select className="w-40 phone:w-full" aria-label="Filter by status" value={stateFilter} onChange={(e) => setStateFilter(e.target.value as StateFilter)}>
-            <option value="all">All statuses</option>
-            {(Object.keys(FOUNDATION_STATE_LABEL) as FoundationStateId[]).map((s) => <option key={s} value={s}>{FOUNDATION_STATE_LABEL[s]}</option>)}
-            <option value="blocked">Blocked</option>
-          </Select>
-          <Select className="w-36 phone:w-full" aria-label="Filter by anchorage type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-            <option value="all">All anchorage</option>
-            {state.anchorageTypes.map((t) => <option key={t.id} value={t.code}>{t.code}</option>)}
-          </Select>
-          {!areaId && (
-            <Select className="w-44 phone:w-full phone:col-span-2" aria-label="Filter by area" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
-              <option value="all">All areas</option>
-              {state.areas.filter((a) => a.projectId === projectId && (showArchived || !a.archived)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+      <FilterToolbar
+        phone={phone}
+        filterCount={areaId ? 2 : 3}
+        activeFilters={[areaFilter, stateFilter, typeFilter].filter((v) => v !== 'all').length}
+        search={<Input data-search type="search" placeholder="Search foundations" aria-label="Search register" value={query} onChange={(e) => setQuery(e.target.value)} />}
+        filters={(
+          <>
+            {!areaId && (
+              <Select aria-label="Filter by area" value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}>
+                <option value="all">All areas</option>
+                {state.areas.filter((a) => a.projectId === projectId && (showArchived || !a.archived)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </Select>
+            )}
+            <Select aria-label="Filter by status" value={stateFilter} onChange={(e) => setStateFilter(e.target.value as StateFilter)}>
+              <option value="all">All statuses</option>
+              {(Object.keys(FOUNDATION_STATE_LABEL) as FoundationStateId[]).map((s) => <option key={s} value={s}>{FOUNDATION_STATE_LABEL[s]}</option>)}
+              <option value="blocked">Blocked</option>
             </Select>
-          )}
-        </div>
-        {phone && <SortBar options={[{ key: 'number', label: 'Foundation Name' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />}
-        {phone && <Segmented label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />}
-        <div className="flex flex-wrap items-center gap-3 lg:ml-auto phone:[&>div[role=group]]:hidden"><label className="flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>{!areaId && <AddAreaButton projectId={projectId} />}<AddFoundationButton projectId={projectId} areaId={areaId} />
-        <div className="flex gap-1 text-[13px]" role="group" aria-label="Register view">
-          {(['foundations', 'plinths'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-nx px-3 py-1.5 capitalize transition-colors ${view === v ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{v}</button>
-          ))}
-        </div></div>
-      </div>
-      <p className="mb-1 text-xs text-muted">
-        {view === 'foundations' ? `${visible.length} of ${rows.length} foundation names` : `${plinthRows.length} plinths`} · expand a foundation to see its plinths
-      </p>
+            <Select aria-label="Filter by anchorage type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
+              <option value="all">All anchorage</option>
+              {state.anchorageTypes.map((t) => <option key={t.id} value={t.code}>{t.code}</option>)}
+            </Select>
+          </>
+        )}
+        secondaryStart={(
+          <>
+            <label className="flex h-9 items-center gap-2 text-[13px] text-muted phone:h-11"><input type="checkbox" className="h-4 w-4 phone:h-6 phone:w-6" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>
+            <p className="text-xs text-muted" aria-live="polite">{view === 'foundations' ? `${visible.length} of ${rows.length} foundation names` : `${plinthRows.length} plinths`}</p>
+          </>
+        )}
+        secondaryEnd={phone ? (
+          <>
+            <SortBar options={[{ key: 'number', label: 'Foundation Name' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />
+            <Segmented label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />
+            {!areaId && <AddAreaButton projectId={projectId} />}
+          </>
+        ) : (
+          <>
+            <ViewToggle label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />
+            {!areaId && <AddAreaButton projectId={projectId} />}
+          </>
+        )}
+      />
+      <p className="mb-1 text-xs text-muted">Expand a foundation to see its plinths.</p>
 
       {!visible.length ? (
         rows.length === 0 ? (

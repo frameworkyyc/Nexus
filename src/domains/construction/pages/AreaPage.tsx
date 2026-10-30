@@ -252,7 +252,7 @@ export function RegisterPage() {
   const { projectId = '' } = useParams()
   return (
     <>
-      <PageHeader title="Foundation register" description="Every foundation and plinth in the project. Search, filter, sort, and expand a foundation to see its plinths." />
+      <PageHeader title="Foundation register" description="Every foundation and plinth in the project. Search, filter, sort, and expand a foundation to see its plinths." actions={<AddFoundationButton projectId={projectId} />} />
       <FoundationRegister projectId={projectId} />
     </>
   )
