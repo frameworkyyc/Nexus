@@ -11,3 +11,7 @@ export const confirmNoReceipts = tagged.confirmNoReceipts
 export const setOrdered = tagged.setOrdered
 export const setNotes = tagged.setNotes
 export const acknowledgeFlag = tagged.acknowledgeFlag
+export const addMaterials = tagged.addMaterials
+export const editMaterial = tagged.editMaterial
+export const bulkEditMaterials = tagged.bulkEditMaterials
+export const archiveMaterials = tagged.archiveMaterials

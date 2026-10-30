@@ -229,7 +229,7 @@ describe('re-import', () => {
 
   it('removing the import clears it', async () => {
     const s = apply(await loaded(), A.clearTracker())
-    expect(s).toEqual(emptyTracker())
+    expect({ ...s, history: [] }).toEqual(emptyTracker()) // the import is gone; the history of what happened stays
   })
 })
 

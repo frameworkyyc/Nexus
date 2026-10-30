@@ -19,7 +19,7 @@ export interface QuantityCalc {
 }
 
 /** A physical receipt recorded in Nexus. Only these count as verified received quantity. */
-export interface Receipt { id: string; date: ISODate; qty: number; reference: string; note: string }
+export interface Receipt { id: string; date: ISODate; qty: number; reference: string; note: string; /** Verified identity of whoever recorded it (server only); empty when unknown. */ by?: string }
 
 export interface TrackerLine {
   id: string // stable across re-imports: area | footing type | anchorage type | component
@@ -42,6 +42,33 @@ export interface TrackerLine {
   receipts: Receipt[]
   confirmedNoReceipts: boolean
   notes: string
+  // Nexus-side details. For workbook lines only these (never the source facts above) can be changed; materials entered in Nexus
+  // (`origin: 'manual'`) own all of their fields.
+  origin?: 'manual'
+  description?: string
+  specification?: string
+  size?: string
+  unit?: string
+  supplier?: string
+  poRef?: string
+  expectedDate?: string | null
+  archived?: boolean
+  createdAt?: string
+  createdBy?: string
+}
+
+/** A recorded change to a material. Append-only: ordinary controls cannot edit or remove it. */
+export type AuditAction = 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note'
+export interface AuditEntry {
+  id: string
+  at: string
+  /** Verified identity (saved-data mode). Empty in the browser-only demo, where no identity exists. */
+  by: string
+  action: AuditAction
+  materialId: string
+  label: string
+  summary: string
+  changes: { field: string; from: string; to: string }[]
 }
 
 /** Area-level roll-up as the workbook itself presents it (columns K:N). A summary, never an additional requirement. */
@@ -78,10 +105,13 @@ export interface ImportMeta {
 export interface TrackerState {
   meta: ImportMeta | null
   lines: TrackerLine[]
+  /** Materials entered in Nexus. Kept apart from `lines`, which only ever holds what the workbook supplied. */
+  manual: TrackerLine[]
+  history: AuditEntry[]
   summary: WorkbookSummaryRow[]
   anchorage: AnchorageSheetRow[]
   flags: ImportFlag[]
   acknowledged: Record<string, { date: ISODate; note: string }>
 }
 
-export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], summary: [], anchorage: [], flags: [], acknowledged: {} })
+export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], history: [], summary: [], anchorage: [], flags: [], acknowledged: {} })

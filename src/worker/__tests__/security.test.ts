@@ -25,9 +25,10 @@ async function token(over: Record<string, unknown> = {}, key: CryptoKey = pair.p
 
 const certs = (async () => new Response(JSON.stringify({ keys: [{ ...jwk, kid: 'k1' }] }))) as unknown as typeof fetch
 
-function api(env: Partial<Env>, headers: Record<string, string> = {}, path = '/api/state/fleet', method = 'GET', url = 'https://staging.nexus.example') {
+function api(env: Partial<Env>, headers: Record<string, string> = {}, path = '/api/state/fleet', method = 'GET', url = 'https://staging.nexus.example', roles: [string, string][] = [['owner@example.com', 'viewer']]) {
   resetAuthCache()
   const db = createTestDb()
+  for (const [email, role] of roles) db.raw.prepare("INSERT INTO user_roles (email, role, assigned_by, assigned_at) VALUES (?, ?, 'test', '2026-10-21T00:00:00Z')").run(email, role)
   return handleApi(new Request(`${url}${path}`, { method, headers, body: method === 'POST' ? '{}' : undefined }), { DB: db.d1, ...env }, clock(), certs).then(async (r) => ({ status: r.status, body: await r.json() }))
 }
 

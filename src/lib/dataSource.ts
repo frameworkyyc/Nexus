@@ -5,6 +5,7 @@ import { api, ApiError } from './api'
 import { commandOf } from './commandTag'
 import { todayISO } from './date'
 import type { PersistedStore } from './createPersistedStore'
+import type { Role } from '@/shared/rbac'
 import type { ModuleName } from '@/shared/registry'
 
 /* ── Which data the app is showing ──────────────────────────────────────── */
@@ -15,7 +16,7 @@ import type { ModuleName } from '@/shared/registry'
  * blocked — a server exists but this browser is not signed in (or its sign-in expired).
  */
 export type Mode = 'checking' | 'server' | 'demo' | 'blocked'
-export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; schemaVersion?: string; reason?: string }
+export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string }
 
 let backend: BackendState = { mode: 'checking', serverAvailable: false }
 const backendListeners = new Set<() => void>()
@@ -44,8 +45,8 @@ export async function startBackend(): Promise<void> {
     return
   }
   try {
-    const s = await api<{ user: string; environment: string; schemaVersion: string }>('GET', '/api/session')
-    setBackend({ mode: viewDemo() ? 'demo' : 'server', serverAvailable: true, environment: s.environment, user: s.user, schemaVersion: s.schemaVersion })
+    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string }>('GET', '/api/session')
+    setBackend({ mode: viewDemo() ? 'demo' : 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion })
     if (!viewDemo()) await Promise.all(stores.map((m) => m.load()))
   } catch (e) {
     if (e instanceof ApiError && e.authRequired) setBackend({ mode: 'blocked', serverAvailable: true, reason: e.message })

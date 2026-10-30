@@ -1,3 +1,4 @@
+import type { TrackerState } from '@/domains/construction/tracker/types'
 /**
  * Everything that identifies the real organization, project and fleet in the seed data lives in THIS file, and nowhere else in the
  * client bundle. The public demo is built with `identity.demo.ts` swapped in for it (see vite.config.ts), so the public bundle never
@@ -22,6 +23,8 @@ export interface Identity {
   storageKeys: { fleet: string; construction: string; tracker: string }
   /** What the imported material tracker is called in the UI. */
   trackerName: string
+  /** Fictional starting materials for a browser-only demo. Absent on the real identity, whose tracker starts empty. */
+  trackerSeed?: () => TrackerState
   fleet: {
     units: [unit: string, year: number, make: string, model: string][]
     /** The unit that carries the detailed verified/sample figures below. */

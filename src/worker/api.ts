@@ -2,9 +2,11 @@ import { authenticate, AuthError, type AuthEnv } from './auth'
 import type { D1 } from './db'
 import { applyMigration, previewMigration, type MigrationBundle } from './migrate'
 import { checkIntegrity, createBackup, HttpError, readModule, runCommand, systemClock, versions, type Clock } from './service'
+import { listRoles, requirePermission, resolveActor, setRole, type RoleEnv } from './roles'
+import { ROLE_PERMISSIONS } from '@/shared/rbac'
 import { MODULE_NAMES, type ModuleName } from '@/shared/registry'
 
-export interface Env extends AuthEnv {
+export interface Env extends AuthEnv, RoleEnv {
   DB?: D1
   NEXUS_ENV?: string // "demo" (public, API off) | "staging" | "production"
 }
@@ -43,35 +45,46 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
     }
     if (!env.DB) throw new HttpError(503, 'The database is not connected.', 'no-database')
     const db = env.DB
+    // Who the verified identity is *allowed* to be, from the server's own records. Nothing in the request chooses the role.
+    const actor = await resolveActor(db, env, who, clock.now())
 
     if (path === '/api/session' && request.method === 'GET') {
       const info = await db.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>()
-      return json({ ok: true, user: who.email, environment: env.NEXUS_ENV ?? 'unknown', schemaVersion: info?.value ?? 'unknown', versions: await versions(db), serverDate: clock.now().toISOString().slice(0, 10) })
+      return json({ ok: true, user: who.email, role: actor.role, permissions: actor.role ? ROLE_PERMISSIONS[actor.role] : [], environment: env.NEXUS_ENV ?? 'unknown', schemaVersion: info?.value ?? 'unknown', versions: await versions(db), serverDate: clock.now().toISOString().slice(0, 10) })
+    }
+    if (path === '/api/roles' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json({ roles: await listRoles(db) }) }
+    if (path === '/api/roles' && request.method === 'POST') {
+      const body = (await readJson(request)) as { email?: unknown; role?: unknown }
+      return json({ roles: await setRole(db, actor, body.email, body.role ?? null, clock.now()) })
     }
     const stateMatch = /^\/api\/state\/(\w+)$/.exec(path)
     if (stateMatch && request.method === 'GET') {
       const module = stateMatch[1] as ModuleName
+      requirePermission(actor, 'view')
       if (!MODULE_NAMES.includes(module)) throw new HttpError(404, 'Unknown module.', 'not-found')
       const snap = await readModule(db, module)
       return json({ version: snap.version, state: snap.state })
     }
     if (path === '/api/commands' && request.method === 'POST') {
       const body = (await readJson(request)) as Record<string, unknown>
-      const result = await runCommand(db, body as never, who.email, clock)
+      const result = await runCommand(db, body as never, actor, clock)
       return json(result)
     }
     if (path === '/api/backup' && request.method === 'GET') {
+      requirePermission(actor, 'access.manage')
       const backup = await createBackup(db, clock)
       const stamp = backup.createdAt.replace(/[:.]/g, '-')
       return json(backup, 200, { 'content-disposition': `attachment; filename="nexus-backup-${env.NEXUS_ENV ?? 'data'}-${stamp}.json"` })
     }
-    if (path === '/api/integrity' && request.method === 'GET') return json(await checkIntegrity(db))
+    if (path === '/api/integrity' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json(await checkIntegrity(db)) }
     if (path === '/api/migrate/preview' && request.method === 'POST') {
+      requirePermission(actor, 'access.manage')
       const body = (await readJson(request)) as { bundle?: MigrationBundle }
       return json({ report: await previewMigration(db, body.bundle as MigrationBundle) })
     }
     if (path === '/api/migrate/apply' && request.method === 'POST') {
-      return json(await applyMigration(db, (await readJson(request)) as never, who.email, clock))
+      requirePermission(actor, 'access.manage')
+      return json(await applyMigration(db, (await readJson(request)) as never, actor.email, clock))
     }
     throw new HttpError(404, 'Not found.', 'not-found')
   } catch (e) {

@@ -1,6 +1,7 @@
 import { loadRows, TABLES, writeStatements, type D1, type D1Statement, type Row, type RowSet } from './db'
 import { MODULES } from './modules'
 import { isRequestId, validateImportMeta, validateParsedTracker } from './validate'
+import { requireCommandPermission, type Actor } from './roles'
 import { MODULE_NAMES, SERVER_COMMANDS, type ModuleName } from '@/shared/registry'
 
 export class HttpError extends Error {
@@ -48,12 +49,15 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
  * a single transaction together with its audit entry, and refused if another change landed first (it is then re-evaluated
  * against the newer records). A repeated request id is answered, not applied twice.
  */
-export async function runCommand(db: D1, req: CommandRequest, actor: string, clock: Clock = systemClock) {
+export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, clock: Clock = systemClock) {
+  const actor = actorIn.email
   const module = req.module as ModuleName
   if (!MODULE_NAMES.includes(module)) throw new HttpError(400, 'Unknown module.', 'bad-request')
   const name = String(req.name)
   const creator = SERVER_COMMANDS[module][name]
   if (!creator) throw new HttpError(400, `“${name}” cannot be saved to the server.`, 'unsupported')
+  // Authorization comes first and uses only the role the server resolved for the verified identity.
+  requireCommandPermission(actorIn, module, name)
   if (!isRequestId(req.requestId)) throw new HttpError(400, 'Missing or invalid request id.', 'bad-request')
   if (!Array.isArray(req.args)) throw new HttpError(400, 'Command arguments must be a list.', 'bad-request')
   const now = clock.now()
@@ -85,7 +89,7 @@ export async function runCommand(db: D1, req: CommandRequest, actor: string, clo
   for (let attempt = 0; attempt < 4; attempt++) {
     const snap = await readModule(db, module)
     let result: { state?: unknown; error?: string }
-    try { result = creator(...args)(snap.state) } catch (e) { throw new HttpError(400, `The change could not be applied: ${messageOf(e)}`, 'command-failed') }
+    try { result = creator(...args)(snap.state, { actor, now: now.toISOString() }) } catch (e) { throw new HttpError(400, `The change could not be applied: ${messageOf(e)}`, 'command-failed') }
     if (result.error !== undefined) throw new HttpError(422, result.error, 'rejected')
     const spec = MODULES[module]
     const next = spec.toRows(result.state, { prevRows: snap.rows, isImport: !!importBatchId, importBatchId })

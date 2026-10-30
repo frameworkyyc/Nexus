@@ -1,30 +1,24 @@
 import { identity } from '@/app/identity'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { DataTable, type Column } from '@/components/ui/DataTable'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Input, Select } from '@/components/ui/Field'
-import { Stat } from '@/components/ui/Stat'
-import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { Tabs } from '@/components/ui/Tabs'
 import { formatDate } from '@/lib/format'
+import { useIsServer } from '@/lib/dataSource'
 import { useConstruction } from '../store'
 import { acknowledgeFlag, clearTracker } from './commands'
 import { ImportButton } from './ImportModal'
-import { LineModal } from './LineModal'
-import {
-  areaSummary, CATEGORY_LABEL, CATEGORY_ORDER, DELIVERY_LABEL, deliveryState, distinct, filterLines, isVerified, linesForArea, receivedOf, reconcileSummary, remainingOf,
-  type DeliveryState, type LineFilter,
-} from './selectors'
+import { useAccess } from '@/lib/access'
+import { AccessBar } from './manage/AccessBar'
+import { AddMaterialModal, blankMaterial } from './manage/AddMaterialModal'
+import { MaterialsManager } from './manage/MaterialsManager'
+import { allLines, areaSummary, distinct, linesForArea, reconcileSummary } from './selectors'
 import { useTracker, useTrackerCommand } from './store'
-import type { ComponentCategory } from './types'
 import type { TrackerLine } from './types'
 
-type Tab = 'requirements' | 'summary' | 'anchorage' | 'review' | 'source'
+type Tab = 'requirements' | 'summary' | 'anchorage' | 'review' | 'activity' | 'source'
 
-const TONE: Record<DeliveryState, Tone> = { received: 'ok', 'over-received': 'warn', partial: 'warn', 'none-received': 'muted', 'unverified-delivered': 'info', 'unverified-pending': 'muted' }
 const num = (n: number | null) => (n === null ? <span className="text-muted">—</span> : <span className="tabular-nums">{n.toLocaleString('en-CA')}</span>)
-const DELIVERY_FILTER: DeliveryState[] = ['unverified-delivered', 'unverified-pending', 'received', 'partial', 'none-received', 'over-received']
 
 /**
  * The imported REEF material tracker. Pass `areaId` to scope it to one construction area (the area Materials tab);
@@ -36,83 +30,53 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
   const { state: construction } = useConstruction()
   const { run } = useTrackerCommand()
   const { today } = useTracker()
+  const access = useAccess()
   const [tab, setTab] = useState<Tab>('requirements')
-  const [filter, setFilter] = useState<LineFilter>({})
-  const [open, setOpen] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
 
-  const scope = useMemo(() => (areaId ? linesForArea(state, construction.areas, areaId) : state.lines), [state, construction.areas, areaId])
-  const rows = useMemo(() => filterLines(scope, filter), [scope, filter])
-  const set = (patch: Partial<LineFilter>) => setFilter((f) => ({ ...f, ...patch }))
+  const all = useMemo(() => (areaId ? linesForArea(state, construction.areas, areaId) : allLines(state)), [state, construction.areas, areaId])
+  const scope = useMemo(() => all.filter((l) => !l.archived), [all])
 
-  if (!state.meta) {
+  if (!state.meta && all.length === 0) {
     return (
-      <EmptyState
-        title="No material tracker imported"
-        description={`Import the ${identity.trackerName} material tracker workbook to track requirements, deliveries and receipts. It is read in this browser and stored on this device only.`}
-        action={<ImportButton />}
-      />
+      <>
+        <AccessBar />
+        <EmptyState
+          title="No materials yet"
+          description={`Add materials one at a time, or import the ${identity.trackerName} material tracker workbook to bring in every requirement by area, footing type and anchorage type. The workbook is read in this browser; it is not uploaded.`}
+          action={<div className="flex flex-wrap justify-center gap-2">{access.can('materials.add') && <Button variant="primary" onClick={() => setAdding(true)}>Add material</Button>}{access.can('materials.import') && <ImportButton />}</div>}
+        />
+        {adding && <AddMaterialModal areas={[]} locations={[]} initial={blankMaterial()} onClose={() => setAdding(false)} />}
+      </>
     )
   }
   const flags = state.flags.filter((f) => !areaId || scope.some((l) => l.id === f.lineId) || !f.lineId)
   const pending = flags.filter((f) => f.severity === 'review' && !state.acknowledged[f.id])
-  const verified = scope.filter(isVerified).length
-  const deliveredUnverified = scope.filter((l) => deliveryState(l) === 'unverified-delivered').length
-
-  const columns: Column<TrackerLine>[] = [
-    { key: 'component', header: 'Component', render: (l) => (
-      <>
-        <span className="font-medium">{l.component}</span>
-        <span className="block text-xs text-muted">{CATEGORY_LABEL[l.category]} · {l.source.sheet} row {l.source.row}{l.sourceNotes.length ? ' · has workbook comment' : ''}</span>
-      </>
-    ) },
-    ...(areaId ? [] : [{ key: 'area', header: 'Area', hideOnMobile: true, render: (l: TrackerLine) => l.area }]),
-    { key: 'footing', header: 'Footing type', hideOnMobile: true, render: (l) => l.footingType || '—' },
-    { key: 'anchorage', header: 'Anchorage', hideOnMobile: true, render: (l) => l.anchorageType || '—' },
-    { key: 'required', header: 'Required', render: (l) => num(l.requiredQty), className: 'text-right' },
-    { key: 'ordered', header: 'Ordered', hideOnMobile: true, render: (l) => num(l.orderedQty), className: 'text-right' },
-    { key: 'received', header: 'Received', hideOnMobile: true, render: (l) => (isVerified(l) ? num(receivedOf(l)) : <span className="text-muted">Not verified</span>), className: 'text-right' },
-    { key: 'remaining', header: 'Remaining', hideOnMobile: true, render: (l) => num(remainingOf(l)), className: 'text-right' },
-    { key: 'status', header: 'Delivery', render: (l) => { const d = deliveryState(l); return <StatusBadge tone={TONE[d]} label={DELIVERY_LABEL[d]} /> } },
-  ]
+  const history = (state.history ?? []).filter((h) => !areaId || !h.materialId || all.some((l) => l.id === h.materialId))
 
   return (
     <div className="[font-feature-settings:'calt'_0]">
-      <dl className="grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
-        <Stat label="Material lines" value={scope.length} />
-        <Stat label="Receipts verified" value={verified} sub={`of ${scope.length} lines`} />
-        <Stat label="Delivered, unverified" value={deliveredUnverified} sub="Per workbook status" />
-        <Stat label="To review" value={pending.length} sub="Flagged records" />
-      </dl>
-      <p className="mt-3 max-w-2xl text-xs leading-relaxed text-muted">Delivered and Pending are the workbook’s statuses. A line counts as received only when a receipt is recorded here; “Delivered” may mean part of the quantity.</p>
-
-      <div className="mt-8"><Tabs<Tab> value={tab} onChange={setTab} items={[
-        { id: 'requirements', label: 'Requirements', count: scope.length }, { id: 'summary', label: 'Area summary' },
-        { id: 'anchorage', label: 'Anchorage types' }, { id: 'review', label: 'Review', count: pending.length }, { id: 'source', label: 'Source' },
+      <AccessBar />
+      <div><Tabs<Tab> value={tab} onChange={setTab} items={[
+        { id: 'requirements', label: 'Materials', count: scope.length }, { id: 'summary', label: 'Area summary' },
+        { id: 'anchorage', label: 'Anchorage types' }, { id: 'review', label: 'Review', count: pending.length }, { id: 'activity', label: 'Activity', count: history.length }, { id: 'source', label: 'Source' },
       ]} /></div>
 
       <div className="pt-6">
         {tab === 'requirements' && (
           <>
-            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              <div className="col-span-2 md:col-span-3 xl:col-span-2"><Input type="search" aria-label="Search materials" placeholder="Search component, footing, anchorage, notes…" value={filter.search ?? ''} onChange={(e) => set({ search: e.target.value })} /></div>
-              {!areaId && <Select aria-label="Area" value={filter.area ?? ''} onChange={(e) => set({ area: e.target.value })}><option value="">All areas</option>{distinct(scope.map((l) => l.area)).map((a) => <option key={a}>{a}</option>)}</Select>}
-              <Select aria-label="Component type" value={filter.category ?? ''} onChange={(e) => set({ category: e.target.value as ComponentCategory | '' })}><option value="">All components</option>{CATEGORY_ORDER.filter((c) => scope.some((l) => l.category === c)).map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</Select>
-              <Select aria-label="Footing type" value={filter.footingType ?? ''} onChange={(e) => set({ footingType: e.target.value })}><option value="">All footing types</option>{distinct(scope.map((l) => l.footingType)).map((a) => <option key={a}>{a}</option>)}</Select>
-              <Select aria-label="Anchorage type" value={filter.anchorageType ?? ''} onChange={(e) => set({ anchorageType: e.target.value })}><option value="">All anchorage types</option>{distinct(scope.map((l) => l.anchorageType)).map((a) => <option key={a}>{a}</option>)}</Select>
-              <Select aria-label="Delivery status" value={filter.delivery ?? ''} onChange={(e) => set({ delivery: e.target.value as DeliveryState | '' })}><option value="">Any delivery status</option>{DELIVERY_FILTER.map((d) => <option key={d} value={d}>{DELIVERY_LABEL[d]}</option>)}</Select>
-            </div>
-            <p className="mb-2 text-xs text-muted" aria-live="polite">{rows.length} of {scope.length} lines{Object.values(filter).some(Boolean) && <> · <button className="underline underline-offset-4" onClick={() => setFilter({})}>Clear filters</button></>}</p>
-            {rows.length ? <DataTable columns={columns} rows={rows} getKey={(l) => l.id} onRowClick={(l) => setOpen(l.id)} /> : <EmptyState title="No lines match these filters" />}
+            <MaterialsManager lines={all} scopeName={areaId ? 'This area' : 'All areas'} hideArea={!!areaId} />
+            <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted">Delivered and Pending from the workbook are statuses, not receipts. A line counts as received only when a delivery is recorded here; Outstanding = required − total verified received, and stays unknown until a receipt is recorded or “nothing received” is confirmed.</p>
           </>
         )}
 
         {tab === 'summary' && <AreaSummary lines={scope} />}
 
-        {tab === 'anchorage' && <AnchorageTypes lines={scope} />}
+        {tab === 'anchorage' && <AnchorageTypes lines={scope.filter((l) => l.origin !== 'manual')} />}
 
         {tab === 'review' && (
           <>
-            <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted">Records the importer could not confirm. Nothing was changed: quantities and descriptions are exactly as the workbook has them. Acknowledging a flag only records that someone has looked at it.</p>
+            <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted">Records the importer could not confirm. Nothing was changed: quantities and descriptions are exactly as the workbook has them. Acknowledging a flag only records that you have looked at it.</p>
             {flags.length === 0 ? <EmptyState title="Nothing flagged" /> : (
               <ul className="border-t border-line">
                 {flags.map((f) => {
@@ -123,7 +87,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
                         <p>{f.message}</p>
                         <p className="text-xs text-muted">{f.source.sheet}, row {f.source.row} · {f.severity === 'review' ? 'Needs review' : 'For information'}{ack && ` · acknowledged ${formatDate(ack.date)}`}</p>
                       </div>
-                      {f.severity === 'review' && <Button variant="ghost" className="h-8 px-2" onClick={() => run(acknowledgeFlag(f.id, '', today, !ack))}>{ack ? 'Undo acknowledge' : 'Acknowledge'}</Button>}
+                      {f.severity === 'review' && access.can('materials.edit') && <Button variant="ghost" className="h-8 px-2" onClick={() => run(acknowledgeFlag(f.id, '', today, !ack))}>{ack ? 'Undo acknowledge' : 'Acknowledge'}</Button>}
                     </li>
                   )
                 })}
@@ -132,9 +96,24 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
           </>
         )}
 
+        {tab === 'activity' && (
+          <>
+            <p className="mb-4 max-w-2xl text-xs leading-relaxed text-muted">Every addition, edit, quantity change, delivery, status change and archive, newest first. The history is append-only: it cannot be edited from here. With saved data each entry carries the signed-in user and server time.</p>
+            {history.length === 0 ? <EmptyState title="No activity yet" /> : (
+              <ul className="border-t border-line text-[13px]">
+                {history.slice().reverse().slice(0, 300).map((h) => (
+                  <li key={h.id} className="border-b border-line py-2.5">
+                    <p><span className="font-medium">{h.label}</span> — {h.summary}</p>
+                    <p className="text-xs text-muted">{new Date(h.at).toLocaleString('en-CA')} · {h.by || 'user not recorded'}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
         {tab === 'source' && <Source />}
       </div>
-      {open && <LineModal lineId={open} onClose={() => setOpen(null)} />}
     </div>
   )
 }
@@ -206,6 +185,8 @@ function AnchorageTypes({ lines }: { lines: TrackerLine[] }) {
 
 function Source() {
   const { state } = useTracker()
+  const access = useAccess()
+  const server = useIsServer()
   const { run } = useTrackerCommand()
   const m = state.meta!
   const rec = reconcileSummary(state)
@@ -225,10 +206,10 @@ function Source() {
         <li>Received quantity is the sum of receipts recorded in Nexus. Remaining = required − received, shown only once receipts are verified.</li>
         <li>The Materials percentage counts verified receipts only; “Delivered” lines without receipts count as zero and are listed separately.</li>
       </ul>
-      <p className="mb-4 mt-8 text-xs text-muted">Stored in this browser only. Other users cannot see it and clearing site data removes it.</p>
+      <p className="mb-4 mt-8 text-xs text-muted">{server ? 'Saved on the server and shared by everyone with access.' : 'Stored in this browser only. Other users cannot see it and clearing site data removes it.'}</p>
       <div className="flex gap-2">
-        <ImportButton label="Re-import workbook" />
-        <Button variant="ghost" onClick={() => window.confirm('Remove the imported tracker and every receipt, ordered quantity and note entered on it? This cannot be undone.') && run(clearTracker())}>Remove imported data</Button>
+        {access.can('materials.import') && <ImportButton label="Re-import workbook" />}
+        {!server && access.can('materials.configure') && <Button variant="ghost" onClick={() => window.confirm('Remove the imported workbook lines and every receipt, ordered quantity and note entered on them? Materials added in Nexus are kept. This cannot be undone.') && run(clearTracker())}>Remove imported data</Button>}
       </div>
     </div>
   )

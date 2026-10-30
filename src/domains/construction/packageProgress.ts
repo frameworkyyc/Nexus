@@ -32,7 +32,7 @@ function areaActivities(idx: Index, areaId: string): { act: Activity; status: Re
 const doneOf = (xs: { status: string }[]) => xs.filter((x) => x.status === 'complete' || x.status === 'approved').length
 
 export function materialsIndicator(idx: Index, areaId: string, tracker: TrackerState): PackageIndicator {
-  const lines = linesForArea(tracker, idx.state.areas, areaId)
+  const lines = linesForArea(tracker, idx.state.areas, areaId).filter((l) => !l.archived)
   const basis = 'Verified received quantity against required quantity, averaged across the area’s material lines. Only receipts recorded in Nexus count: a “Delivered” status in the workbook is shown but does not raise the percentage. Ordered quantities are procurement only.'
   if (!lines.length) {
     return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material tracker', value: tracker.meta ? 'No lines for this area' : 'Not imported' }], gaps: [`Import the ${identity.trackerName} material tracker workbook to track materials. Demonstration material data is not counted.`] }

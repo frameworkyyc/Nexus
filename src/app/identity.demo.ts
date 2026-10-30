@@ -1,3 +1,4 @@
+import { demoTrackerSeed } from '@/domains/construction/tracker/demoSeed'
 import type { Identity } from './identity'
 
 /**
@@ -18,6 +19,7 @@ export const identity: Identity = {
   numberStem: '1042',
   storageKeys: { fleet: 'nexus.public-demo.fleet', construction: 'nexus.public-demo.construction', tracker: 'nexus.public-demo.materialTracker' },
   trackerName: 'Harbour Point',
+  trackerSeed: demoTrackerSeed,
   fleet: {
     units: [['D101', 2025, 'Ford', 'F-250'], ['D102', 2025, 'Ford', 'F-250'], ['D201', 2023, 'Ram', '3500'], ['D202', 2023, 'Ram', '3500']],
     primary: {

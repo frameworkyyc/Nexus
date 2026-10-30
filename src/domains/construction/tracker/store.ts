@@ -10,7 +10,15 @@ import { emptyTracker, type TrackerState } from './types'
  * is the same on every device. Without one it stays in this browser, apart from the demonstration data and untouched by
  * "Reset demo data".
  */
-const trackerLocal = createPersistedStore({ key: identity.storageKeys.tracker, version: 1, seed: emptyTracker })
+const trackerLocal = createPersistedStore<TrackerState>({
+  key: identity.storageKeys.tracker, version: 2, seed: () => identity.trackerSeed?.() ?? emptyTracker(),
+  // Version 1 had no manually entered materials or history; the imported workbook, receipts and notes are kept as they are.
+  migrate: (data) => {
+    const old = { ...emptyTracker(), ...(data as Partial<TrackerState>) }
+    // A browser that only ever held the empty tracker gets the demo's starting materials; anything a person entered or imported stays.
+    return !old.meta && old.lines.length === 0 && old.manual.length === 0 ? (identity.trackerSeed?.() ?? old) : old
+  },
+})
 
 export const trackerStore = createModuleStore<TrackerState>('materials', trackerLocal, emptyTracker, notify)
 export const trackerLocalStore = trackerLocal

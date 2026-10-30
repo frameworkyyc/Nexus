@@ -40,6 +40,9 @@
       // From Zero Trust → Access → Applications → (your app). Fill in after creating the Access application.
       "ACCESS_TEAM_DOMAIN": "",
       "ACCESS_AUD": ""
+      // First administrator (docs/MATERIALS.md): set to the email of the person who should administer staging. It is used only while
+      // no administrator exists, and only for a request Cloudflare Access has verified. Leave unset to provision the first admin with SQL instead.
+      // "INITIAL_ADMIN_EMAIL": "<ADMIN_EMAIL>"
     }
     // Add after creating the STAGING database (docs/OPERATIONS.md, step 2):
     // "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "<STAGING_DATABASE_ID>" }]
