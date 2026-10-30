@@ -49,6 +49,23 @@ describe('sole plate centre hole', () => {
   })
 })
 
+describe('embed plate headed studs', () => {
+  it('are optional, validated, kept on edit, and make plates with different studs separate materials', () => {
+    const { s, A1 } = world()
+    const plate = (o: Partial<ComponentInput> = {}): ComponentInput => ({ kind: 'embed-plate', qty: 2, size: '320 x 320 mm', ...o })
+    expect(err(s, K.setAnchorageComponents(A1, [plate()]))).toBeUndefined() // no studs
+    expect(err(s, K.setAnchorageComponents(A1, [plate({ studCount: 4 })]))).toMatch(/stud diameter/)
+    expect(err(s, K.setAnchorageComponents(A1, [plate({ studCount: 4, studDiameter: 19 })]))).toMatch(/stud length/)
+    expect(err(s, K.setAnchorageComponents(A1, [plate({ studCount: 0, studDiameter: 19, studLength: 150 })]))).toMatch(/studs per plate/)
+    expect(err(s, K.setAnchorageComponents(A1, [plate({ studDiameter: 19, studLength: 150 })]))).toMatch(/studs per plate/)
+    const t = apply(s, K.setAnchorageComponents(A1, [plate({ studCount: 4, studDiameter: 0.75, studLength: 6, lengthUnit: 'in' }), plate({ studCount: 6, studDiameter: 19, studLength: 150 }), plate()]))
+    expect(t.anchorageComponents![0]).toMatchObject({ studCount: 4, studDiameter: 0.75, studLength: 6, lengthUnit: 'in' })
+    expect(t.anchorageComponents![2].studCount).toBeNull()
+    const m = at(emptyTracker(), t).manual.filter((l) => l.origin === 'anchorage' && l.component === 'Embed plate')
+    expect(m.map((l) => l.specification).sort()).toEqual(['', '4 headed studs Ø0.75 × 6 in', '6 headed studs Ø19 × 150 mm'])
+  })
+})
+
 describe('anchorage components', () => {
   it('validates: bolts need a diameter, length and thread; an anchorage can be embed plates only', () => {
     const { s, A1 } = world()

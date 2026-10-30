@@ -191,6 +191,9 @@ export interface ComponentInput {
   nutSize?: string
   washerSize?: string
   centerHole?: number | null
+  studCount?: number | null
+  studDiameter?: number | null
+  studLength?: number | null
 }
 
 const text = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
@@ -205,6 +208,15 @@ export function componentProblem(c: ComponentInput, n: number): string | null {
   if (c.kind === 'sole-plate') {
     if (c.centerHole !== null && c.centerHole !== undefined && !pos(c.centerHole)) return `${at}: enter the centre hole diameter as a number above 0, or leave it empty.`
     if (c.lengthUnit !== undefined && c.lengthUnit !== 'mm' && c.lengthUnit !== 'in') return `${at}: choose mm or inches for the centre hole.`
+  }
+  if (c.kind === 'embed-plate') {
+    const any = [c.studCount, c.studDiameter, c.studLength].some((v) => v !== null && v !== undefined)
+    if (any) {
+      if (!Number.isInteger(c.studCount) || (c.studCount as number) < 1 || (c.studCount as number) > 1000) return `${at}: enter a whole number of studs per plate (1 to 1,000), or leave the headed studs empty.`
+      if (!pos(c.studDiameter)) return `${at}: enter the stud diameter.`
+      if (!pos(c.studLength)) return `${at}: enter the stud length.`
+    }
+    if (c.lengthUnit !== undefined && c.lengthUnit !== 'mm' && c.lengthUnit !== 'in') return `${at}: choose mm or inches for the studs.`
   }
   if (c.kind !== 'bolt') return null
   if (!text(c.diameter, 30)) return `${at}: enter the bolt diameter (for example M25 or 3/4").`
@@ -243,6 +255,7 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
       thread: bolt ? (c.thread as 'both-ends' | 'all-thread') : null, topThread: bolt && c.thread === 'both-ends' ? (c.topThread as number) : null, bottomThread: bolt && c.thread === 'both-ends' ? (c.bottomThread as number) : null,
       nutsPerBolt: bolt ? c.nutsPerBolt ?? 0 : 0, washersPerBolt: bolt ? c.washersPerBolt ?? 0 : 0, nutSize: bolt ? text(c.nutSize, 30) : '', washerSize: bolt ? text(c.washerSize, 30) : '',
       centerHole: c.kind === 'sole-plate' && pos(c.centerHole) ? (c.centerHole as number) : null,
+      studCount: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studCount as number) : null, studDiameter: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studDiameter as number) : null, studLength: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studLength as number) : null,
     })
   }
   return ok({ ...s, anchorageComponents: [...(s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId !== anchorageTypeId), ...next] })

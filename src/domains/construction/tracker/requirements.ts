@@ -58,7 +58,8 @@ export function itemsOf(c: AnchorageComponent): Item[] {
   const category: ComponentCategory = c.kind === 'sole-plate' ? 'sole-plate' : c.kind === 'template' ? 'template' : 'embed-plate'
   const base = c.kind === 'sole-plate' ? 'Sole plate' : c.kind === 'template' ? 'Plywood template' : 'Embed plate'
   const hole = c.kind === 'sole-plate' && c.centerHole ? `centre hole Ø${num(c.centerHole)} ${c.lengthUnit}` : ''
-  return [{ category, name: c.label.trim() || base, spec: [c.spec.trim(), hole].filter(Boolean).join(', '), size: c.size.trim(), each: c.qty }]
+  const studs = c.kind === 'embed-plate' && c.studCount && c.studDiameter && c.studLength ? `${c.studCount} headed stud${c.studCount === 1 ? '' : 's'} Ø${num(c.studDiameter)} × ${num(c.studLength)} ${c.lengthUnit}` : ''
+  return [{ category, name: c.label.trim() || base, spec: [c.spec.trim(), hole, studs].filter(Boolean).join(', '), size: c.size.trim(), each: c.qty }]
 }
 
 /** Physical anchorages of each type on each foundation: the foundation's quantity times its plinths of that type. */

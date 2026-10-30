@@ -139,3 +139,18 @@ describe('migration 0013', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '13' })
   })
 })
+
+describe('migration 0014', () => {
+  it('adds headed stud columns; existing embed plates keep no studs', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql', '0013_sole_plate_center_hole.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec('PRAGMA foreign_keys = OFF')
+    db.raw.exec("INSERT INTO anchorage_types (id, project_id, code, description, seq) VALUES ('at-1', 'p-1', 'A', 'A', 0)")
+    db.raw.exec("INSERT INTO anchorage_components (id, anchorage_type_id, kind, qty, size, seq) VALUES ('c-1', 'at-1', 'embed-plate', 3, '300 x 300', 0)")
+    applyMigrationFile(db.raw, '0014_embed_plate_headed_studs.sql')
+    expect(db.raw.prepare('SELECT qty, size, stud_count, stud_diameter, stud_length FROM anchorage_components').get()).toEqual({ qty: 3, size: '300 x 300', stud_count: null, stud_diameter: null, stud_length: null })
+    expect(() => db.raw.exec('UPDATE anchorage_components SET stud_count = 0')).toThrow()
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '14' })
+  })
+})

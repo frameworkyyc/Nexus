@@ -172,6 +172,10 @@ export interface AnchorageComponent {
   washerSize: string
   // Sole plates only: optional centre hole diameter, in lengthUnit (mm or in)
   centerHole?: number | null
+  // Embed plates only: optional headed studs (per plate), diameter and length in lengthUnit
+  studCount?: number | null
+  studDiameter?: number | null
+  studLength?: number | null
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */
