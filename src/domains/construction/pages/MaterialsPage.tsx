@@ -18,7 +18,7 @@ export function MaterialsPage() {
   const server = useIsServer()
   return (
     <>
-      <PageHeader title="Materials" description={`${identity.trackerName} material tracker: requirements by area, footing type and anchorage type, with delivery verified by recorded receipts.`} />
+      <PageHeader title="Materials" description={`Materials by area, category and specification. Identical materials are totalled across every foundation in an area; ordering and receiving are in Procurement.`} />
       <MaterialTracker />
       {!server && (
         <div className="mt-16 border-t border-line">

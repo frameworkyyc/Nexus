@@ -32,6 +32,7 @@ const cmd = (db: TestDb, email: string, module: string, name: string, args: unkn
   as(db, email, 'POST', '/api/commands', { module, name, args, requestId: `req-onb-${Date.now().toString(36)}-${n++}-xxxxxxxx`, clientToday: TODAY }, env)
 const give = (db: TestDb, email: string, role: string) => db.raw.prepare("INSERT INTO user_roles (email, role, assigned_by, assigned_at) VALUES (?, ?, 'test', '2026-10-21T00:00:00Z')").run(email, role)
 import { refreshRequirements } from '@/domains/construction/tracker/requirements'
+import { procurementRows } from '@/domains/construction/tracker/procurement'
 const count = (db: TestDb, table: string) => (db.raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
 const fresh = async () => { const db = createTestDb({ seed: false }); give(db, 'admin@example.com', 'admin'); give(db, 'editor@example.com', 'editor'); give(db, 'viewer@example.com', 'viewer'); await cmd(db, 'admin@example.com', 'construction', 'createOrganization', [{ name: 'Northline' }]); return db }
 const get = async (db: TestDb, module: string) => (await as(db, 'viewer@example.com', 'GET', `/api/state/${module}`)).body.state
@@ -152,5 +153,70 @@ describe('migration 0014', () => {
     expect(db.raw.prepare('SELECT qty, size, stud_count, stud_diameter, stud_length FROM anchorage_components').get()).toEqual({ qty: 3, size: '300 x 300', stud_count: null, stud_diameter: null, stud_length: null })
     expect(() => db.raw.exec('UPDATE anchorage_components SET stud_count = 0')).toThrow()
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '14' })
+  })
+})
+
+describe('procurement on the server', () => {
+  const rowsOf = async (db: TestDb) => {
+    const m = await get(db, 'materials'); const c = await get(db, 'construction')
+    return procurementRows(refreshRequirements(m, c, { log: false }), c)
+  }
+  it('orders and bulk deliveries are saved once per requirement, with permissions, who and when', async () => {
+    const { db, A } = await setup()
+    const bolts = (await rowsOf(db)).find((r) => r.name === 'Anchor bolt')!
+    const nuts = (await rowsOf(db)).find((r) => r.name === 'Nut')!
+    expect(bolts.required).toBe(144)
+    const order = { number: 'PO-77', supplier: 'Nucor', date: '2026-10-20', lines: [{ key: bolts.key, qty: 144 }, { key: nuts.key, qty: 288 }] }
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'createPurchaseOrder', [order, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [order, TODAY])).status).toBe(200)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [order, TODAY])).status).toBe(422) // duplicate PO number
+    expect(db.raw.prepare('SELECT po_number, supplier, created_by FROM purchase_orders').all()).toEqual([{ po_number: 'PO-77', supplier: 'Nucor', created_by: 'editor@example.com' }])
+    expect(count(db, 'purchase_order_lines')).toBe(2)
+    expect((await rowsOf(db)).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 144, status: 'ordered' })
+    const poId = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    const delivery = { orderId: poId, date: '2026-10-20', reference: 'DN-9', lines: [{ key: bolts.key, qty: 100 }, { key: nuts.key, qty: 288 }] }
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'recordDelivery', [delivery, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [delivery, TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT reference, received_by, received_at FROM procurement_deliveries').get()).toMatchObject({ reference: 'DN-9', received_by: 'editor@example.com' })
+    expect(count(db, 'procurement_delivery_lines')).toBe(2)
+    expect(count(db, 'manual_material_receipts')).toBe(0) // nothing against individual foundations
+    expect(count(db, 'material_allocations')).toBe(0)
+    expect((await rowsOf(db)).find((r) => r.name === 'Anchor bolt')).toMatchObject({ received: 100, outstanding: 44, status: 'partial', allocated: 0 })
+    // the foundation grows: required follows, the order and delivery are untouched
+    const c = await get(db, 'construction')
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [c.foundations[0].id, { quantity: 20 }])).status).toBe(200)
+    expect((await rowsOf(db)).find((r) => r.name === 'Anchor bolt')).toMatchObject({ required: 240, ordered: 144, received: 100, toOrder: 96 })
+    expect(count(db, 'purchase_order_lines')).toBe(2)
+    // allocation: separate from receiving
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setAllocations', [bolts.key, [{ foundationId: c.foundations[0].id, qty: 60 }]])).status).toBe(200)
+    expect(db.raw.prepare('SELECT qty, allocated_by FROM material_allocations').all()).toEqual([{ qty: 60, allocated_by: 'editor@example.com' }])
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setAllocations', [bolts.key, [{ foundationId: c.foundations[0].id, qty: 999 }]])).status).toBe(422)
+    // voiding needs an admin and is refused while the material is allocated
+    const dl = (db.raw.prepare('SELECT id FROM procurement_deliveries').get() as { id: string }).id
+    expect((await cmd(db, 'editor@example.com', 'materials', 'voidDelivery', [dl])).status).toBe(403)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'voidDelivery', [dl])).status).toBe(422)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setAllocations', [bolts.key, [{ foundationId: c.foundations[0].id, qty: 0 }]])).status).toBe(200)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'voidDelivery', [dl])).status).toBe(200)
+    expect(count(db, 'procurement_deliveries')).toBe(0)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+    // the history records each step
+    expect(db.raw.prepare("SELECT action FROM material_audit WHERE action IN ('order','delivery','allocation') ORDER BY seq").all().map((r) => (r as { action: string }).action)).toEqual(['order', 'delivery', 'allocation', 'allocation', 'delivery'])
+    void A
+  })
+})
+
+describe('migration 0015', () => {
+  it('adds the procurement tables without touching existing materials or receipts', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql', '0013_sole_plate_center_hole.sql', '0014_embed_plate_headed_studs.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec("INSERT INTO manual_materials (id, area, category, name, required_qty, ordered_qty, seq) VALUES ('mm-1', 'Area', 'bolt', 'Bolt', 10, 8, 0)")
+    db.raw.exec("INSERT INTO manual_material_receipts (id, material_id, receipt_date, qty, reference, note, recorded_by, seq) VALUES ('r-1', 'mm-1', '2026-10-01', 5, 'DN', '', 'a@example.com', 0)")
+    const before = [db.raw.prepare('SELECT * FROM manual_materials').all(), db.raw.prepare('SELECT * FROM manual_material_receipts').all()]
+    applyMigrationFile(db.raw, '0015_procurement.sql')
+    expect([db.raw.prepare('SELECT * FROM manual_materials').all(), db.raw.prepare('SELECT * FROM manual_material_receipts').all()]).toEqual(before)
+    for (const t of ['purchase_orders', 'purchase_order_lines', 'procurement_deliveries', 'procurement_delivery_lines', 'material_allocations']) expect(count(db, t)).toBe(0)
+    expect(() => db.raw.exec("INSERT INTO purchase_order_lines (id, order_id, group_key, qty, seq) VALUES ('l', 'missing', 'k', 1, 0)")).toThrow() // lines belong to an order
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '15' })
   })
 })

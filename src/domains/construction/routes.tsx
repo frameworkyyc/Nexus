@@ -9,6 +9,8 @@ import { IssuesPage } from './pages/IssuesPage'
 import { MaterialsPage } from './pages/MaterialsPage'
 import { PourPage } from './pages/PourPage'
 import { PoursPage } from './pages/PoursPage'
+import { ProcurementIndex, ProcurementPage } from './procurement/ProcurementPage'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { OverviewPage, ProjectsPage } from './pages/OverviewPage'
 import { ProjectHome } from './pages/ProjectDashboard'
 import { ProjectLayout } from './pages/ProjectLayout'
@@ -42,6 +44,7 @@ function FoundationCrumb({ params }: { params: Params<string> }) {
 
 export const constructionRoutes: RouteObject[] = [
   { index: true, element: <OverviewPage />, handle: text('Dashboard') },
+  ...(IS_PUBLIC_DEMO ? [] : [{ path: 'procurement', element: <ProcurementIndex />, handle: text('Procurement') }]),
   {
     path: 'projects',
     handle: text('Projects'),
@@ -55,6 +58,7 @@ export const constructionRoutes: RouteObject[] = [
           { index: true, element: <ProjectHome /> },
           { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
+          ...(IS_PUBLIC_DEMO ? [] : [{ path: 'procurement', element: <ProcurementPage />, handle: text('Procurement') }]),
           { path: 'pours', handle: text('Concrete pours'), children: [{ index: true, element: <PoursPage /> }, { path: ':pourId', element: <PourPage />, handle: { crumb: PourCrumb } satisfies CrumbHandle }] },
           { path: 'fabrication', element: <DemoOnly><FabricationPage /></DemoOnly>, handle: text('Fabrication') },
           { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },

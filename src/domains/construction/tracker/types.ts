@@ -85,7 +85,7 @@ export interface TrackerLine {
 }
 
 /** A recorded change to a material. Append-only: ordinary controls cannot edit or remove it. */
-export type AuditAction = 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note' | 'configured'
+export type AuditAction = 'order' | 'delivery' | 'allocation' | 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note' | 'configured'
 export interface AuditEntry {
   id: string
   at: string
@@ -129,6 +129,18 @@ export interface ImportMeta {
   counts: { materialRows: number; summaryRows: number; anchorageRows: number; flags: number; blankRowsSkipped: number; commentsRead: number }
 }
 
+/* ── Procurement ─────────────────────────────────────────────────────────
+ * Orders and deliveries are recorded against a consolidated requirement (an area's total of one specification, found by `key`), not against
+ * each foundation. The area, category and specification are copied onto every line so a record stays readable if the requirement changes. */
+export interface GroupRef { key: string; areaId: string | null; area: string; category: ComponentCategory; name: string; specification: string; size: string; unit: string }
+export interface PurchaseOrder { id: string; number: string; supplierId: string | null; supplier: string; date: ISODate; expectedDate: string | null; notes: string; cancelled?: boolean; createdAt: string; createdBy: string }
+export interface OrderLine extends GroupRef { id: string; orderId: string; qty: number }
+/** One shipment: who confirmed it and when, and what it brought. */
+export interface Delivery { id: string; orderId: string | null; date: ISODate; reference: string; note: string; by: string; at: string }
+export interface DeliveryLine extends GroupRef { id: string; deliveryId: string; orderLineId: string | null; qty: number }
+/** Received material set aside for one foundation. Distinct from receiving: a bulk delivery never creates these. */
+export interface Allocation { id: string; key: string; foundationId: string; qty: number; by: string; at: string }
+
 export interface TrackerState {
   meta: ImportMeta | null
   lines: TrackerLine[]
@@ -142,6 +154,12 @@ export interface TrackerState {
   anchorage: AnchorageSheetRow[]
   flags: ImportFlag[]
   acknowledged: Record<string, { date: ISODate; note: string }>
+  /** Procurement records (absent in data saved before they existed). */
+  orders?: PurchaseOrder[]
+  orderLines?: OrderLine[]
+  deliveries?: Delivery[]
+  deliveryLines?: DeliveryLine[]
+  allocations?: Allocation[]
 }
 
-export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], suppliers: [], preferredSuppliers: {}, history: [], summary: [], anchorage: [], flags: [], acknowledged: {} })
+export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], suppliers: [], preferredSuppliers: {}, history: [], summary: [], anchorage: [], flags: [], acknowledged: {}, orders: [], orderLines: [], deliveries: [], deliveryLines: [], allocations: [] })

@@ -1,4 +1,5 @@
 import { identity } from '@/app/identity'
+import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { RotateCcw } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -53,6 +54,7 @@ export function ProjectLayout() {
     { to: paths.project(projectId), full: `${project.name} overview`, short: 'Overview', end: true },
     { to: paths.register(projectId), full: 'Foundation register', short: 'Register' },
     { to: paths.materials(projectId), full: 'Materials', short: 'Materials' },
+    ...(IS_PUBLIC_DEMO ? [] : [{ to: paths.procurement(projectId), full: 'Procurement', short: 'Procurement' }]),
     { to: paths.pours(projectId), full: 'Concrete pours', short: 'Pours' },
     { to: paths.fabrication(projectId), full: 'Fabrication', short: 'Fabrication' },
     { to: paths.anchorage(projectId), full: 'Anchorage types', short: 'Anchorage' },

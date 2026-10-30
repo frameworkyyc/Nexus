@@ -17,7 +17,7 @@ export const MODULES: NexusModule[] = [
   { id: 'fleet', label: 'Fleet', icon: Truck, path: '/fleet' },
   { id: 'assets', label: 'Assets', icon: Boxes },
   { id: 'workforce', label: 'Workforce', icon: HardHat },
-  { id: 'procurement', label: 'Procurement', icon: ShoppingCart },
+  { id: 'procurement', label: 'Procurement', icon: ShoppingCart, ...(IS_PUBLIC_DEMO ? {} : { path: '/procurement' }) },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'operations', label: 'Operations', icon: Settings2 },
   { id: 'quality', label: 'Quality', icon: ClipboardCheck },

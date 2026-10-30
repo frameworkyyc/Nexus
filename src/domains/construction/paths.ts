@@ -4,6 +4,7 @@ export const paths = {
   project: (p: string) => `/projects/${p}`,
   register: (p: string) => `/projects/${p}/register`,
   materials: (p: string) => `/projects/${p}/materials`,
+  procurement: (p: string) => `/projects/${p}/procurement`,
   fabrication: (p: string) => `/projects/${p}/fabrication`,
   pours: (p: string) => `/projects/${p}/pours`,
   pour: (p: string, id: string) => `/projects/${p}/pours/${id}`,

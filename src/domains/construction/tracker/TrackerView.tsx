@@ -15,11 +15,12 @@ import { useMaterialRefs } from './manage/useMaterialRefs'
 import { resolveLines } from './catalog'
 import { useParams } from 'react-router-dom'
 import { MaterialsManager } from './manage/MaterialsManager'
+import { MaterialsByArea } from './manage/MaterialsByArea'
 import { allLines, areaSummary, distinct, linesForArea, reconcileSummary } from './selectors'
 import { useTracker, useTrackerCommand } from './store'
 import type { TrackerLine } from './types'
 
-type Tab = 'requirements' | 'summary' | 'anchorage' | 'review' | 'activity' | 'source'
+type Tab = 'overview' | 'requirements' | 'summary' | 'anchorage' | 'review' | 'activity' | 'source'
 
 const num = (n: number | null) => (n === null ? <span className="text-muted">—</span> : <span className="tabular-nums">{n.toLocaleString('en-CA')}</span>)
 
@@ -36,7 +37,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
   const access = useAccess()
   const { projectId } = useParams()
   const refs = useMaterialRefs(projectId)
-  const [tab, setTab] = useState<Tab>('requirements')
+  const [tab, setTab] = useState<Tab>('overview')
   const [adding, setAdding] = useState<false | 'one' | 'quick'>(false)
 
   // Names come from the linked project records, so a renamed area, foundation or supplier shows everywhere without touching the materials.
@@ -64,11 +65,13 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
     <div className="[font-feature-settings:'calt'_0]">
       <AccessBar />
       <div><Tabs<Tab> value={tab} onChange={setTab} items={[
-        { id: 'requirements', label: 'Materials', count: scope.length }, { id: 'summary', label: 'Area summary' },
+        { id: 'overview', label: 'By area' }, { id: 'requirements', label: 'Line items', count: scope.length }, { id: 'summary', label: 'Area summary' },
         { id: 'anchorage', label: 'Anchorage types' }, { id: 'review', label: 'Review', count: pending.length }, { id: 'activity', label: 'Activity', count: history.length }, { id: 'source', label: 'Source' },
       ]} /></div>
 
       <div className="pt-6">
+        {tab === 'overview' && <MaterialsByArea areaId={areaId} />}
+
         {tab === 'requirements' && (
           <>
             <MaterialsManager lines={all} scopeName={areaId ? 'This area' : 'All areas'} hideArea={!!areaId} projectId={projectId} defaultAreaId={areaId} />
