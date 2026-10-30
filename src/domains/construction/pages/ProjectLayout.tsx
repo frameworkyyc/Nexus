@@ -53,6 +53,7 @@ export function ProjectLayout() {
     { to: paths.project(projectId), full: `${project.name} overview`, short: 'Overview', end: true },
     { to: paths.register(projectId), full: 'Foundation register', short: 'Register' },
     { to: paths.materials(projectId), full: 'Materials', short: 'Materials' },
+    { to: paths.pours(projectId), full: 'Concrete pours', short: 'Pours' },
     { to: paths.fabrication(projectId), full: 'Fabrication', short: 'Fabrication' },
     { to: paths.anchorage(projectId), full: 'Anchorage types', short: 'Anchorage' },
     { to: paths.handover(projectId), full: 'Handover', short: 'Handover' },

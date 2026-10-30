@@ -130,7 +130,7 @@ describe('editing', () => {
     expect(plinthsOf(down, id)).toHaveLength(1)
     expect(down.activities.some((a) => a.plinthId === `${id}-p2`)).toBe(false)
     const worked = { ...up, activities: up.activities.map((a) => (a.plinthId === `${id}-p4` ? { ...a, status: 'complete' as const } : a)) }
-    expect(err(worked, K.editFoundation(id, { plinthsPerFoundation: 2 }))).toMatch(/Work or notes have been recorded/)
+    expect(err(worked, K.editFoundation(id, { plinthsPerFoundation: 2 }))).toMatch(/(Work or notes have been recorded|has records)/)
     expect(err(up, K.editFoundation(id, { plinthsPerFoundation: null }))).toMatch(/cannot be set back to unknown/)
     const unknown = apply(b, K.createFoundation(AREA(b), 'FND-102', '', null))
     expect(plinthsOf(apply(unknown, K.editFoundation(rec(unknown, 'FND-102').id, { plinthsPerFoundation: 3 })), rec(unknown, 'FND-102').id)).toHaveLength(3)

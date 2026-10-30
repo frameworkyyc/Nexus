@@ -15,10 +15,11 @@ import {
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
+import { foundationConcrete, volumeLabel, type FoundationConcrete } from '../concrete'
 import { foundationQuantity, foundationTotals, plinthsPerFoundation, totalPlinths } from '../foundationQuantity'
 import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
 import { FoundationStateBadge, fraction } from '../ui'
-import type { Area, Foundation, Plinth } from '../types'
+import type { Area, ConstructionState, Foundation, Plinth } from '../types'
 
 type SortKey = 'number' | 'construction' | 'survey' | 'qaqc' | 'state'
 type StateFilter = FoundationStateId | 'blocked' | 'all'
@@ -36,7 +37,17 @@ interface Row {
   state: FoundationState
   step: string
   types: string[]
+  /** One entry per anchorage group: type id (null = not assigned) and plinths per foundation. */
+  groups: { typeId: string | null; count: number }[]
+  concrete: FoundationConcrete
 }
+
+const codeOfType = (state: ConstructionState, id: string | null) => (id ? state.anchorageTypes.find((t) => t.id === id)?.code ?? id : 'Not assigned')
+/** "A × 2, B × 1": plinths per foundation by anchorage type. */
+const anchorageSummary = (state: ConstructionState, r: Row) => r.groups.length ? r.groups.map((g) => `${codeOfType(state, g.typeId)} × ${g.count}`).join(', ') : '—'
+/** Total concrete for the whole quantity, or why it is not shown: never a partial figure presented as the total. */
+const concreteCell = (c: FoundationConcrete) => (c.total !== null ? volumeLabel(c.total) : c.totalKnown > 0 ? `≥ ${volumeLabel(c.totalKnown)}` : '—')
+const concreteTitle = (c: FoundationConcrete) => (c.complete ? `${volumeLabel(c.perFoundation!)} per foundation` : `Incomplete: missing ${c.missing.join(' and ')}`)
 
 const STATE_RANK: Record<FoundationStateId, number> = { 'not-started': 0, 'in-progress': 1, constructed: 2, 'closed-out': 3 }
 
@@ -56,12 +67,15 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
     () =>
       (areaId ? foundationsOf(idx, areaId) : foundationsOfProject(idx, projectId)).filter((f) => showArchived || !f.archived).map((f) => {
         const plinths = idx.plinthsByFoundation.get(f.id) ?? []
+        const groups = (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)
         return {
           f, plinths, qty: foundationQuantity(f), per: plinthsPerFoundation(f, plinths.length), total: totalPlinths(f, plinths.length), area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
           types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
+          groups: groups.length ? groups.map((g) => ({ typeId: g.anchorageTypeId, count: g.count })) : [...new Set(plinths.map((p) => p.anchorageTypeId ?? null))].map((t) => ({ typeId: t, count: plinths.filter((p) => (p.anchorageTypeId ?? null) === t).length })),
+          concrete: foundationConcrete(f, plinths, groups),
         }
       }),
-    [idx, areaId, projectId, showArchived],
+    [idx, state.anchorageGroups, areaId, projectId, showArchived],
   )
 
   const q = query.trim().toLowerCase()
@@ -69,7 +83,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
     .filter((r) => !areaId && areaFilter !== 'all' ? r.f.areaId === areaFilter : true)
     .filter((r) => typeFilter === 'all' || r.types.includes(typeFilter))
     .filter((r) => (stateFilter === 'all' ? true : stateFilter === 'blocked' ? r.state.blocked : stateFilter === 'constructed' ? r.state.state === 'constructed' || r.state.state === 'closed-out' : r.state.state === stateFilter))
-    .filter((r) => !q || [r.f.number, r.f.description, r.area.name, ...r.types].some((x) => x.toLowerCase().includes(q)))
+    .filter((r) => !q || [r.f.number, r.f.description, r.area.name, ...r.types.map((t) => (t === '—' ? '' : codeOfType(state, t)))].some((x) => x.toLowerCase().includes(q)))
     .sort((a, b) => {
       const by = (x: Row) =>
         sort.key === 'number' ? x.f.number : sort.key === 'construction' ? x.stats.progress : sort.key === 'survey' ? percent(x.stats.survey) : sort.key === 'qaqc' ? percent(x.stats.qaqc) : STATE_RANK[x.state.state]
@@ -124,7 +138,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
             </Select>
             <Select aria-label="Filter by anchorage type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
               <option value="all">All anchorage</option>
-              {state.anchorageTypes.map((t) => <option key={t.id} value={t.code}>{t.code}</option>)}
+              {state.anchorageTypes.filter((t) => !t.projectId || t.projectId === projectId).map((t) => <option key={t.id} value={t.id}>{t.code}</option>)}
             </Select>
           </>
         )}
@@ -169,6 +183,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                 <Th hide="sm">Qty</Th>
                 <Th hide>Plinths / foundation</Th>
                 <Th hide>Total plinths</Th>
+                <Th hide>Concrete</Th>
                 {!areaId && <Th hide>Area</Th>}
                 <Th hide="sm">Anchorage</Th>
                 <Th hide>Footing step</Th>
@@ -199,8 +214,9 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums sm:table-cell">{r.qty.toLocaleString('en-CA')}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{r.per === null ? <span title="Not known">—</span> : r.per}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums lg:table-cell">{r.total === null ? <span className="text-muted" title="Plinths per foundation is not known">—</span> : r.total.toLocaleString('en-CA')}</td>
+                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums lg:table-cell" title={concreteTitle(r.concrete)}>{concreteCell(r.concrete)}</td>
                       {!areaId && <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.area.name}</td>}
-                      <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{r.types.join(', ')}</td>
+                      <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{anchorageSummary(state, r)}</td>
                       <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.step}</td>
                       <td className="py-3.5 pr-5"><ProgressBar value={r.stats.progress} width="w-16 sm:w-24" /></td>
                       <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(plinthPoured)}</td>
@@ -212,7 +228,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                     {isOpen && (
                       <tr className="border-b border-line bg-canvas">
                         <td />
-                        <td colSpan={areaId ? 12 : 13} className="py-3 pr-5">
+                        <td colSpan={areaId ? 13 : 14} className="py-3 pr-5">
                           <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />
                         </td>
                       </tr>
@@ -246,9 +262,9 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                   <tr key={p.id} className="border-b border-line transition-colors hover:bg-hover">
                     <td className="py-3.5 pr-5 text-[13px]">
                       <Link to={paths.foundation(projectId, r.f, p.id)} className="font-medium underline-offset-4 hover:underline">{r.f.number} · P{p.index}</Link>
-                      <span className="block text-xs text-muted">{!areaId && `${r.area.name} · `}<span className="sm:hidden">{p.anchorageTypeId ?? '—'}</span></span>
+                      <span className="block text-xs text-muted">{!areaId && `${r.area.name} · `}<span className="sm:hidden">{codeOfType(state, p.anchorageTypeId)}</span></span>
                     </td>
-                    <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{p.anchorageTypeId ?? '—'}</td>
+                    <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{codeOfType(state, p.anchorageTypeId)}</td>
                     <td className="py-3.5 pr-5 text-[13px] text-muted">{plinthStep(idx, p)}</td>
                     <td className="py-3.5 pr-5"><ProgressBar value={progressOf(idx, acts)} width="w-16 sm:w-24" /></td>
                     <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(tallyCategory(idx, acts, 'survey'))}</td>
@@ -267,7 +283,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
 }
 
 function PlinthDetail({ projectId, f, plinths, footingStatsLine }: { projectId: string; f: Foundation; plinths: Plinth[]; footingStatsLine: string }) {
-  const { idx } = useConstruction()
+  const { idx, state } = useConstruction()
   return (
     <div className="space-y-2 text-[13px]">
       <p className="text-xs text-muted">{footingStatsLine}</p>
@@ -277,7 +293,7 @@ function PlinthDetail({ projectId, f, plinths, footingStatsLine }: { projectId: 
         return (
           <div key={p.id} className="flex flex-wrap items-center gap-x-6 gap-y-1 phone:gap-x-3 phone:border-t phone:border-line phone:py-3">
             <Link to={paths.foundation(projectId, f, p.id)} className="w-24 font-medium underline-offset-4 hover:underline phone:flex phone:min-h-11 phone:items-center">Plinth {p.index}</Link>
-            <span className="w-16">{p.anchorageTypeId ?? '—'}</span>
+            <span className="w-16">{codeOfType(state, p.anchorageTypeId)}</span>
             <span className="w-44 text-muted phone:w-auto">{plinthStep(idx, p)}</span>
             <span className="w-20 tabular-nums text-muted phone:w-auto">{progressOf(idx, acts)}%</span>
             <span className="text-muted">{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</span>
@@ -294,7 +310,7 @@ function PlinthDetail({ projectId, f, plinths, footingStatsLine }: { projectId: 
 function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId, areaId }: {
   view: 'foundations' | 'plinths'; visible: Row[]; plinthRows: { r: Row; p: Plinth }[]; open: Set<string>; toggleOpen: (id: string) => void; projectId: string; areaId?: string
 }) {
-  const { idx } = useConstruction()
+  const { idx, state } = useConstruction()
   if (view === 'plinths') {
     return (
       <ul className="space-y-3" aria-label="Plinths">
@@ -308,7 +324,7 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
                 <Link to={paths.foundation(projectId, r.f, p.id)} className="min-w-0 text-[18px] font-semibold">{r.f.number} · P{p.index}</Link>
                 <FoundationStateBadge state={ps.state} blocked={ps.blocked} />
               </div>
-              <p className="mt-0.5 text-[14px] text-muted">{!areaId && `${r.area.name} · `}{p.anchorageTypeId ?? '—'} · {plinthStep(idx, p)}</p>
+              <p className="mt-0.5 text-[14px] text-muted">{!areaId && `${r.area.name} · `}{codeOfType(state, p.anchorageTypeId)} · {plinthStep(idx, p)}</p>
               <div className="mt-3 flex items-center gap-3"><MeterBar value={progress} label={`${r.f.number} plinth ${p.index} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{progress}%</span></div>
               <p className="mt-2 text-[13px] text-muted">Survey {fraction(tallyCategory(idx, acts, 'survey'))} · QA/QC {fraction(tallyCategory(idx, acts, 'qaqc'))} · {BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</p>
             </li>
@@ -329,7 +345,8 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
             </div>
             <p className="mt-0.5 text-[14px] text-muted">{[r.f.description, !areaId && r.area.name].filter(Boolean).join(' · ')}</p>
             <p className="text-[14px]">Qty {r.qty.toLocaleString('en-CA')} · {r.per === null ? 'plinths not known' : `${r.per} plinth${r.per === 1 ? '' : 's'} each`}{r.total !== null && <> · <span className="font-medium">{r.total.toLocaleString('en-CA')} total</span></>}</p>
-            <p className="text-[14px] text-muted">Anchorage {r.types.join(', ')} · {r.step}</p>
+            <p className="text-[14px] text-muted">Anchorage {anchorageSummary(state, r)} · {r.step}</p>
+            <p className="text-[14px] text-muted" title={concreteTitle(r.concrete)}>Concrete {concreteCell(r.concrete)}{!r.concrete.complete && <span> (incomplete)</span>}</p>
             <div className="mt-3 flex items-center gap-3"><MeterBar value={r.stats.progress} label={`${r.f.number} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.stats.progress}%</span></div>
             <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
               {[['Survey', fraction(r.stats.survey)], ['QA/QC', fraction(r.stats.qaqc)], ['Bolts ready', `${r.stats.materialsReady.ready}/${r.stats.materialsReady.total}`]].map(([l, v]) => (

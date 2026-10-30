@@ -12,7 +12,7 @@ describe('migrations', () => {
   it('create the schema and seed the real REEF project and fleet', async () => {
     const { d1, raw } = createTestDb()
     const v = (await d1.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>())?.value
-    expect(v).toBe('9')
+    expect(v).toBe('10')
     expect((await d1.prepare('SELECT COUNT(*) AS n FROM vehicles').first<{ n: number }>())?.n).toBe(4)
     expect((await d1.prepare('SELECT name FROM areas ORDER BY sequence').all<{ name: string }>()).results.map((r) => r.name)).toEqual(['Mole Sieve', 'Propane BOG', 'Piperack', 'Locomotive Shelter', 'E-House'])
     expect(raw.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 })

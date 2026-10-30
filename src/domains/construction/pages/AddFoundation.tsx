@@ -4,10 +4,13 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { useAccess } from '@/lib/access'
-import { foundationQuantity, plinthsPerFoundation } from '../foundationQuantity'
-import { addFoundations, archiveArea, archiveFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
+import { foundationConcrete } from '../concrete'
+import { foundationQuantity } from '../foundationQuantity'
+import { addFoundations, archiveArea, archiveFoundation, configureFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
+import type { FoundationConfig } from '../configActions'
+import { configFromDraft, draftFromFoundation, FoundationConfigFields, type ConfigDraft } from './FoundationConfigFields'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
-import type { Foundation } from '../types'
+import type { ConstructionState, Foundation } from '../types'
 
 /** Quantity text → number; blank means the default of 1. */
 export const parseQuantity = (t: string) => (t.trim() === '' ? 1 : Number(t))
@@ -20,6 +23,17 @@ export function totalText(qty: string, per: string): string {
   if (p === null) return 'Not known — enter plinths per foundation'
   if (!Number.isInteger(p) || p < 0) return 'Enter plinths per foundation as a whole number'
   return (q * p).toLocaleString('en-CA')
+}
+
+/** Runs a configuration against the current records (without saving) to show the concrete it would give, or why it cannot be applied. */
+function previewOf(draft: ConfigDraft, run: (cfg: FoundationConfig) => { state?: ConstructionState; error?: string }, pick: (s: ConstructionState) => Foundation | undefined) {
+  const cfg = configFromDraft(draft)
+  if ('error' in cfg) return cfg.error
+  if (!cfg.config.footing && (cfg.config.groups ?? []).every((g) => !g.dims)) return null
+  const r = run(cfg.config)
+  if (r.error !== undefined || !r.state) return r.error ?? null
+  const f = pick(r.state)
+  return f ? foundationConcrete(f, r.state.plinths, (r.state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)) : null
 }
 
 /**
@@ -48,13 +62,24 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
   const [number, setNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [description, setDescription] = useState('')
-  const [plinths, setPlinths] = useState('')
+  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [] })
   const [bulk, setBulk] = useState('')
+  const types = state.anchorageTypes.filter((t) => t.projectId === projectId)
+  const [problem, setProblem] = useState('')
   // One designation per line: "name, quantity, plinths per foundation, description" (everything after the name is optional).
   const parsed = bulk.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [n, q, p, ...d] = l.split(/\t|,/).map((x) => x.trim()); return { number: n ?? '', quantity: parseQuantity(q ?? ''), plinthCount: parsePlinths(p ?? ''), description: d.join(', ') } })
-  const save = () => (mode === 'one' ? run(createFoundation(area, number, description, parsePlinths(plinths), parseQuantity(quantity)), onClose) : run(addFoundations(area, parsed), onClose))
+  const save = () => {
+    if (mode === 'many') return run(addFoundations(area, parsed), onClose)
+    const cfg = configFromDraft(draft)
+    if ('error' in cfg) { setProblem(cfg.error); return }
+    setProblem('')
+    // No anchorage groups entered = plinth count not known (nothing is assumed).
+    return run(createFoundation(area, number, description, null, parseQuantity(quantity), { ...cfg.config, ...(cfg.config.groups?.length ? {} : { groups: undefined }) }), onClose)
+  }
+  const q = parseQuantity(quantity)
+  const preview = mode === 'one' ? previewOf(draft, (cfg) => createFoundation(area, 'ZZ-PREVIEW', '', null, Number.isInteger(q) && q >= 1 ? q : 1, cfg)(state), (st) => st.foundations.find((f) => f.number === 'ZZ-PREVIEW')) : null
   return (
-    <Modal title="Add foundations" onClose={onClose}>
+    <Modal title="Add foundations" onClose={onClose} wide>
       <div className="space-y-4 p-6 text-[13px]">
         <p className="text-muted">Each entry is a foundation name that may stand for several identical foundations (its quantity). Nothing is marked as started or complete. A name already used in the area (even by an archived foundation) is refused.</p>
         {!areaId && <Field label="Area"><Select aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
@@ -64,12 +89,10 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
         {mode === 'one' ? (
           <>
             <Field label="Foundation Name *"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
-              <Field label="Plinths per Foundation"><Input inputMode="numeric" value={plinths} onChange={(e) => setPlinths(e.target.value)} placeholder="Not known" /></Field>
-            </div>
-            <p className="-mt-2 text-xs text-muted" aria-live="polite">Total plinths: <span className="font-medium text-ink">{totalText(quantity, plinths)}</span> (quantity × plinths per foundation)</p>
+            <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
             <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} />
+            {problem && <p role="alert" className="border-l-2 border-bad pl-3">{problem}</p>}
           </>
         ) : (
           <Field label="One per line: name, quantity, plinths per foundation, description"><Textarea autoFocus rows={7} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'FND-101, 18, 4, Pump pad\nFND-102, 6, 4\nFND-103, 2'} /></Field>
@@ -190,38 +213,43 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [number, setNumber] = useState(f?.number ?? '')
   const [description, setDescription] = useState(f?.description ?? '')
   const [notes, setNotes] = useState(f?.notes ?? '')
-  const records = state.plinths.filter((p) => p.foundationId === id).length
-  const per0 = f ? plinthsPerFoundation(f, records) : null
   const [quantity, setQuantity] = useState(String(f ? foundationQuantity(f) : 1))
-  const [per, setPer] = useState(per0 === null ? '' : String(per0))
+  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)) : null))
+  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  if (!f) return null
+  if (!f || !draft) return null
+  const project = state.areas.find((a) => a.id === f.areaId)?.projectId
+  const types = state.anchorageTypes.filter((t) => t.projectId === project)
   const go = async (steps: (() => Promise<string | null>)[], close = false) => {
     setSaving(true); setError(null)
     for (const step of steps) { const e = await step(); if (e) { setError(e); setSaving(false); return } }
     setSaving(false)
     if (close) onClose()
   }
-  const qtyChanged = parseQuantity(quantity) !== foundationQuantity(f)
-  const perChanged = parsePlinths(per) !== per0
-  const changed = number.trim() !== f.number || description !== f.description || notes !== f.notes || qtyChanged || perChanged
-  const save = () => go([
-    ...(number.trim() !== f.number ? [() => constructionStore.run(renameFoundation(id, number))] : []),
-    ...(description !== f.description || notes !== f.notes || qtyChanged || perChanged ? [() => constructionStore.run(editFoundation(id, { description, notes, ...(qtyChanged ? { quantity: parseQuantity(quantity) } : {}), ...(perChanged ? { plinthsPerFoundation: parsePlinths(per) } : {}) }))] : []),
-  ], true)
+  const q = parseQuantity(quantity)
+  const qtyChanged = q !== foundationQuantity(f)
+  const configChanged = JSON.stringify(draft) !== JSON.stringify(original)
+  const changed = number.trim() !== f.number || description !== f.description || notes !== f.notes || qtyChanged || configChanged
+  const preview = previewOf(draft, (cfg) => configureFoundation(id, { ...cfg, quantity: Number.isInteger(q) && q >= 1 ? q : foundationQuantity(f) })(state), (st) => st.foundations.find((x) => x.id === id))
+  const save = () => {
+    const cfg = configFromDraft(draft)
+    if ('error' in cfg) { setError(cfg.error); return Promise.resolve() }
+    return go([
+      ...(number.trim() !== f.number ? [() => constructionStore.run(renameFoundation(id, number))] : []),
+      ...(notes !== f.notes ? [() => constructionStore.run(editFoundation(id, { notes }))] : []),
+      ...(description !== f.description || qtyChanged || configChanged ? [() => constructionStore.run(configureFoundation(id, { description, ...(qtyChanged ? { quantity: q } : {}), ...(configChanged ? cfg.config : {}) }))] : []),
+    ], true)
+  }
   return (
-    <Modal title={`Foundation ${f.number}`} onClose={onClose}>
+    <Modal title={`Foundation ${f.number}`} onClose={onClose} wide>
       <div className="space-y-4 p-6 text-[13px]">
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default register view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
         <Field label="Foundation Name"><Input value={number} onChange={(e) => setNumber(e.target.value)} /></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
-          <Field label="Plinths per Foundation"><Input inputMode="numeric" value={per} onChange={(e) => setPer(e.target.value)} placeholder="Not known" /></Field>
-        </div>
-        <p className="-mt-2 text-xs text-muted" aria-live="polite">Total plinths: <span className="font-medium text-ink">{totalText(quantity, per)}</span></p>
+        <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
         <Field label="Description"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} />
         <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap gap-2">

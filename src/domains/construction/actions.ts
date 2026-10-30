@@ -3,6 +3,7 @@ import { addDays, type ISODate } from '@/lib/date'
 import { blankActivitiesFor } from './blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS, getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
+import { applyGroups, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
 import type { TrackerState } from './tracker/types'
 import type {
   ProjectIssue, ProjectStatus, Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
@@ -381,8 +382,11 @@ const newFoundation = (s: ConstructionState, areaId: string, number: string, des
   for (let n = 2; s.foundations.some((f) => f.id === id); n++) id = `f-${areaId}-${number}-${n}` // an id is never reused, even after a rename
   const foundation = { id, areaId, number, description: description.trim(), notes: '', docIds: [] as string[], quantity, plinthsPerFoundation: plinthCount }
   // One set of plinth records per designation (not per physical foundation). An unknown count creates none and is not treated as zero.
-  const plinths = Array.from({ length: plinthCount ?? 0 }, (_, i) => ({ id: `${id}-p${i + 1}`, foundationId: id, index: i + 1, anchorageTypeId: null, notes: '' }))
-  return { foundation, plinths, activities: blankActivitiesFor(foundation, plinths) }
+  // The plinths start in one group with no anchorage type; the foundation can be configured with real anchorage groups afterwards.
+  const groupId = `${id}-g1`
+  const plinths = Array.from({ length: plinthCount ?? 0 }, (_, i) => ({ id: `${id}-p${i + 1}`, foundationId: id, index: i + 1, anchorageTypeId: null, notes: '', groupId, dims: null }))
+  const anchorageGroups = plinths.length ? [{ id: groupId, foundationId: id, anchorageTypeId: null, count: plinths.length, dims: null }] : []
+  return { foundation, plinths, anchorageGroups, activities: blankActivitiesFor(foundation, plinths) }
 }
 
 const MAX_QUANTITY = 1_000_000
@@ -395,12 +399,19 @@ const plinthProblem = (n: unknown) => (n === null || (typeof n === 'number' && N
  * Adds a foundation designation to an area: one row, however many physical foundations (`quantity`) it stands for, with the plinth records of
  * one foundation. Every applicable activity starts as "not started". A name that already exists in the area (archived or not) is refused.
  */
-export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1): Reducer => (s) => {
+export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1, config?: FoundationConfig): Reducer => (s) => {
   const num = String(number).trim()
   const bad = numberProblem(s, areaId, num) ?? quantityProblem(quantity) ?? plinthProblem(plinthCount)
   if (bad) return fail(bad)
-  const { foundation, plinths, activities } = newFoundation(s, areaId, num, String(description), plinthCount, quantity ?? 1)
-  return ok({ ...s, foundations: [...s.foundations, foundation], plinths: [...s.plinths, ...plinths], activities: [...s.activities, ...activities] })
+  const { foundation, plinths, anchorageGroups, activities } = newFoundation(s, areaId, num, String(description), config?.groups ? null : plinthCount, quantity ?? 1)
+  const made: ConstructionState = { ...s, foundations: [...s.foundations, foundation], plinths: [...s.plinths, ...plinths], anchorageGroups: [...(s.anchorageGroups ?? []), ...anchorageGroups], activities: [...s.activities, ...activities] }
+  if (!config) return ok(made)
+  const cfgBad = configProblem(made, foundation, config)
+  if (cfgBad) return fail(cfgBad)
+  const fresh = made.foundations.find((f) => f.id === foundation.id)!
+  const withDims = { ...made, foundations: made.foundations.map((f) => (f.id === foundation.id ? { ...f, ...(config.footing ? { footing: config.footing } : {}), ...(config.plinthBase ? { plinthBase: config.plinthBase } : {}) } : f)) }
+  const applied = config.groups ? applyGroups(withDims, { ...fresh }, config.groups) : withDims
+  return typeof applied === 'string' ? fail(applied) : ok(applied)
 }
 
 /** Renames a foundation. Its id, plinths, activities and every material, survey and QA/QC record that points at it are unaffected. */
@@ -412,7 +423,6 @@ export const renameFoundation = (id: string, number: string): Reducer => (s) => 
   return bad ? fail(bad) : ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, number: num } : x)) })
 }
 
-const isUntouched = (a: { status: string; plannedDate: unknown; actualDate: unknown; notes: string }) => a.status === 'not-started' && a.plannedDate === null && a.actualDate === null && a.notes === ''
 
 /**
  * Edits a foundation designation: description, notes, quantity and plinths per foundation. Changing quantity touches nothing else (materials, activities
@@ -424,34 +434,33 @@ export const editFoundation = (id: string, patch: { description?: string; notes?
   if (!f) return fail('Foundation not found.')
   const bad = (patch.quantity !== undefined ? quantityProblem(patch.quantity) : null) ?? (patch.plinthsPerFoundation !== undefined ? plinthProblem(patch.plinthsPerFoundation) : null)
   if (bad) return fail(bad)
+  const qBad = patch.quantity !== undefined ? quantityBelowPours(s, id, patch.quantity) : null
+  if (qBad) return fail(qBad)
   const next = {
     ...f,
     ...(patch.description !== undefined ? { description: String(patch.description).trim().slice(0, 300) } : {}),
     ...(patch.notes !== undefined ? { notes: String(patch.notes).slice(0, 2000) } : {}),
     ...(patch.quantity !== undefined ? { quantity: patch.quantity } : {}),
   }
-  let plinths = s.plinths
-  let activities = s.activities
+  let base: ConstructionState = { ...s, foundations: s.foundations.map((x) => (x.id === id ? next : x)) }
   if (patch.plinthsPerFoundation !== undefined) {
-    const mine = s.plinths.filter((p) => p.foundationId === id).sort((a, b) => a.index - b.index)
+    // The plinth count is the sum of the anchorage groups. This legacy shortcut works only while there is a single group (or none).
     const target = patch.plinthsPerFoundation
+    const groups = groupsOf(s, id)
+    const mine = s.plinths.filter((p) => p.foundationId === id)
     if (target === null) {
       if (mine.length > 0) return fail('This foundation already has plinth records, so the count cannot be set back to unknown. Enter the number of plinths.')
-    } else if (target > mine.length) {
-      const added = Array.from({ length: target - mine.length }, (_, i) => ({ id: `${id}-p${mine.length + i + 1}`, foundationId: id, index: mine.length + i + 1, anchorageTypeId: null, notes: '' }))
-      const ids = new Set(added.map((p) => p.id))
-      plinths = [...plinths, ...added]
-      activities = [...activities, ...blankActivitiesFor(next, added).filter((a) => a.plinthId && ids.has(a.plinthId))]
-    } else if (target < mine.length) {
-      const removed = mine.slice(target)
-      const rids = new Set(removed.map((p) => p.id))
-      if (removed.some((p) => p.anchorageTypeId || p.notes) || s.activities.some((a) => a.plinthId && rids.has(a.plinthId) && !isUntouched(a))) return fail('Work or notes have been recorded on the plinths that would be removed, so the count was not reduced.')
-      plinths = plinths.filter((p) => !rids.has(p.id))
-      activities = activities.filter((a) => !(a.plinthId && rids.has(a.plinthId)))
+      base = { ...base, foundations: base.foundations.map((x) => (x.id === id ? { ...x, plinthsPerFoundation: null } : x)) }
+    } else {
+      if (groups.length > 1) return fail('This foundation has several anchorage groups. Change the number of plinths in each group instead.')
+      const input = target === 0 ? [] : [{ id: groups[0]?.id, anchorageTypeId: groups[0]?.anchorageTypeId ?? null, count: target, dims: groups[0]?.dims ?? null }]
+      const applied = applyGroups(base, next, input)
+      if (typeof applied === 'string') return fail(applied)
+      base = applied
+      base = { ...base, foundations: base.foundations.map((x) => (x.id === id ? { ...x, plinthsPerFoundation: target } : x)) }
     }
-    next.plinthsPerFoundation = target
   }
-  return ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? next : x)), plinths, activities })
+  return ok(base)
 }
 
 /**
@@ -490,7 +499,7 @@ export const createArea = (projectId: string, name: string, foundations: NewFoun
     const bad = numberProblem(next, id, num) ?? quantityProblem(f.quantity) ?? plinthProblem(f.plinthCount)
     if (bad) return fail(bad)
     const made = newFoundation(next, id, num, String(f.description ?? ''), f.plinthCount, f.quantity ?? 1)
-    next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
+    next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], anchorageGroups: [...(next.anchorageGroups ?? []), ...made.anchorageGroups], activities: [...next.activities, ...made.activities] }
   }
   return ok(next)
 }
@@ -505,7 +514,7 @@ export const addFoundations = (areaId: string, items: NewFoundation[]): Reducer 
     const bad = numberProblem(next, areaId, num) ?? quantityProblem(f.quantity) ?? plinthProblem(f.plinthCount)
     if (bad) return fail(`${items.length > 1 ? `Row ${i + 1}: ` : ''}${bad}`)
     const made = newFoundation(next, areaId, num, String(f.description ?? ''), f.plinthCount, f.quantity ?? 1)
-    next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
+    next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], anchorageGroups: [...(next.anchorageGroups ?? []), ...made.anchorageGroups], activities: [...next.activities, ...made.activities] }
   }
   return ok(next)
 }
@@ -654,3 +663,6 @@ export const archiveAnchorageType = (id: string, archived: boolean): Reducer => 
   }
   return ok({ ...s, anchorageTypes: s.anchorageTypes.map((x) => (x.id === id ? { ...x, archived } : x)) })
 }
+
+export { configureFoundation, setPlinthDims } from './configActions'
+export { addPourItems, cancelPour, completePour, createPour, recordPour, recordPourOverride, removePourItem, setPourActual, updatePour } from './pourActions'

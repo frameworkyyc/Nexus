@@ -37,6 +37,6 @@ describe('command tagging', () => {
   it('destructive and demonstration-only actions are not accepted by the server', () => {
     expect(SERVER_COMMANDS.materials).not.toHaveProperty('clearTracker')
     for (const name of ['allocate', 'createPurchaseOrder', 'receiveDelivery', 'createFabrication', 'recordAcceptance', 'setReportedProgress', 'addDocument']) expect(SERVER_COMMANDS.construction).not.toHaveProperty(name)
-    expect(Object.keys(SERVER_COMMANDS.construction).sort()).toEqual(['addAnchorageType', 'addFoundations', 'archiveAnchorageType', 'archiveArea', 'archiveFoundation', 'createArea', 'createFoundation', 'createOrganization', 'createProject', 'editAnchorageType', 'editArea', 'editFoundation', 'renameFoundation', 'setFoundationNotes', 'setPlinthNotes', 'setProjectStatus', 'updateActivity', 'updateOrganization', 'updateProject'])
+    expect(Object.keys(SERVER_COMMANDS.construction).sort()).toEqual(['addAnchorageType', 'addFoundations', 'addPourItems', 'archiveAnchorageType', 'archiveArea', 'archiveFoundation', 'cancelPour', 'completePour', 'configureFoundation', 'createArea', 'createFoundation', 'createOrganization', 'createPour', 'createProject', 'editAnchorageType', 'editArea', 'editFoundation', 'recordPour', 'recordPourOverride', 'removePourItem', 'renameFoundation', 'setFoundationNotes', 'setPlinthDims', 'setPlinthNotes', 'setPourActual', 'setProjectStatus', 'updateActivity', 'updateOrganization', 'updatePour', 'updateProject'])
   })
 })

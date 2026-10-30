@@ -59,6 +59,19 @@ export interface Area {
   archived?: boolean
 }
 
+export type LengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft'
+/** Rectangular dimensions in one unit. Any value may be null (not measured yet); null is never treated as zero. */
+export interface Dims { length: number | null; width: number | null; height: number | null; unit: LengthUnit }
+
+/** One kind of plinth in a foundation design: how many plinths use an anchorage type (null = not known yet), with optional default dimensions. */
+export interface AnchorageGroup {
+  id: string
+  foundationId: string
+  anchorageTypeId: string | null
+  count: number
+  dims: Dims | null
+}
+
 export interface Foundation {
   id: string
   areaId: string
@@ -72,6 +85,10 @@ export interface Foundation {
   quantity?: number
   /** Plinths on each individual foundation. null = not known; absent = the number of plinth records this foundation has. */
   plinthsPerFoundation?: number | null
+  /** Footing length × width × height; absent/null = not entered. */
+  footing?: Dims | null
+  /** Whether a plinth's height is measured above the footing (default) or from the bottom of the footing (the part inside the footing is not counted twice). */
+  plinthBase?: 'above-footing' | 'from-footing-base'
 }
 
 export interface Plinth {
@@ -80,6 +97,52 @@ export interface Plinth {
   index: number // 1-based within the foundation
   anchorageTypeId: string | null
   notes: string
+  /** The anchorage group this plinth belongs to. Absent = ungrouped (older records). */
+  groupId?: string | null
+  /** Individual dimensions; replace the group's default for this plinth only. */
+  dims?: Dims | null
+}
+
+/* ── Concrete pours ─────────────────────────────────────────────────────── */
+
+/** planned = being worked out, no date; scheduled = has a date; completed = poured and closed; cancelled = not going ahead. */
+export type PourStatus = 'planned' | 'scheduled' | 'completed' | 'cancelled'
+
+export interface Pour {
+  id: string
+  projectId: string
+  name: string
+  status: PourStatus
+  date: ISODate | null
+  /** Overage allowance added to the planned volume, percent (0–100). */
+  wastePct: number
+  notes: string
+  /** Total concrete actually placed, m³, once recorded. */
+  actualM3: number | null
+  completedDate: ISODate | null
+  createdAt: string
+  createdBy: string
+}
+
+/**
+ * One physical component in a pour: the footing, or one plinth, of one physical foundation (`unit` of 1..quantity of a foundation designation).
+ * Planned volume is a snapshot taken when the item is added, so later dimension edits do not rewrite a plan; null = volume was not known.
+ */
+export interface PourItem {
+  id: string
+  pourId: string
+  foundationId: string
+  unit: number
+  component: 'footing' | 'plinth'
+  plinthId: string | null
+  plannedM3: number | null
+  /** Concrete placed so far for this component, m³ (partial pours). null = nothing recorded. */
+  pouredM3: number | null
+  /** Set once the component is fully poured. A component is completed at most once, across every pour. */
+  completedDate: ISODate | null
+  /** Why a plinth was completed before its footing, when that was authorized. */
+  overrideReason: string
+  overrideBy: string
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */
@@ -313,6 +376,10 @@ export interface ConstructionState {
   areas: Area[]
   foundations: Foundation[]
   plinths: Plinth[]
+  /** Optional so older saved data and the demo still load; treat absent as empty. */
+  anchorageGroups?: AnchorageGroup[]
+  pours?: Pour[]
+  pourItems?: PourItem[]
   boltSpecs: BoltSpec[]
   anchorageTypes: AnchorageType[]
   bulkMaterials: BulkMaterial[]

@@ -7,6 +7,8 @@ import { FoundationPage } from './pages/FoundationPage'
 import { HandoverPage } from './pages/HandoverPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { MaterialsPage } from './pages/MaterialsPage'
+import { PourPage } from './pages/PourPage'
+import { PoursPage } from './pages/PoursPage'
 import { OverviewPage, ProjectsPage } from './pages/OverviewPage'
 import { ProjectHome } from './pages/ProjectDashboard'
 import { ProjectLayout } from './pages/ProjectLayout'
@@ -27,6 +29,11 @@ function AreaCrumb({ params }: { params: Params<string> }) {
   const { idx } = useConstruction()
   return <>{idx.area.get(areaId ?? '')?.name ?? 'Area'}</>
 }
+function PourCrumb({ params }: { params: Params<string> }) {
+  const { state } = useConstruction()
+  return <>{(state.pours ?? []).find((p) => p.id === params.pourId)?.name ?? 'Pour'}</>
+}
+
 function FoundationCrumb({ params }: { params: Params<string> }) {
   const { foundationId } = params
   const { idx } = useConstruction()
@@ -48,6 +55,7 @@ export const constructionRoutes: RouteObject[] = [
           { index: true, element: <ProjectHome /> },
           { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
+          { path: 'pours', handle: text('Concrete pours'), children: [{ index: true, element: <PoursPage /> }, { path: ':pourId', element: <PourPage />, handle: { crumb: PourCrumb } satisfies CrumbHandle }] },
           { path: 'fabrication', element: <DemoOnly><FabricationPage /></DemoOnly>, handle: text('Fabrication') },
           { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },
           { path: 'handover', element: <DemoOnly><HandoverPage /></DemoOnly>, handle: text('Handover') },

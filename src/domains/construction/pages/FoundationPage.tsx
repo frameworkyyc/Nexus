@@ -24,6 +24,7 @@ import {
 } from '../selectors'
 import { useConstruction, useConstructionCommand, useRun } from '../store'
 import { FoundationStateBadge, fraction, IssueList } from '../ui'
+import { FoundationConcrete } from './FoundationConcrete'
 import { FOUNDATION_STATE_LABEL } from '../selectors'
 import type { Activity, Foundation, Plinth } from '../types'
 
@@ -71,6 +72,8 @@ export function FoundationPage() {
         <Glance idx={idx} f={f} plinths={plinths} />
       </Section>
 
+      <FoundationConcrete f={f} plinths={plinths} projectId={projectId} />
+
       <Section title="Required materials" description="Anchor bolts, hardware and templates per plinth. Allocation is managed in Materials.">
         <ul className="text-[13px]">
           {plinths.map((p) => {
@@ -80,7 +83,7 @@ export function FoundationPage() {
             return (
               <li key={p.id} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-line py-3">
                 <span className="w-20 font-medium">Plinth {p.index}</span>
-                <span className="w-16">{p.anchorageTypeId ?? '—'}</span>
+                <span className="w-16">{state.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code ?? '—'}</span>
                 <span className="text-muted">Bolts: {bolts.map((b) => `${b.allocated}/${b.qty} × ${specLabel(b.spec)}`).join(', ') || '—'} · {BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</span>
                 <span className="text-muted">{hw.map((h) => `${h.kind === 'nut' ? 'Nuts' : 'Washers'} ${h.allocated}/${h.demand}`).join(' · ')}</span>
                 <span className="text-muted">Template: {tpl ? `${tpl.number}${tpl.siteReceipt === 'received' ? ' (on site)' : ''}` : 'none requested'}</span>
@@ -173,6 +176,7 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
   const stage = plinthBoltStage(idx, p)
   const allocs = state.allocations.filter((a) => a.plinthId === p.id)
   const ready = stage === 'ready'
+  const grouped = (state.anchorageGroups ?? []).some((g) => g.id === p.groupId)
 
   return (
     <Disclosure
@@ -180,7 +184,7 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
       summary={
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[13px]">
           <span className="font-medium">Plinth {p.index}</span>
-          <span>{p.anchorageTypeId ?? 'No anchorage type'}</span>
+          <span>{state.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code ?? 'No anchorage type'}</span>
           <span className="text-muted">{plinthStep(idx, p)}</span>
           <ProgressBar value={progressOf(idx, acts)} width="w-20" />
           <FoundationStateBadge state={ps.state} blocked={ps.blocked} />
@@ -190,10 +194,11 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
       <div className="space-y-8">
         <div className="grid gap-6 md:grid-cols-2">
           <Field label="Anchorage type">
-            <Select value={p.anchorageTypeId ?? ''} onChange={(e) => run(setPlinthAnchorage(p.id, e.target.value || null))}>
+            <Select disabled={grouped} value={p.anchorageTypeId ?? ''} onChange={(e) => run(setPlinthAnchorage(p.id, e.target.value || null))}>
               <option value="">None assigned</option>
               {state.anchorageTypes.map((t) => <option key={t.id} value={t.id}>{t.code} — {t.description}</option>)}
             </Select>
+            {grouped && <p className="mt-1 text-xs text-muted">Set by this foundation’s anchorage groups (Manage on the register).</p>}
           </Field>
           <div>
             <span className="t-label mb-1.5 block">Anchor bolts</span>
@@ -259,7 +264,7 @@ function Glance({ idx, f, plinths }: { idx: Index; f: Foundation; plinths: Plint
     { key: 'footing', label: 'Footing', acts: footingActivities(idx, f), materials: <span className="text-muted">—</span> },
     ...plinths.map((p) => {
       const m = plinthMaterials(idx, p)
-      return { key: p.id, label: `Plinth ${p.index} · ${p.anchorageTypeId ?? 'no anchorage'}`, acts: plinthActivities(idx, p), materials: <StatusBadge tone={m.ready ? 'ok' : m.done > 0 ? 'info' : 'muted'} label={m.ready ? 'Ready' : `${m.done}/${m.total}`} /> }
+      return { key: p.id, label: `Plinth ${p.index} · ${(p.anchorageTypeId && idx.anchorage.get(p.anchorageTypeId)?.code) || 'no anchorage'}`, acts: plinthActivities(idx, p), materials: <StatusBadge tone={m.ready ? 'ok' : m.done > 0 ? 'info' : 'muted'} label={m.ready ? 'Ready' : `${m.done}/${m.total}`} /> }
     }),
   ]
   return (
