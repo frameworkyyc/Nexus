@@ -38,11 +38,10 @@
     "vars": {
       "NEXUS_ENV": "staging",
       // From Zero Trust → Access → Applications → (your app). Fill in after creating the Access application.
-      "ACCESS_TEAM_DOMAIN": "",
-      "ACCESS_AUD": ""
-      // First administrator (docs/MATERIALS.md): set to the email of the person who should administer staging. It is used only while
-      // no administrator exists, and only for a request Cloudflare Access has verified. Leave unset to provision the first admin with SQL instead.
-      // "INITIAL_ADMIN_EMAIL": "<ADMIN_EMAIL>"
+      "ACCESS_TEAM_DOMAIN": "https://frameworkco-admin.cloudflareaccess.com",
+      "ACCESS_AUD": "4026513ce48dab9a17746204c3dff5e2a86400a7db34632ff4f701d805318a2f",
+      // First administrator (docs/MATERIALS.md): used only while no administrator exists, and only for a request Cloudflare Access has verified.
+      "INITIAL_ADMIN_EMAIL": "hello@frameworkco.ca"
     },
     // The STAGING database only. Never put nexus-production here. Migrations 0001-0007 are applied to it (docs/OPERATIONS.md).
     "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150", "migrations_dir": "migrations" }]
