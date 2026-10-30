@@ -8,7 +8,7 @@ import { foundationConcrete } from '../concrete'
 import { foundationQuantity } from '../foundationQuantity'
 import { addAnchorageType, addFoundations, archiveArea, archiveFoundation, configureFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
 import type { FoundationConfig } from '../configActions'
-import { configFromDraft, draftFromFoundation, FoundationConfigFields, type ConfigDraft } from './FoundationConfigFields'
+import { configFromDraft, draftFromFoundation, FoundationBasics, FoundationConfigFields, type ConfigDraft } from './FoundationConfigFields'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
 import type { ConstructionState, Foundation } from '../types'
 
@@ -88,8 +88,8 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
   const q = parseQuantity(quantity)
   const preview = mode === 'one' ? previewOf(draft, (cfg) => createFoundation(area, 'ZZ-PREVIEW', '', null, Number.isInteger(q) && q >= 1 ? q : 1, cfg)(state), (st) => st.foundations.find((f) => f.number === 'ZZ-PREVIEW')) : null
   return (
-    <Modal title="Add foundations" onClose={onClose} wide>
-      <div className="space-y-4 p-6 text-[13px]">
+    <Modal title="Add foundations" onClose={onClose} form>
+      <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
         <p className="text-muted">Each entry is a foundation name that may stand for several identical foundations (its quantity). Nothing is marked as started or complete. A name already used in the area (even by an archived foundation) is refused.</p>
         {!areaId && <Field label="Area"><Select aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
         <div className="flex gap-1" role="group" aria-label="How many">
@@ -97,9 +97,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
         </div>
         {mode === 'one' ? (
           <>
-            <Field label="Foundation Name *"><Input autoFocus value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
-            <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
-            <Field label="Description (optional)"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+            <FoundationBasics autoFocus required number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
             <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={(code) => createAnchorageType(projectId, code)} />
             {problem && <p role="alert" className="border-l-2 border-bad pl-3">{problem}</p>}
           </>
@@ -255,15 +253,13 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
     ], true)
   }
   return (
-    <Modal title={`Foundation ${f.number}`} onClose={onClose} wide>
-      <div className="space-y-4 p-6 text-[13px]">
+    <Modal title={`Foundation ${f.number}`} onClose={onClose} form>
+      <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default register view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
-        <Field label="Foundation Name"><Input value={number} onChange={(e) => setNumber(e.target.value)} /></Field>
-        <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></Field>
-        <Field label="Description"><Input value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
         <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
-        <Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
+        <div className="border-t border-line pt-5"><Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field></div>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" disabled={saving || !changed || !number.trim()} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</Button>

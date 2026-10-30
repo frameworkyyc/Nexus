@@ -48,10 +48,23 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
 
 export const totalPlinthsOf = (d: ConfigDraft) => d.groups.reduce((t, g) => t + (Number.isInteger(Number(g.count)) && Number(g.count) > 0 ? Number(g.count) : 0), 0)
 
+/** Foundation name, quantity and description, together. */
+export function FoundationBasics({ number, onNumber, quantity, onQuantity, description, onDescription, autoFocus, required }: {
+  number: string; onNumber: (v: string) => void; quantity: string; onQuantity: (v: string) => void; description: string; onDescription: (v: string) => void; autoFocus?: boolean; required?: boolean
+}) {
+  return (
+    <div className="grid items-end gap-x-3 gap-y-3 sm:grid-cols-[1fr_11rem]">
+      <Field label={required ? 'Foundation Name *' : 'Foundation Name'}><Input autoFocus={autoFocus} value={number} onChange={(e) => onNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
+      <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => onQuantity(e.target.value)} /></Field>
+      <div className="sm:col-span-2"><Field label="Description (optional)"><Input value={description} onChange={(e) => onDescription(e.target.value)} /></Field></div>
+    </div>
+  )
+}
+
 export function DimsRow({ label, value, onChange, idPrefix }: { label: string; value: DimsDraft; onChange: (d: DimsDraft) => void; idPrefix: string }) {
   const set = (k: 'length' | 'width' | 'height') => (e: { target: { value: string } }) => onChange({ ...value, [k]: e.target.value })
   return (
-    <div role="group" aria-label={label} className="grid grid-cols-[1fr_1fr_1fr_5rem] items-end gap-2">
+    <div role="group" aria-label={label} className="grid max-w-lg grid-cols-[repeat(3,minmax(0,1fr))_5rem] items-end gap-2 phone:max-w-none">
       <Field label="Length"><Input id={`${idPrefix}-l`} inputMode="decimal" value={value.length} onChange={set('length')} placeholder="—" /></Field>
       <Field label="Width"><Input id={`${idPrefix}-w`} inputMode="decimal" value={value.width} onChange={set('width')} placeholder="—" /></Field>
       <Field label="Height"><Input id={`${idPrefix}-h`} inputMode="decimal" value={value.height} onChange={set('height')} placeholder="—" /></Field>
@@ -92,18 +105,18 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
     if ('error' in r) setTypeError({ group: i, message: r.error }); else setGroup(i, { typeId: r.id })
   }
   return (
-    <div className="space-y-4">
-      <fieldset className="space-y-2">
-        <legend className="t-label">Footing dimensions (optional)</legend>
+    <div className="space-y-6">
+      <fieldset className="min-w-0 space-y-2 border-t border-line pt-5">
+        <legend className="t-label mb-2 p-0">Footing dimensions (optional)</legend>
         <DimsRow label="Footing dimensions" value={draft.footing} onChange={(footing) => onChange({ ...draft, footing })} idPrefix="footing" />
       </fieldset>
 
-      <fieldset className="space-y-3">
-        <legend className="t-label">Anchorage configuration</legend>
+      <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
+        <legend className="t-label mb-1 p-0">Anchorage configuration</legend>
         <p className="text-xs text-muted">How many plinths each foundation has, by anchorage type. Leave the type blank until it is known.</p>
         {draft.groups.map((g, i) => (
-          <div key={g.id ?? `new-${i}`} role="group" aria-label={`Anchorage group ${i + 1}`} className="space-y-2 rounded-nx border border-line p-3">
-            <div className="grid grid-cols-[1fr_6rem_auto] items-end gap-2">
+          <div key={g.id ?? `new-${i}`} role="group" aria-label={`Anchorage group ${i + 1}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
+            <div className="grid grid-cols-[1fr_6rem_auto] items-end gap-3 phone:grid-cols-[1fr_5rem_auto] phone:gap-2">
               <Field label="Anchorage type">
                 <SearchSelect label={`Anchorage type, group ${i + 1}`} value={g.typeId} emptyLabel="Not assigned yet" placeholder="Type or choose a code…"
                   options={types.filter((t) => (!t.archived || t.id === g.typeId) && !taken(i).has(t.id)).map((t) => ({ value: t.id, label: t.code, hint: t.description || undefined }))}
@@ -114,30 +127,33 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
               <Button variant="ghost" aria-label={`Remove group ${i + 1}`} disabled={draft.groups.length === 0} onClick={() => onChange({ ...draft, groups: draft.groups.filter((_, j) => j !== i) })}><Trash2 size={15} strokeWidth={1.5} /></Button>
             </div>
             {typeError?.group === i && <p role="alert" className="text-xs text-bad">{typeError.message}</p>}
-            <details open={hasAnyDim(configDims(g.dims))}>
-              <summary className="cursor-pointer text-xs text-muted">Default plinth dimensions (optional)</summary>
-              <div className="mt-2"><DimsRow label={`Plinth dimensions, group ${i + 1}`} value={g.dims} onChange={(dims) => setGroup(i, { dims })} idPrefix={`group-${i}`} /></div>
+            <details open={hasAnyDim(configDims(g.dims))} className="border-t border-line pt-3">
+              <summary className="cursor-pointer text-xs text-muted">Plinth dimensions for this group (optional)</summary>
+              <div className="mt-3"><DimsRow label={`Plinth dimensions, group ${i + 1}`} value={g.dims} onChange={(dims) => setGroup(i, { dims })} idPrefix={`group-${i}`} /></div>
             </details>
           </div>
         ))}
-        <Button onClick={() => onChange({ ...draft, groups: [...draft.groups, { typeId: '', count: '1', dims: dimsDraft(null, draft.groups[0]?.dims.unit ?? 'mm') }] })}><Plus size={14} strokeWidth={1.5} />Add anchorage group</Button>
-        <p className="text-xs text-muted" aria-live="polite">
-          {draft.groups.length === 0 ? 'No plinths entered: the plinth count is not known yet.' : <>Plinths per foundation: <span className="font-medium text-ink">{total}</span> · Total plinths: <span className="font-medium text-ink">{(total * quantity).toLocaleString('en-CA')}</span> ({quantity.toLocaleString('en-CA')} × {total})</>}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Button onClick={() => onChange({ ...draft, groups: [...draft.groups, { typeId: '', count: '1', dims: dimsDraft(null, draft.groups[0]?.dims.unit ?? 'mm') }] })}><Plus size={14} strokeWidth={1.5} />Add anchorage group</Button>
+          <p className="text-xs text-muted" aria-live="polite">
+            {draft.groups.length === 0 ? 'No plinths entered: the plinth count is not known yet.' : <>Plinths per foundation: <span className="font-medium text-ink">{total}</span> · Total plinths: <span className="font-medium text-ink">{(total * quantity).toLocaleString('en-CA')}</span> ({quantity.toLocaleString('en-CA')} × {total})</>}
+          </p>
+        </div>
+        {draft.groups.length > 0 && (
+          <div className="max-w-xl pt-1">
+            <Field label="Plinth height is measured">
+              <Select aria-label="Plinth height is measured" value={draft.plinthBase} onChange={(e) => onChange({ ...draft, plinthBase: e.target.value as ConfigDraft['plinthBase'] })}>
+                <option value="above-footing">From the top of the footing (separate concrete)</option>
+                <option value="from-footing-base">From the bottom of the footing (the part inside the footing is not counted twice)</option>
+              </Select>
+            </Field>
+          </div>
+        )}
       </fieldset>
 
-      {draft.groups.length > 0 && (
-        <Field label="Plinth height is measured">
-          <Select aria-label="Plinth height is measured" value={draft.plinthBase} onChange={(e) => onChange({ ...draft, plinthBase: e.target.value as ConfigDraft['plinthBase'] })}>
-            <option value="above-footing">From the top of the footing (separate concrete)</option>
-            <option value="from-footing-base">From the bottom of the footing (the part inside the footing is not counted twice)</option>
-          </Select>
-        </Field>
-      )}
-
-      <div aria-live="polite" className="rounded-nx bg-hover p-3 text-xs">
+      <div aria-live="polite" className="rounded-nx bg-hover px-4 py-3 text-xs">
         <p className="t-label mb-1">Concrete</p>
-        {preview === null ? <p className="text-muted">Enter dimensions to calculate concrete.</p> : typeof preview === 'string' ? <p className="text-muted">{preview}</p> : <ConcreteSummary c={preview} />}
+        {preview === null ? <p className="text-muted">Enter dimensions to calculate concrete.</p> : typeof preview === 'string' ? <p className="text-muted">{preview}</p> : <ConcreteSummary c={preview} compact />}
       </div>
     </div>
   )
@@ -146,7 +162,22 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
 const configDims = (d: DimsDraft): Dims | null => { const r = dimsFrom(d, ''); return 'dims' in r ? r.dims : null }
 
 /** Compact concrete summary; says what is missing instead of showing a misleading total. */
-export function ConcreteSummary({ c }: { c: FoundationConcrete }) {
+export function ConcreteSummary({ c, compact = false }: { c: FoundationConcrete; compact?: boolean }) {
+  if (compact) {
+    const item = (k: string, v: string, strong = false) => <div key={k}><dt className="text-muted">{k}</dt><dd className={strong ? 'font-medium' : ''}>{v}</dd></div>
+    return (
+      <div className="space-y-1.5">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4">
+          {item('Footing', c.footing === null ? 'dimensions missing' : volumeLabel(c.footing))}
+          {item('Plinths', c.plinthsMissing ? `${volumeLabel(c.plinthsKnown)} known, ${c.plinthsMissing} missing` : volumeLabel(c.plinthsKnown))}
+          {c.complete ? item('Per foundation', volumeLabel(c.perFoundation!), true) : item('Per foundation', `${volumeLabel(c.perFoundationKnown)} known`)}
+          {c.complete ? item(`All ${c.quantity.toLocaleString('en-CA')}`, volumeLabel(c.total!), true) : item(`All ${c.quantity.toLocaleString('en-CA')}`, 'not available')}
+        </dl>
+        {!c.complete && <p className="text-muted">Total not available — missing {c.missing.join(' and ')}.</p>}
+        {c.warnings.map((w) => <p key={w} role="status" className="text-warn">{w}</p>)}
+      </div>
+    )
+  }
   return (
     <div className="space-y-0.5">
       <p>Footing: <span className="font-medium">{c.footing === null ? 'dimensions missing' : volumeLabel(c.footing)}</span> · Plinths: <span className="font-medium">{c.plinthsMissing ? `${volumeLabel(c.plinthsKnown)} known, ${c.plinthsMissing} missing` : volumeLabel(c.plinthsKnown)}</span></p>
