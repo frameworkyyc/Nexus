@@ -1,4 +1,4 @@
-import { Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
@@ -204,13 +204,15 @@ function AddAreaModal({ projectId, onClose }: { projectId: string; onClose: () =
 }
 
 /** Rename, edit, archive or restore one foundation. Administrators only. Its id, plinths and every record pointing at it are unaffected. */
-export function ManageFoundationButton({ foundation }: { foundation: Foundation }) {
+export function ManageFoundationButton({ foundation, compact = false }: { foundation: Foundation; compact?: boolean }) {
   const access = useAccess()
   const [open, setOpen] = useState(false)
   if (!access.can('structure.manage')) return null
   return (
     <>
-      <Button variant="ghost" className="h-8 px-2 text-xs" aria-label={`Manage foundation ${foundation.number}`} onClick={() => setOpen(true)}>Manage</Button>
+      {compact
+        ? <button type="button" className="grid h-8 w-8 place-items-center rounded-nx text-muted transition-colors hover:bg-hover hover:text-ink phone:h-11 phone:w-11" aria-label={`Manage foundation ${foundation.number}`} title="Edit foundation" onClick={() => setOpen(true)}><Pencil size={14} strokeWidth={1.5} aria-hidden /></button>
+        : <Button variant="ghost" className="h-8 px-2 text-xs" aria-label={`Manage foundation ${foundation.number}`} onClick={() => setOpen(true)}>Manage</Button>}
       {open && <ManageFoundationModal id={foundation.id} onClose={() => setOpen(false)} />}
     </>
   )

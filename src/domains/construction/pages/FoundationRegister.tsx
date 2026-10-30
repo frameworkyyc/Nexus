@@ -49,6 +49,13 @@ const anchorageSummary = (state: ConstructionState, r: Row) => r.groups.length ?
 const concreteCell = (c: FoundationConcrete) => (c.total !== null ? volumeLabel(c.total) : c.totalKnown > 0 ? `≥ ${volumeLabel(c.totalKnown)}` : '—')
 const concreteTitle = (c: FoundationConcrete) => (c.complete ? `${volumeLabel(c.perFoundation!)} per foundation` : `Incomplete: missing ${c.missing.join(' and ')}`)
 
+/** Short names for the step labels, so the column stays on one line: "Layout completed" → "Layout", "Footing poured" → "Pour". */
+const STEP_SHORT: Record<string, string> = { 'Layout completed': 'Layout', 'Rebar built': 'Rebar build', 'Rebar installed': 'Rebar install', 'Footing formed': 'Forming', 'Plinth formed': 'Forming', 'Pre-pour survey checks': 'Pre-pour survey', 'Pre-pour inspection': 'Pre-pour QA/QC', 'Footing poured': 'Pour', 'Plinth poured': 'Pour', 'Post-pour survey': 'Post-pour survey', 'Post-pour inspection': 'Post-pour QA/QC' }
+const shortStep = (label: string) => STEP_SHORT[label] ?? label
+/** Anchorage as compact as it can be while staying exact: one code on its own, "A × 2 · B × 1" for several. */
+const anchorageShort = (state: ConstructionState, r: Row) =>
+  r.groups.length === 0 ? '—' : r.groups.length === 1 ? codeOfType(state, r.groups[0].typeId).replace('Not assigned', '—') : r.groups.map((g) => `${codeOfType(state, g.typeId).replace('Not assigned', '—')} × ${g.count}`).join(' · ')
+
 const STATE_RANK: Record<FoundationStateId, number> = { 'not-started': 0, 'in-progress': 1, constructed: 2, 'closed-out': 3 }
 
 export function FoundationRegister({ projectId, areaId }: { projectId: string; areaId?: string }) {
@@ -93,8 +100,11 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
 
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }))
   const toggleOpen = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  const Th = ({ k, children, hide }: { k?: SortKey; children: React.ReactNode; hide?: boolean | 'sm' }) => (
-    <th className={`t-label py-3 pr-5 font-medium ${hide === 'sm' ? 'hidden sm:table-cell' : hide ? 'hidden lg:table-cell' : ''}`}>
+  // Columns appear as the screen allows. Whatever is hidden stays one tap away in the expanded row.
+  const SHOW = { sm: 'hidden sm:table-cell', md: 'hidden md:table-cell', lg: 'hidden lg:table-cell', wide: 'hidden min-[1400px]:table-cell' } as const
+  type Show = keyof typeof SHOW
+  const Th = ({ k, children, show, right, title }: { k?: SortKey; children: React.ReactNode; show?: Show; right?: boolean; title?: string }) => (
+    <th scope="col" title={title} className={`t-label whitespace-nowrap py-2.5 pr-4 font-medium ${right ? 'text-right' : 'text-left'} ${show ? SHOW[show] : ''}`}>
       {k ? (
         <button onClick={() => toggleSort(k)} className="inline-flex items-center gap-1 uppercase tracking-[0.08em] hover:text-ink">
           {children}
@@ -102,6 +112,10 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         </button>
       ) : children}
     </th>
+  )
+  /** One body cell: fixed row rhythm, vertically centred, never wraps. */
+  const Td = ({ show, right, muted, title, children, className = '' }: { show?: Show; right?: boolean; muted?: boolean; title?: string; children: React.ReactNode; className?: string }) => (
+    <td title={title} className={`whitespace-nowrap py-0 pr-4 align-middle text-[13px] ${right ? 'text-right tabular-nums' : 'text-left'} ${muted ? 'text-muted' : ''} ${show ? SHOW[show] : ''} ${className}`}>{children}</td>
   )
 
   const totals = foundationTotals(visible.map((r) => r.f), visible.flatMap((r) => r.plinths))
@@ -175,60 +189,57 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         <RegisterCards view={view} visible={visible} plinthRows={plinthRows} open={open} toggleOpen={toggleOpen} projectId={projectId} areaId={areaId} />
       ) : view === 'foundations' ? (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
+          <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-line">
-                <th className="w-6" />
-                <Th k="number">Foundation Name</Th>
-                <Th hide="sm">Qty</Th>
-                <Th hide>Plinths / foundation</Th>
-                <Th hide>Total plinths</Th>
-                <Th hide>Concrete</Th>
-                {!areaId && <Th hide>Area</Th>}
-                <Th hide="sm">Anchorage</Th>
-                <Th hide>Footing step</Th>
-                <Th k="construction">Construction</Th>
-                <Th hide>Plinths poured</Th>
-                <Th k="survey" hide>Survey</Th>
-                <Th k="qaqc" hide>QA/QC</Th>
-                <Th hide>Bolts ready</Th>
+                <th className="w-8"><span className="sr-only">Expand</span></th>
+                <Th k="number">Name</Th>
+                <Th right title="Physical foundations sharing this name">Qty</Th>
+                <Th right show="lg" title="Plinths on each foundation">Plinths</Th>
+                <Th right show="lg" title="Quantity × plinths per foundation">Total</Th>
+                <Th right show="lg" title="Calculated concrete for all foundations of this name">Concrete</Th>
+                {!areaId && <Th show="wide">Area</Th>}
+                <Th show="md">Anchorage</Th>
+                <Th show="wide" title="Next footing step">Footing</Th>
+                <Th k="construction" title="Construction progress">Progress</Th>
                 <Th k="state">Status</Th>
+                <th className="w-9"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
               {visible.map((r) => {
                 const isOpen = open.has(r.f.id)
-                const plinthPoured = r.stats.plinthPoured
                 return (
                   <Fragment key={r.f.id}>
-                    <tr className="border-b border-line transition-colors hover:bg-hover">
-                      <td className="py-3.5">
-                        <button onClick={() => toggleOpen(r.f.id)} aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${r.f.number}`} className="text-muted hover:text-ink">
+                    <tr className="h-12 border-b border-line transition-colors hover:bg-hover">
+                      <td className="align-middle">
+                        <button onClick={() => toggleOpen(r.f.id)} aria-expanded={isOpen} aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${r.f.number}`} className="grid h-8 w-8 place-items-center text-muted hover:text-ink">
                           <ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                         </button>
                       </td>
-                      <td className="min-w-[14rem] py-3.5 pr-5 text-[13px]">
-                        <Link to={paths.foundation(projectId, r.f)} className="font-medium underline-offset-4 hover:underline">{r.f.number}</Link>{r.f.archived && <span className="ml-2 text-xs text-muted">Archived</span>}<span className="ml-2 inline-block align-middle"><ManageFoundationButton foundation={r.f} /></span>
-                        <span className="block text-xs text-muted">{[r.f.description, r.per === null ? 'Plinths not known' : `${r.per} plinth${r.per === 1 ? '' : 's'} each`].filter(Boolean).join(' · ')}<span className="sm:hidden"> · Qty {r.qty.toLocaleString('en-CA')} · {r.types.join(', ')}</span></span>
-                      </td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums sm:table-cell">{r.qty.toLocaleString('en-CA')}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{r.per === null ? <span title="Not known">—</span> : r.per}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums lg:table-cell">{r.total === null ? <span className="text-muted" title="Plinths per foundation is not known">—</span> : r.total.toLocaleString('en-CA')}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums lg:table-cell" title={concreteTitle(r.concrete)}>{concreteCell(r.concrete)}</td>
-                      {!areaId && <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.area.name}</td>}
-                      <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{anchorageSummary(state, r)}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.step}</td>
-                      <td className="py-3.5 pr-5"><ProgressBar value={r.stats.progress} width="w-16 sm:w-24" /></td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(plinthPoured)}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(r.stats.survey)}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(r.stats.qaqc)}</td>
-                      <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{r.stats.materialsReady.ready}/{r.stats.materialsReady.total}</td>
-                      <td className="py-3.5 pr-2"><FoundationStateBadge state={r.state.state} blocked={r.state.blocked} /></td>
+                      <Td>
+                        <div className="flex min-w-0 max-w-[12rem] items-baseline gap-2 min-[1400px]:max-w-[14rem]">
+                          <Link to={paths.foundation(projectId, r.f)} className="max-w-full shrink-0 truncate font-medium underline-offset-4 hover:underline" title={r.f.number}>{r.f.number}</Link>
+                          {r.f.archived && <span className="shrink-0 text-xs text-muted">Archived</span>}
+                          {r.f.description && <span className="min-w-0 flex-1 truncate text-xs text-muted" title={r.f.description}>{r.f.description}</span>}
+                        </div>
+                      </Td>
+                      <Td right>{r.qty.toLocaleString('en-CA')}</Td>
+                      <Td right show="lg" muted>{r.per === null ? <span title="Not known">—</span> : r.per}</Td>
+                      <Td right show="lg">{r.total === null ? <span className="text-muted" title="Plinths per foundation is not known">—</span> : r.total.toLocaleString('en-CA')}</Td>
+                      <Td right show="lg" title={concreteTitle(r.concrete)}>{concreteCell(r.concrete)}</Td>
+                      {!areaId && <Td show="wide" muted title={r.area.name}><div className="max-w-[7rem] truncate">{r.area.name}</div></Td>}
+                      <Td show="md" title={anchorageSummary(state, r)}><div className="max-w-[9rem] truncate min-[1400px]:max-w-[11rem]">{anchorageShort(state, r)}</div></Td>
+                      <Td show="wide" muted>{shortStep(r.step)}</Td>
+                      <Td><ProgressBar value={r.stats.progress} width="w-12" /></Td>
+                      <Td><FoundationStateBadge state={r.state.state} blocked={r.state.blocked} /></Td>
+                      <td className="pr-1 text-right align-middle"><ManageFoundationButton foundation={r.f} compact /></td>
                     </tr>
                     {isOpen && (
                       <tr className="border-b border-line bg-canvas">
                         <td />
-                        <td colSpan={areaId ? 13 : 14} className="py-3 pr-5">
+                        <td colSpan={20} className="py-3 pr-5">
+                          <RowSummary state={state} r={r} areaId={areaId} />
                           <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />
                         </td>
                       </tr>
@@ -241,16 +252,16 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left">
+          <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-line">
                 <Th>Plinth</Th>
-                <Th hide="sm">Anchorage</Th>
-                <Th>Current step</Th>
-                <Th>Construction</Th>
-                <Th hide>Survey</Th>
-                <Th hide>QA/QC</Th>
-                <Th hide>Anchor bolts</Th>
+                <Th show="md">Anchorage</Th>
+                <Th>Step</Th>
+                <Th>Progress</Th>
+                <Th right show="lg">Survey</Th>
+                <Th right show="lg">QA/QC</Th>
+                <Th show="wide" title="Anchor bolt stage">Bolts</Th>
                 <Th>Status</Th>
               </tr>
             </thead>
@@ -259,18 +270,18 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                 const acts = plinthActivities(idx, p)
                 const ps = plinthState(idx, p)
                 return (
-                  <tr key={p.id} className="border-b border-line transition-colors hover:bg-hover">
-                    <td className="py-3.5 pr-5 text-[13px]">
+                  <tr key={p.id} className="h-12 border-b border-line transition-colors hover:bg-hover">
+                    <Td>
                       <Link to={paths.foundation(projectId, r.f, p.id)} className="font-medium underline-offset-4 hover:underline">{r.f.number} · P{p.index}</Link>
-                      <span className="block text-xs text-muted">{!areaId && `${r.area.name} · `}<span className="sm:hidden">{codeOfType(state, p.anchorageTypeId)}</span></span>
-                    </td>
-                    <td className="hidden py-3.5 pr-5 text-[13px] sm:table-cell">{codeOfType(state, p.anchorageTypeId)}</td>
-                    <td className="py-3.5 pr-5 text-[13px] text-muted">{plinthStep(idx, p)}</td>
-                    <td className="py-3.5 pr-5"><ProgressBar value={progressOf(idx, acts)} width="w-16 sm:w-24" /></td>
-                    <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(tallyCategory(idx, acts, 'survey'))}</td>
-                    <td className="hidden py-3.5 pr-5 text-[13px] tabular-nums text-muted lg:table-cell">{fraction(tallyCategory(idx, acts, 'qaqc'))}</td>
-                    <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</td>
-                    <td className="py-3.5 pr-2"><FoundationStateBadge state={ps.state} blocked={ps.blocked} /></td>
+                      {!areaId && <span className="ml-2 text-xs text-muted">{r.area.name}</span>}
+                    </Td>
+                    <Td show="md">{codeOfType(state, p.anchorageTypeId).replace('Not assigned', '—')}</Td>
+                    <Td muted>{shortStep(plinthStep(idx, p))}</Td>
+                    <Td><ProgressBar value={progressOf(idx, acts)} width="w-12" /></Td>
+                    <Td right show="lg" muted>{fraction(tallyCategory(idx, acts, 'survey'))}</Td>
+                    <Td right show="lg" muted>{fraction(tallyCategory(idx, acts, 'qaqc'))}</Td>
+                    <Td show="wide" muted>{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</Td>
+                    <Td><FoundationStateBadge state={ps.state} blocked={ps.blocked} /></Td>
                   </tr>
                 )
               })}
@@ -279,6 +290,27 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         </div>
       )}
     </div>
+  )
+}
+
+/** Everything the table can hide on a narrow screen (and a little more), kept together in the expanded row. */
+function RowSummary({ state, r, areaId }: { state: ConstructionState; r: Row; areaId?: string }) {
+  const items: [string, React.ReactNode][] = [
+    ...(r.f.description ? [['Description', r.f.description] as [string, React.ReactNode]] : []),
+    ...(!areaId ? [['Area', r.area.name] as [string, React.ReactNode]] : []),
+    ['Anchorage', anchorageSummary(state, r)],
+    ['Plinths', r.per === null ? 'Not known' : `${r.per} per foundation${r.total !== null ? ` · ${r.total.toLocaleString('en-CA')} in total` : ''}`],
+    ['Concrete', `${concreteCell(r.concrete)}${r.concrete.complete ? ` (${volumeLabel(r.concrete.perFoundation!)} each)` : ' (incomplete)'}`],
+    ['Next footing step', r.step],
+    ['Plinths poured', fraction(r.stats.plinthPoured)],
+    ['Survey', fraction(r.stats.survey)],
+    ['QA/QC', fraction(r.stats.qaqc)],
+    ['Bolts ready', `${r.stats.materialsReady.ready}/${r.stats.materialsReady.total}`],
+  ]
+  return (
+    <dl className="mb-3 grid grid-cols-2 gap-x-6 gap-y-2 text-[13px] md:grid-cols-3 xl:grid-cols-5">
+      {items.map(([l, v]) => <div key={l} className="min-w-0"><dt className="t-label">{l}</dt><dd className="mt-0.5 truncate tabular-nums" title={typeof v === 'string' ? v : undefined}>{v}</dd></div>)}
+    </dl>
   )
 }
 
