@@ -133,3 +133,13 @@ export function entryNotes(g: Consolidated, c: Pick<ConstructionState, 'foundati
   }
   return out
 }
+
+/**
+ * What a material is called in the list: the anchorage types that need it (several types that share an identical material are one line and
+ * all are named), with the specification underneath. A material entered without an anchorage type is shown by its name.
+ */
+export function materialLabel(g: Consolidated): { title: string; sub: string } {
+  const codes = [...new Set(g.contributions.map((c) => c.anchorage).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+  const sub = specText(g) || (codes.length ? g.name : g.unit)
+  return { title: codes.length ? codes.join(', ') : g.name, sub }
+}

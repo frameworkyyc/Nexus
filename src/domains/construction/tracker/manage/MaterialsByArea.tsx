@@ -7,7 +7,7 @@ import { paths } from '../../paths'
 import { Button } from '@/components/ui/Button'
 import { useAccess } from '@/lib/access'
 import { archiveMaterials, editMaterial } from '../commands'
-import { areaTree, consolidate, entryNotes, specText, type Consolidated } from '../consolidate'
+import { areaTree, consolidate, entryNotes, materialLabel, type Consolidated } from '../consolidate'
 import { trackerStore, useTracker } from '../store'
 
 const fmt = (n: number) => n.toLocaleString('en-CA')
@@ -86,35 +86,52 @@ export function MaterialsByArea({ areaId }: { areaId?: string }) {
   }, [state, construction, projectId, areaId])
   const tree = useMemo(() => areaTree(groups), [groups])
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [openCats, setOpenCats] = useState<Set<string>>(new Set())
   const area = tree.find((a) => a.areaKey === params.get('area')) ?? tree[0]
   const toggle = (k: string) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const toggleCat = (k: string) => setOpenCats((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n })
 
   if (tree.length === 0) return <EmptyState title="No materials required yet" description="Configure anchorage types in the Anchorage Library and assign them to foundations, and each area's materials appear here." action={<Link to={paths.anchorage(projectId)} className="text-[13px] underline underline-offset-4">Anchorage types</Link>} />
   return (
     <div className="space-y-8">
       {!areaId && <Chips label="Area" value={area.areaKey} onChange={(v) => setParams({ area: v }, { replace: true })} items={tree.map((a) => ({ id: a.areaKey, label: a.name }))} />}
-      {area.categories.map((cat) => (
-        <section key={cat.category} aria-label={cat.label}>
-          <h3 className="t-label mb-1">{cat.label}</h3>
-          <table className="w-full table-fixed text-left text-[13px]">
-            <colgroup><col className="w-10" /><col /><col className="w-28" /></colgroup>
-            <thead><tr className="border-b border-line"><th scope="col"><span className="sr-only">Expand</span></th><th scope="col" className="t-label font-medium">Material</th><th scope="col" className="t-label text-right font-medium">Required</th></tr></thead>
-            <tbody>
-              {cat.groups.map((g) => {
-                const isOpen = open.has(g.key)
-                return [
-                  <tr key={g.key} className="border-b border-line transition-colors hover:bg-hover">
-                    <td className="pr-0"><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} what makes up ${g.name} ${specText(g)}`} onClick={() => toggle(g.key)} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
-                    <td><button type="button" onClick={() => toggle(g.key)} className="block w-full text-left"><span className="font-medium">{g.name}</span><span className="block truncate text-xs text-muted" title={specText(g)}>{specText(g) || g.unit}</span></button></td>
-                    <td className="text-right font-medium">{fmt(g.required)}{g.unit && g.unit !== 'ea' && <span className="ml-1 text-xs font-normal text-muted">{g.unit}</span>}</td>
-                  </tr>,
-                  isOpen && <tr key={`${g.key}-detail`}><td colSpan={3} data-wrap className="border-b border-line bg-hover px-3"><Contributions g={g} all={groups} /></td></tr>,
-                ]
-              })}
-            </tbody>
-          </table>
-        </section>
-      ))}
+      <div className="divide-y divide-line border-y border-line">
+        {area.categories.map((cat) => {
+          const catKey = `${area.areaKey}|${cat.category}`
+          const catOpen = openCats.has(catKey)
+          return (
+            <section key={cat.category} aria-label={cat.label}>
+              <h3>
+                <button type="button" aria-expanded={catOpen} onClick={() => toggleCat(catKey)} className="flex w-full items-center gap-3 py-4 text-left">
+                  <ChevronRight size={14} strokeWidth={1.5} className={`shrink-0 text-muted transition-transform ${catOpen ? 'rotate-90' : ''}`} />
+                  <span className="flex-1 text-[15px] font-medium">{cat.label}</span>
+                  <span className="text-[13px] font-normal tabular-nums text-muted" aria-label={`${cat.groups.length} specification${cat.groups.length === 1 ? '' : 's'}`}>{cat.groups.length}</span>
+                </button>
+              </h3>
+              {catOpen && (
+                <table className="mb-4 w-full table-fixed text-left text-[13px]">
+                  <colgroup><col className="w-10" /><col /><col className="w-28" /></colgroup>
+                  <thead className="sr-only"><tr><th scope="col">Expand</th><th scope="col">Material</th><th scope="col">Required</th></tr></thead>
+                  <tbody>
+                    {cat.groups.map((g) => {
+                      const isOpen = open.has(g.key)
+                      const label = materialLabel(g)
+                      return [
+                        <tr key={g.key} className="border-t border-line transition-colors hover:bg-hover">
+                          <td className="pr-0"><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} what makes up ${label.title} ${label.sub}`} onClick={() => toggle(g.key)} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
+                          <td><button type="button" onClick={() => toggle(g.key)} className="block w-full text-left"><span className="block truncate font-medium" title={label.title}>{label.title}</span><span className="block truncate text-xs text-muted" title={label.sub}>{label.sub}</span></button></td>
+                          <td className="text-right font-medium">{fmt(g.required)}{g.unit && g.unit !== 'ea' && <span className="ml-1 text-xs font-normal text-muted">{g.unit}</span>}</td>
+                        </tr>,
+                        isOpen && <tr key={`${g.key}-detail`}><td colSpan={3} data-wrap className="border-t border-line bg-hover px-3"><Contributions g={g} all={groups} /></td></tr>,
+                      ]
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }

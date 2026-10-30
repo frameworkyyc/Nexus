@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import * as K from '../actions'
 import * as A from '../tracker/actions'
 import { emptyConstruction } from '../empty'
-import { areaTree, consolidate, entryNotes } from '../tracker/consolidate'
+import { areaTree, consolidate, entryNotes, materialLabel } from '../tracker/consolidate'
 import { procurementRows, procStatus } from '../tracker/procurement'
 import { expectedTotals, refreshRequirements } from '../tracker/requirements'
 import { emptyTracker, type TrackerState } from '../tracker/types'
@@ -301,5 +301,28 @@ describe('quantity audit: footing quantity × anchorages per footing × quantity
     const line = t.manual.find((l) => l.id === id)!
     expect(line).toMatchObject({ requiredQty: 28, basis: 'per-footing', qtyEach: 4, orderedQty: 4 })
     expect(t.history.some((h) => h.materialId === id && h.action === 'quantity')).toBe(true)
+  })
+})
+
+describe('material labels', () => {
+  it('name the anchorage types that need a material, with the specification beneath; entered materials keep their name', () => {
+    const { c, area, f3 } = staging()
+    let t = tracked(c)
+    const label = (cat: string, re: RegExp) => materialLabel(consolidate(t, c).find((g) => g.category === cat && re.test(g.specification + g.size))!)
+    expect(label('bolt', /3\/4/)).toEqual({ title: 'OP1-D2', sub: '3/4" × 460 mm, all-thread' })
+    expect(label('embed-plate', /320/)).toEqual({ title: 'OP1-D4', sub: '16 x 320 x 520 mm' })
+    t = run(t, c, A.addMaterials([{ areaId: area, foundationId: '', category: 'other', name: 'Non-shrink grout', specification: 'Type 10', size: '', unit: 'bag', requiredQty: 5, basis: 'fixed' } as never]))
+    expect(materialLabel(consolidate(t, c).find((g) => g.name === 'Non-shrink grout')!)).toEqual({ title: 'Non-shrink grout', sub: 'Type 10' })
+    void f3
+  })
+  it('identical materials from several anchorage types are one line naming them all', () => {
+    let { c, A1, B1 } = world()
+    const same = { kind: 'bolt' as const, qty: 4, diameter: 'M25', length: 900, lengthUnit: 'mm' as const, thread: 'both-ends' as const, topThread: 100, bottomThread: 80, nutsPerBolt: 2, washersPerBolt: 2 }
+    c = build(c, K.setAnchorageComponents(B1, [same]))
+    c = build(c, K.configureFoundation(c.foundations[1].id, { groups: [{ anchorageTypeId: B1, count: 1 }] }))
+    const g = consolidate(tracked(c), c).filter((x) => x.area === 'E-House' && x.category === 'bolt')
+    expect(g).toHaveLength(1)
+    expect(materialLabel(g[0]).title).toBe('A, B')
+    void A1
   })
 })
