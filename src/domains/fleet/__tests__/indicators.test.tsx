@@ -237,7 +237,7 @@ describe('vehicle dashboard gauges render (T6010)', () => {
   })
 
   it('shows the calculated figures', () => {
-    for (const x of ['93.4%', '168,144 km remaining', '33.9%', '1,695 km remaining', 'Due at 13,551 km', '5,000 km interval', '80.2%', '48,144 km remaining', 'Estimated, mileage-based', 'Planning estimate: 180,000 km', 'Interval start 8,551 km (calculated)']) expect(html).toContain(x)
+    for (const x of ['6.6%', 'used · 168,144 km remaining', '33.9%', '1,695 km remaining', 'Due at 13,551 km', '5,000 km interval', '80.2%', '48,144 km remaining', 'Estimated, mileage-based', 'Estimate: 180,000 km', 'Interval start 8,551 km (calculated)']) expect(html).toContain(x)
   })
 
   it('draws arcs for the three percentage gauges and a status-only ring for inspection', () => {
