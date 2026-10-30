@@ -15,3 +15,7 @@ export const addMaterials = tagged.addMaterials
 export const editMaterial = tagged.editMaterial
 export const bulkEditMaterials = tagged.bulkEditMaterials
 export const archiveMaterials = tagged.archiveMaterials
+export const addSupplier = tagged.addSupplier
+export const renameSupplier = tagged.renameSupplier
+export const archiveSupplier = tagged.archiveSupplier
+export const setPreferredSupplier = tagged.setPreferredSupplier

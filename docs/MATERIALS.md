@@ -50,3 +50,34 @@ there is labelled *Simulated role (demo only)*: it changes what the page shows a
 4. Set `INITIAL_ADMIN_EMAIL` (or insert the first admin), sign in once, then assign Editors/Viewers under **Manage access**.
 
 Until then staging serves the browser-only view and the server paths are covered by tests only (`src/worker/__tests__/rbac.test.ts`).
+
+## Material entry uses project records (migration 0006)
+
+Area, foundation, anchorage type and supplier are chosen from existing records in searchable lists; typing only filters, so a value can never
+be invented in the Materials form. Materials store **ids** (`area_id`, `foundation_id`, `anchorage_type_id`, `supplier_id`) and the names shown
+are looked up, so renaming an area, foundation or supplier never breaks an association. The old text columns stay as the value as entered
+(legacy values and a display fallback).
+
+| List | Source of truth | Who changes it |
+|---|---|---|
+| Area | `areas` (construction) | Admin (Add area, with its foundations) |
+| Foundation (filtered by area) | `foundations` (construction); stable id, `archived` flag | Admin: add, rename, edit, archive (Foundation Register → Add foundation / Manage) |
+| Anchorage type (foundation's types first) | project anchorage library; workbook codes (`wb:<code>`) when the library has none | existing anchorage interface |
+| Supplier | `suppliers` directory (unique normalised name) | Editors add; Admins rename/archive |
+| Preferred supplier per category | `category_suppliers` | Admin only (Materials → Suppliers & defaults) |
+
+* **Preferred suppliers** only pre-fill a new material. The only configured preference is Anchor bolts → Nucor (seeded by migration 0006,
+  only if nothing is set). A supplier the person picks (or clears) is never replaced when the category or another field changes; a category
+  with no preference leaves the field empty. Changing a preference never edits existing materials.
+* **Quick Add** shares area, foundation, anchorage type and default supplier; each row may use its own category, anchorage type or supplier,
+  and changing a shared default never overwrites a row's own choice. **Add & add another** keeps the shared choices.
+* **Foundations**: duplicate numbers (even archived) are refused; a renamed foundation keeps its id, plinths, activities and materials;
+  archiving is refused while active materials use it and hides it from pickers and the default register view without deleting anything.
+* **Server checks**: `addMaterials`/`editMaterial`/`bulkEditMaterials` are validated against the server's own construction records
+  (ids exist, foundation belongs to the area, not archived, supplier in the directory). `archiveFoundation` checks materials from the database.
+  Foundation/area commands need Admin; adding a supplier needs Editor; preferred-supplier and directory changes need Admin.
+* **Legacy values** are never rewritten. Unlinked text keeps showing; Materials shows "values not linked to project records → Review", where an
+  exact, unambiguous match can be linked (one by one or "Link all exact matches") and anything else needs a record chosen.
+* **Limitation**: the construction anchorage library is not stored on the server yet, so with saved data the anchorage list is the project
+  library (when present) plus the workbook's anchorage codes. Editing anchorage types stays in the existing anchorage page.
+* Staging checklist addition: apply migration `0006` after `0005`.

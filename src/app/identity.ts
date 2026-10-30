@@ -1,3 +1,4 @@
+import type { ConstructionState } from '@/domains/construction/types'
 import type { TrackerState } from '@/domains/construction/tracker/types'
 /**
  * Everything that identifies the real organization, project and fleet in the seed data lives in THIS file, and nowhere else in the
@@ -24,7 +25,7 @@ export interface Identity {
   /** What the imported material tracker is called in the UI. */
   trackerName: string
   /** Fictional starting materials for a browser-only demo. Absent on the real identity, whose tracker starts empty. */
-  trackerSeed?: () => TrackerState
+  trackerSeed?: (construction: ConstructionState) => TrackerState
   fleet: {
     units: [unit: string, year: number, make: string, model: string][]
     /** The unit that carries the detailed verified/sample figures below. */

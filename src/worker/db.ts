@@ -36,7 +36,7 @@ export const TABLES: TableDef[] = [
   { name: 'companies', pk: 'id', columns: ['id', 'name'], module: 'reference' },
   { name: 'projects', pk: 'id', columns: ['id', 'company_id', 'name', 'job_number', 'client', 'location', 'scope', 'status', 'status_note'], module: 'construction', refs: { company_id: 'companies' } },
   { name: 'areas', pk: 'id', columns: ['id', 'project_id', 'name', 'sequence'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'name']] },
-  { name: 'foundations', pk: 'id', columns: ['id', 'area_id', 'number', 'description', 'notes', 'seq'], module: 'construction', refs: { area_id: 'areas' }, unique: [['area_id', 'number']] },
+  { name: 'foundations', pk: 'id', columns: ['id', 'area_id', 'number', 'description', 'notes', 'archived', 'seq'], module: 'construction', refs: { area_id: 'areas' }, unique: [['area_id', 'number']] },
   { name: 'plinths', pk: 'id', columns: ['id', 'foundation_id', 'idx', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations' }, unique: [['foundation_id', 'idx']] },
   { name: 'activities', pk: 'id', columns: ['id', 'scope', 'activity_key', 'foundation_id', 'plinth_id', 'status', 'planned_date', 'actual_date', 'notes', 'seq'], module: 'construction', refs: { foundation_id: 'foundations', plinth_id: 'plinths' } },
 
@@ -53,10 +53,12 @@ export const TABLES: TableDef[] = [
   { name: 'inspection_defects', pk: 'id', columns: ['id', 'inspection_id', 'description', 'status', 'resolved_date', 'resolution_note', 'seq'], module: 'fleet', refs: { inspection_id: 'inspections' } },
 
   { name: 'material_import_batches', pk: 'id', columns: ['id', 'file_name', 'file_size', 'sha256', 'imported_at', 'counts_json', 'seq'], module: 'materials' },
+  { name: 'suppliers', pk: 'id', columns: ['id', 'name', 'name_key', 'archived', 'created_at', 'created_by', 'seq'], module: 'materials', unique: [['name_key']] },
+  { name: 'category_suppliers', pk: 'category', columns: ['category', 'supplier_id'], module: 'materials', refs: { supplier_id: 'suppliers' } },
   { name: 'material_lines', pk: 'id', columns: ['id', 'batch_id', 'source_sheet', 'source_row', 'area', 'footing_type', 'anchorage_type', 'footings', 'plinths', 'bolts', 'component', 'category', 'required_qty', 'calc_json', 'source_status', 'source_comments_json', 'source_removed', 'seq'], module: 'materials', refs: { batch_id: 'material_import_batches' } },
-  { name: 'material_line_ops', pk: 'line_id', columns: ['line_id', 'ordered_qty', 'confirmed_no_receipts', 'notes', 'unit', 'supplier', 'po_ref', 'expected_date', 'archived'], module: 'materials', refs: { line_id: 'material_lines' } },
+  { name: 'material_line_ops', pk: 'line_id', columns: ['line_id', 'ordered_qty', 'confirmed_no_receipts', 'notes', 'unit', 'supplier', 'supplier_id', 'po_ref', 'expected_date', 'archived'], module: 'materials', refs: { line_id: 'material_lines', supplier_id: 'suppliers' } },
   { name: 'material_receipts', pk: 'id', columns: ['id', 'line_id', 'receipt_date', 'qty', 'reference', 'note', 'recorded_by', 'seq'], module: 'materials', refs: { line_id: 'material_lines' } },
-  { name: 'manual_materials', pk: 'id', columns: ['id', 'area', 'location', 'anchorage_ref', 'category', 'name', 'description', 'specification', 'size', 'required_qty', 'unit', 'supplier', 'po_ref', 'expected_date', 'claimed_status', 'ordered_qty', 'confirmed_no_receipts', 'notes', 'archived', 'created_at', 'created_by', 'seq'], module: 'materials' },
+  { name: 'manual_materials', pk: 'id', columns: ['id', 'area', 'location', 'anchorage_ref', 'category', 'name', 'description', 'specification', 'area_id', 'foundation_id', 'anchorage_type_id', 'size', 'required_qty', 'unit', 'supplier', 'supplier_id', 'po_ref', 'expected_date', 'claimed_status', 'ordered_qty', 'confirmed_no_receipts', 'notes', 'archived', 'created_at', 'created_by', 'seq'], module: 'materials', refs: { area_id: 'areas', foundation_id: 'foundations', supplier_id: 'suppliers' } },
   { name: 'manual_material_receipts', pk: 'id', columns: ['id', 'material_id', 'receipt_date', 'qty', 'reference', 'note', 'recorded_by', 'seq'], module: 'materials', refs: { material_id: 'manual_materials' } },
   { name: 'material_audit', pk: 'id', columns: ['id', 'at', 'actor', 'action', 'material_id', 'label', 'summary', 'changes_json', 'seq'], module: 'materials' },
   { name: 'workbook_summary_rows', pk: 'id', columns: ['id', 'batch_id', 'source_sheet', 'source_row', 'area', 'item', 'total_qty', 'status', 'seq'], module: 'materials', refs: { batch_id: 'material_import_batches' } },

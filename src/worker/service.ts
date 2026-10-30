@@ -89,7 +89,11 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
   for (let attempt = 0; attempt < 4; attempt++) {
     const snap = await readModule(db, module)
     let result: { state?: unknown; error?: string }
-    try { result = creator(...args)(snap.state, { actor, now: now.toISOString() }) } catch (e) { throw new HttpError(400, `The change could not be applied: ${messageOf(e)}`, 'command-failed') }
+    // Rules that look at another module's records get them from the server's own database, never from the request.
+    const refs: Record<string, unknown> = {}
+    if (module === 'materials') refs.construction = (await readModule(db, 'construction')).state
+    if (module === 'construction' && name === 'archiveFoundation') refs.materials = (await readModule(db, 'materials')).state
+    try { result = creator(...args)(snap.state, { actor, now: now.toISOString(), ...refs }) } catch (e) { throw new HttpError(400, `The change could not be applied: ${messageOf(e)}`, 'command-failed') }
     if (result.error !== undefined) throw new HttpError(422, result.error, 'rejected')
     const spec = MODULES[module]
     const next = spec.toRows(result.state, { prevRows: snap.rows, isImport: !!importBatchId, importBatchId })
@@ -173,6 +177,8 @@ export async function checkIntegrity(db: D1): Promise<IntegrityReport> {
   add('Receipts belong to material lines', recv === 0, recv ? `${recv} receipts have no line` : `${lines} lines checked`)
   const both = await scalar('SELECT COUNT(*) AS n FROM material_line_ops WHERE confirmed_no_receipts = 1 AND line_id IN (SELECT line_id FROM material_receipts)')
   add('“Nothing received” not combined with receipts', both === 0, both ? `${both} lines contradict themselves` : 'OK')
+  const misplaced = await scalar('SELECT COUNT(*) AS n FROM manual_materials m JOIN foundations f ON f.id = m.foundation_id WHERE m.area_id IS NULL OR f.area_id <> m.area_id')
+  add('Material foundations belong to the material’s area', misplaced === 0, misplaced ? `${misplaced} materials point at a foundation in another area` : 'OK')
   const logMax = await scalar('SELECT COALESCE(MAX(result_version), 0) AS n FROM change_log')
   const verMax = await scalar('SELECT COALESCE(MAX(version), 0) AS n FROM module_versions')
   add('Change log is consistent with module versions', logMax <= verMax, `highest logged version ${logMax}, highest module version ${verMax}`)

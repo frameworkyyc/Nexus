@@ -13,19 +13,20 @@ export const ROLE_LABEL: Record<Role, string> = { viewer: 'Viewer', editor: 'Edi
 export const ROLE_SUMMARY: Record<Role, string> = {
   viewer: 'Can view, search, filter, open details and read history. Cannot change anything.',
   editor: 'Viewer, plus add and edit materials, update quantities, record deliveries, add notes and use bulk edits. Cannot archive, manage access or configuration.',
-  admin: 'Editor, plus archive materials, void receipts, manage material configuration and manage who has access.',
+  admin: 'Editor, plus archive materials, void receipts, preferred suppliers, foundations and areas, and manage who has access.',
 }
 
 export type Permission =
   | 'view'
   | 'materials.add' | 'materials.edit' | 'materials.receive' | 'materials.bulk' | 'materials.import'
   | 'materials.archive' | 'materials.void-receipt' | 'materials.configure'
+  | 'suppliers.add' | 'foundations.manage'
   | 'data.edit' // any other module's records, until those modules get their own permissions
   | 'access.manage'
 
 const VIEWER: Permission[] = ['view']
-const EDITOR: Permission[] = [...VIEWER, 'materials.add', 'materials.edit', 'materials.receive', 'materials.bulk', 'materials.import', 'data.edit']
-const ADMIN: Permission[] = [...EDITOR, 'materials.archive', 'materials.void-receipt', 'materials.configure', 'access.manage']
+const EDITOR: Permission[] = [...VIEWER, 'materials.add', 'materials.edit', 'materials.receive', 'materials.bulk', 'materials.import', 'suppliers.add', 'data.edit']
+const ADMIN: Permission[] = [...EDITOR, 'materials.archive', 'materials.void-receipt', 'materials.configure', 'foundations.manage', 'access.manage']
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = { viewer: VIEWER, editor: EDITOR, admin: ADMIN }
 
 export const can = (role: Role | null | undefined, permission: Permission) => !!role && ROLE_PERMISSIONS[role].includes(permission)
@@ -43,9 +44,17 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
   acknowledgeFlag: 'materials.edit',
   importTracker: 'materials.import',
   archiveMaterials: 'materials.archive',
+  addSupplier: 'suppliers.add',
+  renameSupplier: 'materials.configure',
+  archiveSupplier: 'materials.configure',
+  setPreferredSupplier: 'materials.configure',
 }
+
+/** Foundation and area setup is an Admin task; everything else in construction stays at `data.edit`. */
+const CONSTRUCTION_COMMANDS: Record<string, Permission> = { createFoundation: 'foundations.manage', renameFoundation: 'foundations.manage', editFoundation: 'foundations.manage', archiveFoundation: 'foundations.manage', createArea: 'foundations.manage' }
 
 export function permissionForCommand(module: string, name: string): Permission {
   if (module === 'materials') return MATERIALS_COMMANDS[name] ?? 'materials.configure'
+  if (module === 'construction') return CONSTRUCTION_COMMANDS[name] ?? 'data.edit'
   return 'data.edit'
 }

@@ -1,6 +1,8 @@
 import { identity } from '@/app/identity'
 import { createPersistedStore } from '@/lib/createPersistedStore'
-import { createModuleStore, useSaver } from '@/lib/dataSource'
+import { createModuleStore, setModuleContext, useSaver } from '@/lib/dataSource'
+import { constructionStore } from '../store'
+import { buildSeed } from '../seed'
 import { todayISO } from '@/lib/date'
 import { notify } from '@/lib/notify'
 import { emptyTracker, type TrackerState } from './types'
@@ -11,12 +13,13 @@ import { emptyTracker, type TrackerState } from './types'
  * "Reset demo data".
  */
 const trackerLocal = createPersistedStore<TrackerState>({
-  key: identity.storageKeys.tracker, version: 2, seed: () => identity.trackerSeed?.() ?? emptyTracker(),
-  // Version 1 had no manually entered materials or history; the imported workbook, receipts and notes are kept as they are.
+  key: identity.storageKeys.tracker, version: 3, seed: () => identity.trackerSeed?.(buildSeed(todayISO())) ?? emptyTracker(),
+  // Older versions lacked manually entered materials, history and the supplier directory. Everything a person imported or entered stays
+  // exactly as it is; values not tied to project records are kept as written and flagged for reconciliation, never rewritten.
   migrate: (data) => {
     const old = { ...emptyTracker(), ...(data as Partial<TrackerState>) }
-    // A browser that only ever held the empty tracker gets the demo's starting materials; anything a person entered or imported stays.
-    return !old.meta && old.lines.length === 0 && old.manual.length === 0 ? (identity.trackerSeed?.() ?? old) : old
+    // A browser that only ever held the empty tracker gets the demo's starting materials.
+    return !old.meta && old.lines.length === 0 && old.manual.length === 0 ? (identity.trackerSeed?.(buildSeed(todayISO())) ?? old) : old
   },
 })
 
@@ -26,3 +29,7 @@ export const resetTrackerData = () => trackerLocal.reset()
 
 export const useTracker = () => ({ state: trackerStore.use(), today: todayISO() })
 export const useTrackerCommand = () => useSaver(trackerStore)
+
+// Rules that span modules: a material is checked against the project's areas, foundations and anchorage types; archiving a foundation checks its materials.
+setModuleContext('materials', () => ({ construction: constructionStore.get() }))
+setModuleContext('construction', () => ({ materials: trackerStore.get() }))

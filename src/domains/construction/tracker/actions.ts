@@ -1,8 +1,10 @@
 import type { ISODate } from '@/lib/date'
-import { allLines, audited, type Ctx } from './audit'
+import { audited, type Ctx } from './audit'
 import type { ParsedTracker } from './import'
-import type { ImportMeta, TrackerLine, TrackerState } from './types'
-import { clean, findDuplicate, key, validateMaterial, type MaterialInput } from './materialModel'
+import type { ComponentCategory, ImportMeta, TrackerLine, TrackerState } from './types'
+import { buildCatalog, displayOf, type CatalogSource } from './catalog'
+import { clean, findDuplicate, keyOf, validateMaterial, type Env, type MaterialInput } from './materialModel'
+import { cleanSupplierName, findSimilarSupplier, supplierId, type SupplierRecord } from './suppliers'
 import { emptyTracker } from './types'
 
 export type Result = { state: TrackerState; error?: undefined } | { error: string; state?: undefined }
@@ -12,6 +14,8 @@ let seq = 0
 const nextId = () => `rc-${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const manualId = () => `mm-${Date.now().toString(36)}${(seq++).toString(36)}${Math.random().toString(36).slice(2, 7)}`
 const validDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(new Date(`${d}T00:00:00`).getTime())
+/** Records in other modules that material rules check against. Supplied by the server and the demo, never by a request. */
+export interface RefCtx extends Ctx { construction?: CatalogSource }
 const wholeNumber = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0
 
 /** Finds a material among workbook lines and materials entered in Nexus, applies `fn`, and keeps each in its own list. */
@@ -24,7 +28,7 @@ const patchLine = (s: TrackerState, id: string, fn: (l: TrackerLine) => TrackerL
   return { state: manual ? { ...s, manual: s.manual.map((l) => (l.id === id ? next : l)) } : { ...s, lines: s.lines.map((l) => (l.id === id ? next : l)) } }
 }
 
-const NEXUS_SIDE = ['unit', 'supplier', 'poRef', 'expectedDate', 'archived'] as const
+const NEXUS_SIDE = ['unit', 'supplier', 'supplierId', 'poRef', 'expectedDate', 'archived'] as const
 const nexusSide = (l: TrackerLine) => Object.fromEntries(NEXUS_SIDE.filter((k) => l[k] !== undefined).map((k) => [k, l[k]]))
 
 /**
@@ -87,20 +91,35 @@ export const acknowledgeFlag = (flagId: string, note: string, today: ISODate, on
 
 /* ── Materials entered in Nexus ────────────────────────────────────────── */
 
-const fromInput = (m: MaterialInput, createdAt: string, createdBy: string): TrackerLine => ({
-  id: manualId(), origin: 'manual', source: { sheet: 'Nexus', row: 0 }, area: clean(m.area), footingType: clean(m.location), anchorageType: clean(m.anchorageRef),
-  footings: 0, plinths: 0, bolts: 0, component: clean(m.name), category: m.category, requiredQty: m.requiredQty,
+const envOf = (s: TrackerState, ctx?: Ctx): Env | null => {
+  const c = (ctx as RefCtx | undefined)?.construction
+  return c ? { catalog: buildCatalog(c, s), suppliers: s.suppliers ?? [] } : null
+}
+const NO_REFS = 'Project areas and foundations could not be loaded, so nothing was saved.'
+
+/** Fills the text snapshots (what was shown when saved) from the chosen records. They are legacy/display fallbacks; ids are the link. */
+function snapshot(l: TrackerLine, env: Env): TrackerLine {
+  const d = displayOf(l, env.catalog, env.suppliers)
+  return { ...l, area: d.area, footingType: d.foundation, anchorageType: d.anchorage, supplier: d.supplier }
+}
+
+const fromInput = (m: MaterialInput, env: Env, createdAt: string, createdBy: string): TrackerLine => snapshot({
+  id: manualId(), origin: 'manual', source: { sheet: 'Nexus', row: 0 }, area: '', footingType: '', anchorageType: '', footings: 0, plinths: 0, bolts: 0,
+  component: clean(m.name), category: m.category, requiredQty: m.requiredQty,
   calc: { kind: 'entered', formula: null, expression: 'Entered in Nexus', recomputed: null }, sourceStatus: m.claimedStatus ?? '', sourceNotes: [],
   orderedQty: null, receipts: [], confirmedNoReceipts: false, notes: clean(m.notes),
-  description: clean(m.description), specification: clean(m.specification), size: clean(m.size), unit: clean(m.unit) || 'ea', supplier: clean(m.supplier), poRef: clean(m.poRef),
+  description: clean(m.description), specification: clean(m.specification), size: clean(m.size), unit: clean(m.unit) || 'ea', poRef: clean(m.poRef),
   expectedDate: m.expectedDate || null, archived: false, createdAt, createdBy,
-})
+  areaId: m.areaId, foundationId: m.foundationId || null, anchorageTypeId: m.anchorageTypeId || null, supplierId: m.supplierId || null,
+}, env)
 
 /**
- * Adds one or more materials (Quick Add enters a whole foundation in one go). All are validated first, so either every item is
- * saved or none is. Possible duplicates are refused unless `allowDuplicates` is set, so a repeated entry is a deliberate choice.
+ * Adds one or more materials (Quick Add enters a whole foundation in one go). Every selection is checked against the project's own
+ * records first, so either every item is saved or none is. Possible duplicates are refused unless `allowDuplicates` is set.
  */
 export const addMaterials = (items: MaterialInput[], allowDuplicates = false): Reducer => audited((s, ctx) => {
+  const env = envOf(s, ctx)
+  if (!env) return { error: NO_REFS }
   if (!Array.isArray(items) || items.length === 0) return { error: 'Add at least one material.' }
   if (items.length > 200) return { error: 'Add 200 materials or fewer at a time.' }
   let next = s
@@ -108,33 +127,39 @@ export const addMaterials = (items: MaterialInput[], allowDuplicates = false): R
   const at = ctx?.now ?? new Date().toISOString()
   for (const [i, m] of items.entries()) {
     const where = items.length > 1 ? `Row ${i + 1}: ` : ''
-    const bad = validateMaterial(m)
+    const bad = validateMaterial(m, env)
     if (bad) return { error: where + bad }
-    const dup = findDuplicate(next, m)
-    const k = key(clean(m.area), clean(m.location), clean(m.name), clean(m.specification), clean(m.size))
-    if (!allowDuplicates && (dup || seen.has(k))) return { error: `${where}“${clean(m.name)}” already exists for ${clean(m.area)}${clean(m.location) ? ` · ${clean(m.location)}` : ''} with the same specification and size. Edit the existing record, or add it anyway.` }
+    const dup = findDuplicate(next, env, m)
+    const k = keyOf(m)
+    const named = env.catalog.areas.find((a) => a.id === m.areaId)?.name ?? ''
+    if (!allowDuplicates && (dup || seen.has(k))) return { error: `${where}“${clean(m.name)}” already exists for ${named}${m.foundationId ? ` · ${env.catalog.foundations.find((f) => f.id === m.foundationId)?.number}` : ''} with the same specification and size. Edit the existing record, or add it anyway.` }
     seen.add(k)
-    next = { ...next, manual: [...(next.manual ?? []), fromInput(m, at, ctx?.actor ?? '')] }
+    next = { ...next, manual: [...(next.manual ?? []), fromInput(m, env, at, ctx?.actor ?? '')] }
   }
   return { state: next }
 })
 
 export type MaterialPatch = Partial<MaterialInput>
-/** Fields a workbook line allows: its source facts (area, description, quantity) stay as imported. */
-const WORKBOOK_EDITABLE: (keyof MaterialInput)[] = ['unit', 'supplier', 'poRef', 'expectedDate', 'notes']
+/** Fields a workbook line allows: its source facts (area, foundation, description, quantity) stay as imported. */
+const WORKBOOK_EDITABLE: (keyof MaterialInput)[] = ['unit', 'supplierId', 'poRef', 'expectedDate', 'notes']
 
-function applyPatch(l: TrackerLine, p: MaterialPatch): TrackerLine | string {
+function applyPatch(l: TrackerLine, p: MaterialPatch, env: Env): TrackerLine | string {
   const manual = l.origin === 'manual'
   if (!manual) {
     const locked = Object.keys(p).filter((k) => !WORKBOOK_EDITABLE.includes(k as keyof MaterialInput))
-    if (locked.length) return 'This line comes from the workbook. Its area, description and quantity stay as imported — change them in the workbook and re-import. Supplier, PO, expected date, unit and notes can be edited here.'
+    if (locked.length) return 'This line comes from the workbook. Its area, foundation, description and quantity stay as imported — change them in the workbook and re-import. Supplier, PO, expected date, unit and notes can be edited here.'
   }
-  const bad = validateMaterial(p, true)
+  // Moving to another area needs a foundation that belongs to it: the old one must be replaced or cleared deliberately.
+  if (p.areaId !== undefined && p.areaId !== l.areaId && p.foundationId === undefined && l.foundationId) {
+    const f = env.catalog.foundations.find((x) => x.id === l.foundationId)
+    if (f && f.areaId !== p.areaId) return 'The current foundation belongs to the previous area. Choose a foundation in the new area (or none) when changing the area.'
+  }
+  const bad = validateMaterial(p, env, l)
   if (bad) return bad
-  let out = { ...l }
-  if (p.area !== undefined) out.area = clean(p.area)
-  if (p.location !== undefined) out.footingType = clean(p.location)
-  if (p.anchorageRef !== undefined) out.anchorageType = clean(p.anchorageRef)
+  let out: TrackerLine = { ...l }
+  if (p.areaId !== undefined) out.areaId = p.areaId
+  if (p.foundationId !== undefined) out.foundationId = p.foundationId || null
+  if (p.anchorageTypeId !== undefined) out.anchorageTypeId = p.anchorageTypeId || null
   if (p.category !== undefined) out.category = p.category
   if (p.name !== undefined) out.component = clean(p.name)
   if (p.description !== undefined) out.description = clean(p.description)
@@ -142,32 +167,46 @@ function applyPatch(l: TrackerLine, p: MaterialPatch): TrackerLine | string {
   if (p.size !== undefined) out.size = clean(p.size)
   if (p.requiredQty !== undefined) out = { ...out, requiredQty: p.requiredQty }
   if (p.unit !== undefined) out.unit = clean(p.unit) || 'ea'
-  if (p.supplier !== undefined) out.supplier = clean(p.supplier)
+  if (p.supplierId !== undefined) out.supplierId = p.supplierId || null
   if (p.poRef !== undefined) out.poRef = clean(p.poRef)
   if (p.expectedDate !== undefined) out.expectedDate = p.expectedDate || null
   if (p.claimedStatus !== undefined) out.sourceStatus = p.claimedStatus
   if (p.notes !== undefined) out.notes = p.notes.trim()
+  // Refresh the saved text only for the fields that were just chosen; untouched legacy text is left exactly as it was.
+  const d = displayOf(out, env.catalog, env.suppliers)
+  if (p.areaId !== undefined && manual) out.area = d.area
+  if (p.foundationId !== undefined && manual) out.footingType = d.foundation
+  if (p.anchorageTypeId !== undefined && manual) out.anchorageType = d.anchorage
+  if (p.supplierId !== undefined) out.supplier = d.supplier
   return out
 }
 
-export const editMaterial = (id: string, patch: MaterialPatch): Reducer => audited((s) => {
-  const r = patchLine(s, id, (l) => applyPatch(l, patch))
+export const editMaterial = (id: string, patch: MaterialPatch): Reducer => audited((s, ctx) => {
+  const env = envOf(s, ctx)
+  if (!env) return { error: NO_REFS }
+  const r = patchLine(s, id, (l) => applyPatch(l, patch, env))
   if (r.error !== undefined) return r
   const m = (r.state.manual ?? []).find((l) => l.id === id)
-  if (m && (m.requiredQty < 1)) return { error: 'Quantity required must be 1 or more.' }
   // Two materials may not end up identical.
-  if (m) { const dup = allLines({ ...r.state, manual: r.state.manual.filter((l) => l.id !== id) }).find((l) => !l.archived && !m.archived && key(l.area, l.footingType, l.component, l.specification ?? '', l.size ?? '') === key(m.area, m.footingType, m.component, m.specification ?? '', m.size ?? '')); if (dup) return { error: `That would duplicate “${dup.component}” in ${dup.area}${dup.footingType ? ` · ${dup.footingType}` : ''}.` } }
+  if (m && !m.archived) {
+    const d = displayOf(m, env.catalog, env.suppliers)
+    const dup = findDuplicate(r.state, env, { areaId: m.areaId ?? '', foundationId: m.foundationId ?? '', name: m.component, specification: m.specification ?? '', size: m.size ?? '' }, id)
+      ?? (!m.areaId ? [...r.state.lines, ...r.state.manual].find((l) => l.id !== id && !l.archived && l.area.toLowerCase() === d.area.toLowerCase() && l.footingType.toLowerCase() === d.foundation.toLowerCase() && l.component.toLowerCase() === m.component.toLowerCase() && (l.specification ?? '') === (m.specification ?? '') && (l.size ?? '') === (m.size ?? '')) : undefined)
+    if (dup) return { error: `That would duplicate “${dup.component}”.` }
+  }
   return r
 })
 
 /** One change applied to several materials (selected rows). Everything is checked first: all are changed or none. */
-export const bulkEditMaterials = (ids: string[], patch: MaterialPatch): Reducer => audited((s) => {
+export const bulkEditMaterials = (ids: string[], patch: MaterialPatch): Reducer => audited((s, ctx) => {
+  const env = envOf(s, ctx)
+  if (!env) return { error: NO_REFS }
   if (!Array.isArray(ids) || ids.length === 0) return { error: 'Select at least one material.' }
   if (ids.length > 500) return { error: 'Select 500 materials or fewer.' }
   if (Object.keys(patch).length === 0) return { error: 'Choose what to change.' }
   let next = s
   for (const id of new Set(ids)) {
-    const r = patchLine(next, id, (l) => applyPatch(l, patch))
+    const r = patchLine(next, id, (l) => applyPatch(l, patch, env))
     if (r.error !== undefined) return r
     next = r.state
   }
@@ -185,3 +224,49 @@ export const archiveMaterials = (ids: string[], archived: boolean): Reducer => a
   }
   return { state: next }
 })
+
+/* ── Supplier directory and preferred suppliers ─────────────────────────── */
+
+let cfg = 0
+const withConfigLog = (s: TrackerState, ctx: Ctx | undefined, label: string, summary: string): TrackerState => ({
+  ...s, history: [...(s.history ?? []), { id: `au-cfg-${Date.now().toString(36)}${cfg++}${Math.random().toString(36).slice(2, 6)}`, at: ctx?.now ?? new Date().toISOString(), by: ctx?.actor ?? '', action: 'configured', materialId: '', label, summary, changes: [] }],
+})
+
+/** Adds a supplier to the directory. A name that matches an existing supplier (ignoring case, spacing, punctuation, "Inc."/"Ltd" and one-letter slips) is refused. */
+export const addSupplier = (name: string): Reducer => (s, ctx) => {
+  const n = cleanSupplierName(name)
+  if (n.length < 2 || n.length > 80) return { error: 'Enter a supplier name of 2 to 80 characters.' }
+  const similar = findSimilarSupplier(s.suppliers ?? [], n)
+  if (similar) return { error: `“${n}” looks like the existing supplier “${similar.name}”${similar.archived ? ' (archived — restore it instead)' : ''}. Select that one.` }
+  const rec: SupplierRecord = { id: supplierId(n), name: n, archived: false, createdAt: ctx?.now ?? new Date().toISOString(), createdBy: ctx?.actor ?? '' }
+  return { state: withConfigLog({ ...s, suppliers: [...(s.suppliers ?? []), rec] }, ctx, n, `Supplier “${n}” added to the directory`) }
+}
+
+export const renameSupplier = (id: string, name: string): Reducer => (s, ctx) => {
+  const rec = (s.suppliers ?? []).find((x) => x.id === id)
+  if (!rec) return { error: 'Supplier not found.' }
+  const n = cleanSupplierName(name)
+  if (n.length < 2 || n.length > 80) return { error: 'Enter a supplier name of 2 to 80 characters.' }
+  const similar = findSimilarSupplier(s.suppliers.filter((x) => x.id !== id), n)
+  if (similar) return { error: `“${n}” looks like the existing supplier “${similar.name}”.` }
+  return { state: withConfigLog({ ...s, suppliers: s.suppliers.map((x) => (x.id === id ? { ...x, name: n } : x)) }, ctx, n, `Supplier “${rec.name}” renamed to “${n}”`) }
+}
+
+export const archiveSupplier = (id: string, archived: boolean): Reducer => (s, ctx) => {
+  const rec = (s.suppliers ?? []).find((x) => x.id === id)
+  if (!rec) return { error: 'Supplier not found.' }
+  if (archived && Object.values(s.preferredSuppliers ?? {}).includes(id)) return { error: `“${rec.name}” is a preferred supplier. Choose another preferred supplier for those categories first.` }
+  return { state: withConfigLog({ ...s, suppliers: s.suppliers.map((x) => (x.id === id ? { ...x, archived } : x)) }, ctx, rec.name, `Supplier “${rec.name}” ${archived ? 'archived' : 'restored'}`) }
+}
+
+/** Sets (or clears, with null) the supplier suggested for a category. Suggestions only: no existing material is changed. */
+export const setPreferredSupplier = (category: ComponentCategory, supplier: string | null): Reducer => (s, ctx) => {
+  if (!['bolt', 'nut', 'washer', 'sole-plate', 'template', 'embed-plate', 'other'].includes(category)) return { error: 'Unknown category.' }
+  const rec = supplier ? (s.suppliers ?? []).find((x) => x.id === supplier) : null
+  if (supplier && (!rec || rec.archived)) return { error: 'Choose a supplier from the directory.' }
+  const prefs = { ...(s.preferredSuppliers ?? {}) }
+  const before = prefs[category]
+  if ((before ?? null) === supplier) return { state: s }
+  if (supplier) prefs[category] = supplier; else delete prefs[category]
+  return { state: withConfigLog({ ...s, preferredSuppliers: prefs }, ctx, category, `Preferred supplier for ${category}: ${rec ? rec.name : 'none'}`) }
+}

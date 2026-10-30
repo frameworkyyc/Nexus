@@ -4,6 +4,8 @@ export interface Ctx {
   /** Verified identity, supplied by the server only. Browser-only demo runs have none. */
   actor?: string
   now?: string
+  /** Records from other modules (supplied by the server or the demo, never by a request). */
+  [ref: string]: unknown
 }
 
 export const allLines = (s: TrackerState): TrackerLine[] => [...s.lines, ...(s.manual ?? [])]

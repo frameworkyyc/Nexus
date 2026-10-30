@@ -11,6 +11,9 @@ import { ImportButton } from './ImportModal'
 import { useAccess } from '@/lib/access'
 import { AccessBar } from './manage/AccessBar'
 import { AddMaterialModal, blankMaterial } from './manage/AddMaterialModal'
+import { useMaterialRefs } from './manage/useMaterialRefs'
+import { resolveLines } from './catalog'
+import { useParams } from 'react-router-dom'
 import { MaterialsManager } from './manage/MaterialsManager'
 import { allLines, areaSummary, distinct, linesForArea, reconcileSummary } from './selectors'
 import { useTracker, useTrackerCommand } from './store'
@@ -31,10 +34,13 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
   const { run } = useTrackerCommand()
   const { today } = useTracker()
   const access = useAccess()
+  const { projectId } = useParams()
+  const refs = useMaterialRefs(projectId)
   const [tab, setTab] = useState<Tab>('requirements')
   const [adding, setAdding] = useState(false)
 
-  const all = useMemo(() => (areaId ? linesForArea(state, construction.areas, areaId) : allLines(state)), [state, construction.areas, areaId])
+  // Names come from the linked project records, so a renamed area, foundation or supplier shows everywhere without touching the materials.
+  const all = useMemo(() => resolveLines(areaId ? linesForArea(state, construction.areas, areaId) : allLines(state), refs.catalog, refs.suppliers), [state, construction.areas, areaId, refs])
   const scope = useMemo(() => all.filter((l) => !l.archived), [all])
 
   if (!state.meta && all.length === 0) {
@@ -46,7 +52,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
           description={`Add materials one at a time, or import the ${identity.trackerName} material tracker workbook to bring in every requirement by area, footing type and anchorage type. The workbook is read in this browser; it is not uploaded.`}
           action={<div className="flex flex-wrap justify-center gap-2">{access.can('materials.add') && <Button variant="primary" onClick={() => setAdding(true)}>Add material</Button>}{access.can('materials.import') && <ImportButton />}</div>}
         />
-        {adding && <AddMaterialModal areas={[]} locations={[]} initial={blankMaterial()} onClose={() => setAdding(false)} />}
+        {adding && <AddMaterialModal projectId={projectId} initial={blankMaterial({ areaId: areaId ?? '' })} onClose={() => setAdding(false)} />}
       </>
     )
   }
@@ -65,7 +71,7 @@ export function MaterialTracker({ areaId }: { areaId?: string }) {
       <div className="pt-6">
         {tab === 'requirements' && (
           <>
-            <MaterialsManager lines={all} scopeName={areaId ? 'This area' : 'All areas'} hideArea={!!areaId} />
+            <MaterialsManager lines={all} scopeName={areaId ? 'This area' : 'All areas'} hideArea={!!areaId} projectId={projectId} defaultAreaId={areaId} />
             <p className="mt-4 max-w-2xl text-xs leading-relaxed text-muted">Delivered and Pending from the workbook are statuses, not receipts. A line counts as received only when a delivery is recorded here; Outstanding = required − total verified received, and stays unknown until a receipt is recorded or “nothing received” is confirmed.</p>
           </>
         )}

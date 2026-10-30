@@ -1,10 +1,11 @@
 import { ArrowDown, ArrowUp, Download, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
-import { CompactInput } from '@/components/ui/Field'
+import { CompactInput, CompactSelect } from '@/components/ui/Field'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import { SearchSelect } from '@/components/ui/SearchSelect'
 import { Stat } from '@/components/ui/Stat'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { useAccess } from '@/lib/access'
@@ -17,8 +18,13 @@ import {
   type DeliveryState, type GroupKey, type LineFilter, type SortKey,
 } from '../selectors'
 import { useTrackerCommand } from '../store'
+import type { MaterialRefs } from './useMaterialRefs'
 import type { ComponentCategory, TrackerLine } from '../types'
+import { anchorageFor, foundationsOfArea, legacyIssues } from '../catalog'
 import { AddMaterialModal, blankMaterial } from './AddMaterialModal'
+import { ReconcileModal } from './ReconcileModal'
+import { SupplierSettings } from './SupplierSettings'
+import { useMaterialRefs } from './useMaterialRefs'
 import { downloadMaterialsCsv } from './csv'
 
 const TONE: Record<DeliveryState, Tone> = { received: 'ok', 'over-received': 'warn', partial: 'warn', 'none-received': 'muted', 'unverified-delivered': 'info', 'unverified-pending': 'muted' }
@@ -29,8 +35,12 @@ const num = (n: number | null) => (n === null ? <span className="text-muted">—
  * The Materials dashboard: counts, area breakdown, search and filters, a sortable spreadsheet-style table (cards on a phone) with
  * inline editing, and bulk tools. What each control does depends on the role; the server enforces the same rules.
  */
-export function MaterialsManager({ lines, scopeName, hideArea }: { lines: TrackerLine[]; scopeName: string; hideArea?: boolean }) {
+export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaultAreaId }: { lines: TrackerLine[]; scopeName: string; hideArea?: boolean; projectId?: string; defaultAreaId?: string }) {
   const access = useAccess()
+  const refs = useMaterialRefs(projectId)
+  const [settings, setSettings] = useState(false)
+  const [reconcile, setReconcile] = useState(false)
+  const issues = useMemo(() => lines.filter((l) => !l.archived).flatMap((l) => legacyIssues(l, refs.catalog, refs.suppliers)), [lines, refs])
   const { run } = useTrackerCommand()
   const [filter, setFilter] = useState<LineFilter>({})
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'area', dir: 'asc' })
@@ -64,7 +74,19 @@ export function MaterialsManager({ lines, scopeName, hideArea }: { lines: Tracke
     </th>
   )
 
-  const inline = (l: TrackerLine, field: 'supplier' | 'poRef' | 'expectedDate' | 'requiredQty', value: string, props: { type?: string; label: string }) => {
+  const supplierCell = (l: TrackerLine) => {
+    if (!canEdit || l.archived) return l.supplier ? <span>{l.supplier}</span> : <span className="text-muted">—</span>
+    const legacy = !l.supplierId && !!l.supplier
+    return (
+      <CompactSelect aria-label={`Supplier for ${l.component}`} className="w-44" value={l.supplierId ?? (legacy ? '__legacy' : '')} onClick={(e) => e.stopPropagation()}
+        onChange={(e) => { if (e.target.value !== '__legacy') run(editMaterial(l.id, { supplierId: e.target.value }), () => undefined) }}>
+        <option value="">—</option>
+        {legacy && <option value="__legacy" disabled>{l.supplier} (not linked)</option>}
+        {refs.suppliers.filter((x) => !x.archived || x.id === l.supplierId).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+      </CompactSelect>
+    )
+  }
+  const inline = (l: TrackerLine, field: 'poRef' | 'expectedDate' | 'requiredQty', value: string, props: { type?: string; label: string }) => {
     const manualOnly = field === 'requiredQty'
     const editable = canEdit && (!manualOnly || l.origin === 'manual') && !l.archived
     if (!editable) return value ? <span className="tabular-nums">{field === 'expectedDate' ? formatDate(value) : value}</span> : <span className="text-muted">—</span>
@@ -112,9 +134,13 @@ export function MaterialsManager({ lines, scopeName, hideArea }: { lines: Tracke
       <div className="mt-6 flex flex-wrap items-center gap-2">
         {canAdd && <Button variant="primary" onClick={() => setAdding(true)}><Plus size={14} strokeWidth={1.5} />Add material</Button>}
         {access.can('materials.import') && <ImportButton label="Import workbook" />}
+        <Button variant="ghost" onClick={() => setSettings(true)}>Suppliers &amp; defaults</Button>
         <Button onClick={() => downloadMaterialsCsv(chosen.length ? chosen : rows, 'materials')} disabled={rows.length === 0}><Download size={14} strokeWidth={1.5} />Export {chosen.length ? `${chosen.length} selected` : filtered ? 'filtered' : 'all'}</Button>
       </div>
 
+      {issues.length > 0 && (
+        <p role="status" className="mt-4 border-l-2 border-warn pl-3 text-[13px]">{issues.length} value{issues.length === 1 ? '' : 's'} on materials {issues.length === 1 ? 'isn’t' : 'aren’t'} linked to a project record yet (kept exactly as written). <button className="underline underline-offset-4" onClick={() => setReconcile(true)}>Review</button></p>
+      )}
       <div className="mb-3 mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <div className="col-span-2 md:col-span-4 xl:col-span-2"><Input type="search" aria-label="Search materials" placeholder="Search name, specification, supplier, PO, notes…" value={filter.search ?? ''} onChange={(e) => set({ search: e.target.value })} data-search /></div>
         {!hideArea && <Select aria-label="Area" value={filter.area ?? ''} onChange={(e) => set({ area: e.target.value })}><option value="">All areas</option>{distinct(lines.map((l) => l.area)).map((a) => <option key={a}>{a}</option>)}</Select>}
@@ -181,7 +207,7 @@ export function MaterialsManager({ lines, scopeName, hideArea }: { lines: Tracke
                       <td className="py-2.5 pr-4 text-right">{isVerified(l) ? num(receivedOf(l)) : <span className="text-muted">Not verified</span>}</td>
                       <td className="py-2.5 pr-4 text-right">{num(remainingOf(l))}</td>
                       <td className="py-2.5 pr-4"><StatusBadge tone={TONE[d]} label={deliveryLabelOf(l)} /></td>
-                      <td className="py-2.5 pr-4">{inline(l, 'supplier', l.supplier ?? '', { label: 'Supplier' })}</td>
+                      <td className="py-2.5 pr-4">{supplierCell(l)}</td>
                       <td className="hidden py-2.5 pr-4 md:table-cell">{inline(l, 'expectedDate', l.expectedDate ?? '', { type: 'date', label: 'Expected delivery' })}</td>
                       <td className="hidden py-2.5 pr-4 md:table-cell">{inline(l, 'poRef', l.poRef ?? '', { label: 'PO / reference' })}</td>
                     </tr>
@@ -193,32 +219,37 @@ export function MaterialsManager({ lines, scopeName, hideArea }: { lines: Tracke
         </div>
       )}
 
-      {adding && <AddMaterialModal areas={lines.map((l) => l.area)} locations={lines.map((l) => l.footingType)} initial={blankMaterial(filter.area ? { area: filter.area, location: filter.footingType ?? '' } : {})} title="Add material" onClose={() => setAdding(false)} />}
-      {bulk && <BulkModal lines={chosen} areas={lines.map((l) => l.area)} locations={lines.map((l) => l.footingType)} onClose={() => setBulk(false)} onDone={() => { setBulk(false); setSelected(new Set()) }} />}
+      {adding && <AddMaterialModal projectId={projectId} initial={blankMaterial({ areaId: refs.catalog.areas.find((x) => x.name === filter.area)?.id ?? defaultAreaId ?? '', foundationId: refs.catalog.foundations.find((x) => x.number === filter.footingType && x.areaId === (refs.catalog.areas.find((y) => y.name === filter.area)?.id ?? defaultAreaId))?.id ?? '' })} title="Add material" onClose={() => setAdding(false)} />}
+      {bulk && <BulkModal lines={chosen} refs={refs} onClose={() => setBulk(false)} onDone={() => { setBulk(false); setSelected(new Set()) }} />}
       {open && <LineModal lineId={open} onClose={() => setOpen(null)} />}
+      {settings && <SupplierSettings onClose={() => setSettings(false)} />}
+      {reconcile && <ReconcileModal lines={lines} refs={refs} onClose={() => setReconcile(false)} />}
     </div>
   )
 }
 
-function BulkModal({ lines, areas, locations, onClose, onDone }: { lines: TrackerLine[]; areas: string[]; locations: string[]; onClose: () => void; onDone: () => void }) {
+function BulkModal({ lines, refs, onClose, onDone }: { lines: TrackerLine[]; refs: MaterialRefs; onClose: () => void; onDone: () => void }) {
   const { run, saving } = useTrackerCommand()
-  const [f, setF] = useState({ supplier: '', poRef: '', expectedDate: '', unit: '', area: '', location: '', claimedStatus: '', notes: '' })
+  const [f, setF] = useState({ supplierId: null as string | null, poRef: '', expectedDate: '', unit: '', areaId: null as string | null, foundationId: null as string | null, anchorageTypeId: null as string | null, claimedStatus: '' })
   const [error, setError] = useState<string | null>(null)
   const hasWorkbook = lines.some((l) => l.origin !== 'manual')
   const set = (p: Partial<typeof f>) => { setF((x) => ({ ...x, ...p })); setError(null) }
-  const patch = Object.fromEntries(Object.entries(f).filter(([, v]) => v.trim() !== ''))
+  const patch: Record<string, string> = {}
+  for (const [k, v] of Object.entries(f)) if (v !== null && v !== '') patch[k] = v
+  // A deliberate "none" (empty string) is a change too, for the choices that allow clearing.
+  for (const k of ['supplierId', 'foundationId', 'anchorageTypeId'] as const) if (f[k] === '') patch[k] = ''
   const apply = () => {
-    if (Object.keys(patch).length === 0) { setError('Fill in at least one field to change.'); return }
+    if (Object.keys(patch).length === 0) { setError('Choose at least one thing to change.'); return }
     run(bulkEditMaterials(lines.map((l) => l.id), patch), onDone)
   }
+  const area = f.areaId
+  const foundations = area ? foundationsOfArea(refs.catalog, area) : []
   return (
     <Modal title={`Edit ${lines.length} selected`} onClose={onClose}>
       <div className="space-y-4 p-6 text-[13px]">
-        <p className="text-muted">Only the fields you fill in are changed; blank fields are left as they are. All selected materials are updated together, or none are.</p>
-        <datalist id="bk-areas">{[...new Set(areas)].map((a) => <option key={a} value={a} />)}</datalist>
-        <datalist id="bk-locations">{[...new Set(locations)].map((a) => <option key={a} value={a} />)}</datalist>
+        <p className="text-muted">Only what you change is applied; everything else is left as it is. All selected materials are updated together, or none are.</p>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Supplier"><Input value={f.supplier} onChange={(e) => set({ supplier: e.target.value })} /></Field>
+          <Field label="Supplier"><SearchSelect label="Supplier" value={f.supplierId ?? ''} options={refs.activeSuppliers.map((x) => ({ value: x.id, label: x.name }))} emptyLabel="Clear the supplier" placeholder={f.supplierId === '' ? 'Supplier will be cleared' : 'Leave unchanged'} onChange={(id) => set({ supplierId: id })} /></Field>
           <Field label="PO / reference"><Input value={f.poRef} onChange={(e) => set({ poRef: e.target.value })} /></Field>
           <Field label="Expected delivery"><Input type="date" value={f.expectedDate} onChange={(e) => set({ expectedDate: e.target.value })} /></Field>
           <Field label="Unit"><Input value={f.unit} onChange={(e) => set({ unit: e.target.value })} /></Field>
@@ -227,11 +258,12 @@ function BulkModal({ lines, areas, locations, onClose, onDone }: { lines: Tracke
           <legend className="t-label">Move or restate (materials entered in Nexus only)</legend>
           {hasWorkbook && <p className="text-xs text-muted">Not available: the selection includes workbook lines, whose area and foundation stay as imported.</p>}
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Reassign to area"><Input list="bk-areas" value={f.area} onChange={(e) => set({ area: e.target.value })} /></Field>
-            <Field label="Reassign to foundation"><Input list="bk-locations" value={f.location} onChange={(e) => set({ location: e.target.value })} /></Field>
-            <Field label="Delivery status note"><Select value={f.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Leave as is</option><option>Pending</option><option>Delivered</option></Select></Field>
+            <Field label="Reassign to area"><SearchSelect label="Reassign to area" value={f.areaId ?? ''} options={refs.catalog.areas.map((a) => ({ value: a.id, label: a.name }))} placeholder="Leave unchanged" onChange={(id) => set({ areaId: id || null, foundationId: null })} /></Field>
+            <Field label="Reassign to foundation"><SearchSelect label="Reassign to foundation" value={f.foundationId ?? ''} disabled={!area} options={foundations.map((x) => ({ value: x.id, label: x.number, hint: x.description || undefined }))} emptyLabel="No foundation (clear)" placeholder={f.foundationId === '' ? 'Foundation will be cleared' : area ? 'Choose a foundation' : 'Choose an area first'} onChange={(id) => set({ foundationId: id })} /></Field>
+            <Field label="Anchorage type"><SearchSelect label="Anchorage type" value={f.anchorageTypeId ?? ''} options={anchorageFor(refs.catalog, f.foundationId || null).map((a) => ({ value: a.id, label: a.code, hint: a.description || undefined }))} emptyLabel="Clear the anchorage type" placeholder={f.anchorageTypeId === '' ? 'Anchorage will be cleared' : 'Leave unchanged'} onChange={(id) => set({ anchorageTypeId: id })} /></Field>
+            <Field label="Delivery status note"><Select aria-label="Delivery status note" value={f.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Leave as is</option><option>Pending</option><option>Delivered</option></Select></Field>
           </div>
-          <p className="text-xs text-muted">A status note never creates a receipt. Record deliveries on each material to change quantity received.</p>
+          <p className="text-xs text-muted">Moving to another area needs a foundation in that area (or “none”). A status note never creates a receipt.</p>
         </fieldset>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex gap-2"><Button variant="primary" disabled={saving} onClick={apply}>{saving ? 'Saving…' : `Apply to ${lines.length}`}</Button><Button variant="ghost" onClick={onClose}>Cancel</Button></div>

@@ -35,7 +35,7 @@ let n = 0
 const cmd = (db: TestDb, email: string, name: string, args: unknown[], extra: Record<string, unknown> = {}, env: Partial<Env> = {}, headers: Record<string, string> = {}) =>
   as(db, email, 'POST', '/api/commands', { module: 'materials', name, args, requestId: `req-rbac-${Date.now().toString(36)}-${n++}-xxxxxxxx`, clientToday: TODAY, ...extra }, env, headers)
 const material = (over: Record<string, unknown> = {}) => ({
-  area: 'North Area', location: 'F-101', anchorageRef: '', category: 'bolt', name: 'Anchor bolt', description: '', specification: 'Gr.36', size: '3/4"', requiredQty: 10, unit: 'ea', supplier: '', poRef: '', expectedDate: '', claimedStatus: '', notes: '', ...over,
+  areaId: 'mole-sieve', foundationId: '', anchorageTypeId: '', category: 'bolt', name: 'Anchor bolt', description: '', specification: 'Gr.36', size: '3/4"', requiredQty: 10, unit: 'ea', supplierId: '', poRef: '', expectedDate: '', claimedStatus: '', notes: '', ...over,
 })
 
 function setup() {
@@ -241,5 +241,134 @@ describe('migration 0005 on an existing database', () => {
     expect(db.raw.prepare('SELECT id, qty, recorded_by FROM material_receipts').get()).toEqual({ id: 'rc1', qty: 10, recorded_by: '' }) // never attributed after the fact
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '5' })
     expect(db.raw.prepare('SELECT COUNT(*) AS n FROM user_roles').get()).toEqual({ n: 0 }) // no one is given a role by the migration
+  })
+})
+
+/* ── Material entry references (migration 0006) ─────────────────────────── */
+
+const admin = 'admin@example.com', editor = 'editor@example.com', viewer = 'viewer@example.com'
+const construct = (db: TestDb, email: string, name: string, args: unknown[]) => as(db, email, 'POST', '/api/commands', { module: 'construction', name, args, requestId: `req-con-${Date.now().toString(36)}-${n++}-xxxxxxxx`, clientToday: TODAY })
+
+describe('materials reference project records on the server', () => {
+  it('migration 0006 seeds only the confirmed preference: Anchor Bolts → Nucor', async () => {
+    const db = setup()
+    expect(db.raw.prepare('SELECT category, supplier_id FROM category_suppliers').all()).toEqual([{ category: 'bolt', supplier_id: 'sup-nucor' }])
+    expect(db.raw.prepare('SELECT id, name, name_key FROM suppliers').all()).toEqual([{ id: 'sup-nucor', name: 'Nucor', name_key: 'nucor' }])
+    const state = (await as(db, viewer, 'GET', '/api/state/materials')).body.state
+    expect(state.preferredSuppliers).toEqual({ bolt: 'sup-nucor' })
+    expect(state.suppliers.map((s: { name: string }) => s.name)).toEqual(['Nucor'])
+  })
+
+  it('rejects arbitrary text and unknown or mismatched records, with nothing saved', async () => {
+    const db = setup()
+    for (const bad of [{ areaId: 'Mole Sieve' }, { areaId: 'no-such-area' }, { foundationId: 'typed-by-hand' }, { anchorageTypeId: 'made-up' }, { supplierId: 'Nucor' }]) {
+      const r = await cmd(db, editor, 'addMaterials', [[material(bad)]])
+      expect(r.status, JSON.stringify(bad)).toBe(422)
+    }
+    expect(count(db, 'manual_materials')).toBe(0)
+  })
+
+  it('stores ids, verifies the foundation belongs to the area, and follows a rename', async () => {
+    const db = setup()
+    const f = await construct(db, admin, 'createFoundation', ['mole-sieve', '21-01', 'Pump pad', 2])
+    expect(f.status).toBe(200)
+    const fid = f.body.state.foundations.find((x: { number: string }) => x.number === '21-01').id
+    const other = await construct(db, admin, 'createFoundation', ['piperack', '31-01', '', 1])
+    const oid = other.body.state.foundations.find((x: { number: string }) => x.number === '31-01').id
+    expect((await cmd(db, editor, 'addMaterials', [[material({ foundationId: oid })]])).status).toBe(422) // another area's foundation
+    const ok = await cmd(db, editor, 'addMaterials', [[material({ foundationId: fid, supplierId: 'sup-nucor' })]])
+    expect(ok.status).toBe(200)
+    expect(db.raw.prepare('SELECT area_id, foundation_id, supplier_id, location, supplier FROM manual_materials').get()).toEqual({ area_id: 'mole-sieve', foundation_id: fid, supplier_id: 'sup-nucor', location: '21-01', supplier: 'Nucor' })
+    // renaming never breaks the association, and the material's own row does not change
+    expect((await construct(db, admin, 'renameFoundation', [fid, '21-01A'])).status).toBe(200)
+    expect(db.raw.prepare('SELECT foundation_id, location FROM manual_materials').get()).toEqual({ foundation_id: fid, location: '21-01' })
+    expect(db.raw.prepare('SELECT number FROM foundations WHERE id = ?').get(fid)).toEqual({ number: '21-01A' })
+    expect((await as(db, admin, 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('only Admins create, rename, edit and archive foundations or set up areas; Editors and Viewers cannot', async () => {
+    const db = setup()
+    for (const [name, args] of [['createFoundation', ['mole-sieve', '21-09', '', 1]], ['renameFoundation', ['x', 'y']], ['editFoundation', ['x', { description: 'd' }]], ['archiveFoundation', ['x', true]], ['createArea', ['reef', 'New Area', []]]] as [string, unknown[]][]) {
+      expect((await construct(db, editor, name, args)).status, `editor ${name}`).toBe(403)
+      expect((await construct(db, viewer, name, args)).status, `viewer ${name}`).toBe(403)
+    }
+    expect(count(db, 'foundations')).toBe(0)
+    expect((await construct(db, admin, 'createFoundation', ['mole-sieve', '21-09', '', 1])).status).toBe(200)
+    expect((await construct(db, admin, 'createFoundation', ['mole-sieve', '21-09', '', 1])).status).toBe(422) // duplicate
+    const area = await construct(db, admin, 'createArea', ['reef', 'Control Building', [{ number: '61-01', description: '', plinthCount: 2 }]])
+    expect(area.status).toBe(200)
+    expect(db.raw.prepare("SELECT a.name, f.number FROM areas a JOIN foundations f ON f.area_id = a.id WHERE a.name = 'Control Building'").get()).toEqual({ name: 'Control Building', number: '61-01' })
+  })
+
+  it('other construction edits keep their existing Editor permission', async () => {
+    const db = setup()
+    await construct(db, admin, 'createFoundation', ['mole-sieve', '21-01', '', 1])
+    expect((await construct(db, editor, 'setFoundationNotes', ['f-mole-sieve-21-01', 'note'])).status).toBe(200)
+  })
+
+  it('archiving a foundation checks materials on the server, from the database', async () => {
+    const db = setup()
+    const f = await construct(db, admin, 'createFoundation', ['mole-sieve', '21-01', '', 1])
+    const fid = f.body.state.foundations[0].id
+    const m = await cmd(db, editor, 'addMaterials', [[material({ foundationId: fid })]])
+    expect((await construct(db, admin, 'archiveFoundation', [fid, true])).body.error).toMatch(/1 active material is assigned/)
+    await cmd(db, admin, 'archiveMaterials', [[m.body.state.manual[0].id], true])
+    expect((await construct(db, admin, 'archiveFoundation', [fid, true])).status).toBe(200)
+    expect(db.raw.prepare('SELECT archived FROM foundations WHERE id = ?').get(fid)).toEqual({ archived: 1 })
+    expect((await cmd(db, editor, 'addMaterials', [[material({ foundationId: fid, name: 'again' })]])).status).toBe(422) // not selectable once archived
+  })
+
+  it('Editors can add a supplier and choose any; only Admins change preferred suppliers or the directory', async () => {
+    const db = setup()
+    expect((await cmd(db, viewer, 'addSupplier', ['Hilti'])).status).toBe(403)
+    const add = await cmd(db, editor, 'addSupplier', ['Hilti'])
+    expect(add.status).toBe(200)
+    expect((await cmd(db, editor, 'addSupplier', ['HILTI Inc.'])).status).toBe(422) // duplicate by normalised name
+    expect((await cmd(db, editor, 'addSupplier', ['nucor'])).status).toBe(422)
+    expect(count(db, 'suppliers')).toBe(2)
+    for (const [name, args] of [['setPreferredSupplier', ['nut', 'sup-hilti']], ['renameSupplier', ['sup-hilti', 'Hilti Canada']], ['archiveSupplier', ['sup-hilti', true]]] as [string, unknown[]][]) {
+      expect((await cmd(db, editor, name, args)).status, `editor ${name}`).toBe(403)
+    }
+    expect((await cmd(db, admin, 'setPreferredSupplier', ['nut', 'sup-hilti'])).status).toBe(200)
+    expect(db.raw.prepare("SELECT supplier_id FROM category_suppliers WHERE category = 'nut'").get()).toEqual({ supplier_id: 'sup-hilti' })
+    // editors still override per material
+    const m = await cmd(db, editor, 'addMaterials', [[material({ supplierId: 'sup-hilti' })]])
+    expect(m.body.state.manual[0].supplierId).toBe('sup-hilti')
+    // changing the preference leaves existing materials alone
+    await cmd(db, admin, 'setPreferredSupplier', ['nut', null])
+    expect(db.raw.prepare('SELECT supplier_id FROM manual_materials').get()).toEqual({ supplier_id: 'sup-hilti' })
+    expect(db.raw.prepare("SELECT action, actor FROM material_audit WHERE action = 'configured' ORDER BY seq").all().every((r) => (r as { actor: string }).actor.length > 0)).toBe(true)
+  })
+
+  it('the database itself refuses a second supplier with the same normalised name', () => {
+    const db = setup()
+    expect(() => db.raw.exec("INSERT INTO suppliers (id, name, name_key, seq) VALUES ('sup-x', 'NUCOR', 'nucor', 5)")).toThrow(/UNIQUE/)
+  })
+
+  it('legacy text materials stay readable and are not rewritten by unrelated edits', async () => {
+    const db = setup()
+    // an entry from before 0006: text only, no ids
+    db.raw.exec("INSERT INTO manual_materials (id, area, location, anchorage_ref, category, name, required_qty, unit, supplier, seq) VALUES ('mm-legacy', 'Mole Sieve', 'F-typed', 'AB-9', 'bolt', 'Legacy bolt', 5, 'ea', 'Some Vendor', 0)")
+    const state = (await as(db, viewer, 'GET', '/api/state/materials')).body.state
+    expect(state.manual[0]).toMatchObject({ area: 'Mole Sieve', footingType: 'F-typed', anchorageType: 'AB-9', supplier: 'Some Vendor', areaId: null, supplierId: null })
+    const r = await cmd(db, editor, 'editMaterial', ['mm-legacy', { notes: 'checked' }])
+    expect(r.status).toBe(200)
+    expect(db.raw.prepare('SELECT area, location, anchorage_ref, supplier, area_id, supplier_id, notes FROM manual_materials').get()).toEqual({ area: 'Mole Sieve', location: 'F-typed', anchorage_ref: 'AB-9', supplier: 'Some Vendor', area_id: null, supplier_id: null, notes: 'checked' })
+    // linking is an explicit edit and is audited
+    const link = await cmd(db, editor, 'editMaterial', ['mm-legacy', { areaId: 'mole-sieve', supplierId: 'sup-nucor' }])
+    expect(link.status).toBe(200)
+    expect(db.raw.prepare('SELECT area_id, supplier_id, supplier FROM manual_materials').get()).toEqual({ area_id: 'mole-sieve', supplier_id: 'sup-nucor', supplier: 'Nucor' })
+    expect(count(db, 'material_audit')).toBe(2)
+  })
+
+  it('migration 0006 on an existing database keeps every record and links nothing by itself', () => {
+    const db = createTestDb({ migrate: false })
+    for (const f of ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql']) db.raw.exec(readFileSync(`migrations/${f}`, 'utf8'))
+    db.raw.exec("INSERT INTO foundations (id, area_id, number, description, notes, seq) VALUES ('f1', 'mole-sieve', '21-01', 'd', 'n', 0)")
+    db.raw.exec("INSERT INTO manual_materials (id, area, location, anchorage_ref, category, name, required_qty, supplier, seq) VALUES ('mm1', 'Mole Sieve', '21-01', 'AB-1', 'bolt', 'Bolt', 5, 'Vendor', 0)")
+    applyMigrationFile(db.raw, '0006_material_entry_references.sql')
+    expect(db.raw.prepare('SELECT id, number, description, notes, archived FROM foundations').get()).toEqual({ id: 'f1', number: '21-01', description: 'd', notes: 'n', archived: 0 })
+    expect(db.raw.prepare('SELECT area, location, anchorage_ref, supplier, area_id, foundation_id, supplier_id FROM manual_materials').get()).toEqual({ area: 'Mole Sieve', location: '21-01', anchorage_ref: 'AB-1', supplier: 'Vendor', area_id: null, foundation_id: null, supplier_id: null })
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '6' })
   })
 })

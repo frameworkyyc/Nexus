@@ -1,4 +1,5 @@
 import type { ISODate } from '@/lib/date'
+import type { SupplierRecord } from './suppliers'
 
 /**
  * Material tracker records imported from the project's own Excel workbook.
@@ -53,12 +54,17 @@ export interface TrackerLine {
   poRef?: string
   expectedDate?: string | null
   archived?: boolean
+  /** Stable ids of the project records this material is tied to. The text fields above stay as entered, for legacy values and display. */
+  areaId?: string | null
+  foundationId?: string | null
+  anchorageTypeId?: string | null
+  supplierId?: string | null
   createdAt?: string
   createdBy?: string
 }
 
 /** A recorded change to a material. Append-only: ordinary controls cannot edit or remove it. */
-export type AuditAction = 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note'
+export type AuditAction = 'created' | 'edited' | 'quantity' | 'status' | 'receipt' | 'receipt-removed' | 'archived' | 'restored' | 'imported' | 'note' | 'configured'
 export interface AuditEntry {
   id: string
   at: string
@@ -107,6 +113,9 @@ export interface TrackerState {
   lines: TrackerLine[]
   /** Materials entered in Nexus. Kept apart from `lines`, which only ever holds what the workbook supplied. */
   manual: TrackerLine[]
+  /** Supplier directory and the preferred supplier suggested for each material category. */
+  suppliers: SupplierRecord[]
+  preferredSuppliers: Partial<Record<ComponentCategory, string>>
   history: AuditEntry[]
   summary: WorkbookSummaryRow[]
   anchorage: AnchorageSheetRow[]
@@ -114,4 +123,4 @@ export interface TrackerState {
   acknowledged: Record<string, { date: ISODate; note: string }>
 }
 
-export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], history: [], summary: [], anchorage: [], flags: [], acknowledged: {} })
+export const emptyTracker = (): TrackerState => ({ meta: null, lines: [], manual: [], suppliers: [], preferredSuppliers: {}, history: [], summary: [], anchorage: [], flags: [], acknowledged: {} })

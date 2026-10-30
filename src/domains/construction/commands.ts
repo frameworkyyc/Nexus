@@ -40,3 +40,7 @@ export const setReportedProgress = tagged.setReportedProgress
 export const addProjectIssue = tagged.addProjectIssue
 export const setProjectIssueStatus = tagged.setProjectIssueStatus
 export const createFoundation = tagged.createFoundation
+export const renameFoundation = tagged.renameFoundation
+export const editFoundation = tagged.editFoundation
+export const archiveFoundation = tagged.archiveFoundation
+export const createArea = tagged.createArea

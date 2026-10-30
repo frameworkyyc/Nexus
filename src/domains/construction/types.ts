@@ -50,6 +50,8 @@ export interface Foundation {
   description: string
   notes: string
   docIds: string[]
+  /** Hidden from pickers and the default register view; every record keeps pointing at it. */
+  archived?: boolean
 }
 
 export interface Plinth {

@@ -1,12 +1,16 @@
 import { useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import { SearchSelect } from '@/components/ui/SearchSelect'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
 import { addReceipt, archiveMaterials, confirmNoReceipts, editMaterial, removeReceipt, setOrdered } from './commands'
 import { AddMaterialModal, duplicateOf } from './manage/AddMaterialModal'
-import { allLines, CATEGORY_LABEL, CATEGORY_ORDER, deliveryLabelOf, distinct, isVerified, receivedOf, remainingOf } from './selectors'
+import { anchorageFor, displayOf, foundationsOfArea, legacyIssues } from './catalog'
+import { useMaterialRefs, type MaterialRefs } from './manage/useMaterialRefs'
+import { allLines, CATEGORY_LABEL, CATEGORY_ORDER, deliveryLabelOf, isVerified, receivedOf, remainingOf } from './selectors'
 import { useTracker, useTrackerCommand } from './store'
 import type { ComponentCategory, ImportFlag, TrackerLine } from './types'
 import { UNITS } from './templates'
@@ -21,6 +25,8 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   const { state, today } = useTracker()
   const { run, saving } = useTrackerCommand()
   const access = useAccess()
+  const { projectId } = useParams()
+  const refs = useMaterialRefs(projectId)
   const line = allLines(state).find((l) => l.id === lineId)
   const [qty, setQty] = useState('')
   const [date, setDate] = useState(today)
@@ -30,14 +36,15 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   const [dup, setDup] = useState(false)
   if (!line) return null
   if (dup) {
-    const lines = allLines(state)
-    return <AddMaterialModal title="Duplicate material" duplicate initial={duplicateOf(line)} areas={lines.map((l) => l.area)} locations={lines.map((l) => l.footingType)} onClose={() => { setDup(false); onClose() }} />
+    return <AddMaterialModal title="Duplicate material" duplicate initial={duplicateOf(line)} projectId={projectId} onClose={() => { setDup(false); onClose() }} />
   }
   const manual = line.origin === 'manual'
   const flags: ImportFlag[] = state.flags.filter((f) => f.lineId === line.id)
   const remaining = remainingOf(line)
   const got = receivedOf(line)
   const unit = line.unit || 'ea'
+  const shown = displayOf(line, refs.catalog, refs.suppliers)
+  const legacy = legacyIssues(line, refs.catalog, refs.suppliers)
   const history = (state.history ?? []).filter((h) => h.materialId === line.id).slice().reverse()
   const canEdit = access.can('materials.edit')
   const save = () => run(addReceipt(line.id, { date, qty: Number(qty), reference: ref, note }, today), () => { setQty(''); setRef(''); setNote('') })
@@ -51,19 +58,20 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
           {access.can('materials.archive') && <Button variant="ghost" disabled={saving} onClick={() => (line.archived || window.confirm(`Archive “${line.component}”? It leaves the working list and totals. Receipts and history are kept and it can be restored.`)) && run(archiveMaterials([line.id], !line.archived))}>{line.archived ? 'Restore' : 'Archive'}</Button>}
         </div>
 
-        {edit && canEdit && <EditForm line={line} manual={manual} locations={distinct(allLines(state).map((l) => l.footingType))} areas={distinct(allLines(state).map((l) => l.area))} onDone={() => setEdit(false)} />}
+        {legacy.length > 0 && manual && <p role="status" className="border-l-2 border-warn pl-3 text-xs">Not linked to project records: {legacy.map((i) => `${i.field} “${i.value}”`).join(', ')}. The value is kept as written; use Edit details to select the matching record.</p>}
+        {edit && canEdit && <EditForm line={line} manual={manual} refs={refs} onDone={() => setEdit(false)} />}
 
         <dl className="border-t border-line">
-          <Row k="Area">{line.area}</Row>
-          <Row k="Foundation / location">{dash(line.footingType)}</Row>
-          <Row k="Anchorage ref.">{dash(line.anchorageType)}</Row>
+          <Row k="Area">{shown.area}</Row>
+          <Row k="Foundation">{dash(shown.foundation)}</Row>
+          <Row k="Anchorage type">{dash(shown.anchorage)}</Row>
           <Row k="Category">{CATEGORY_LABEL[line.category]}</Row>
           {manual && <Row k="Description">{dash(line.description)}</Row>}
           <Row k="Specification">{dash(line.specification)}</Row>
           <Row k="Size / dimensions">{dash(line.size)}</Row>
           {!manual && <Row k="Counts">{line.footings} footings · {line.plinths} plinths · {line.bolts} bolts</Row>}
           <Row k="Required">{line.requiredQty.toLocaleString('en-CA')} {unit}{!manual && <span className="text-muted"> = {line.calc.expression}{line.calc.recomputed !== null && line.calc.recomputed !== line.requiredQty ? ` (formula gives ${line.calc.recomputed})` : ''}</span>}</Row>
-          <Row k="Supplier">{dash(line.supplier)}</Row>
+          <Row k="Supplier">{dash(shown.supplier)}</Row>
           <Row k="PO / reference">{dash(line.poRef)}</Row>
           <Row k="Expected delivery">{line.expectedDate ? formatDate(line.expectedDate) : <span className="text-muted">—</span>}</Row>
           <Row k={manual ? 'Delivery status note' : 'Workbook status'}>{line.sourceStatus || '—'} <span className="text-muted">(a stated status, not a receipt)</span></Row>
@@ -135,21 +143,25 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   )
 }
 
-function EditForm({ line, manual, areas, locations, onDone }: { line: TrackerLine; manual: boolean; areas: string[]; locations: string[]; onDone: () => void }) {
+function EditForm({ line, manual, refs, onDone }: { line: TrackerLine; manual: boolean; refs: MaterialRefs; onDone: () => void }) {
   const { run, saving } = useTrackerCommand()
   const initial = {
-    area: line.area, location: line.footingType, anchorageRef: line.anchorageType, category: line.category, name: line.component, description: line.description ?? '', specification: line.specification ?? '', size: line.size ?? '',
-    requiredQty: String(line.requiredQty), unit: line.unit || 'ea', supplier: line.supplier ?? '', poRef: line.poRef ?? '', expectedDate: line.expectedDate ?? '', claimedStatus: line.sourceStatus, notes: line.notes,
+    areaId: line.areaId ?? '', foundationId: line.foundationId ?? '', anchorageTypeId: line.anchorageTypeId ?? '', category: line.category, name: line.component, description: line.description ?? '', specification: line.specification ?? '', size: line.size ?? '',
+    requiredQty: String(line.requiredQty), unit: line.unit || 'ea', supplierId: line.supplierId ?? '', poRef: line.poRef ?? '', expectedDate: line.expectedDate ?? '', claimedStatus: line.sourceStatus, notes: line.notes,
   }
   const [f, setF] = useState(initial)
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }))
+  const legacy = legacyIssues(line, refs.catalog, refs.suppliers)
+  const legacyOf = (field: string) => legacy.find((i) => i.field === field)
+  const foundations = foundationsOfArea(refs.catalog, f.areaId, false)
+  const keepCurrent = line.foundationId && f.areaId === line.areaId && !foundations.some((x) => x.id === line.foundationId) ? refs.catalog.foundations.filter((x) => x.id === line.foundationId) : []
+  const changeArea = (areaId: string) => set({ areaId, foundationId: refs.catalog.foundations.find((x) => x.id === f.foundationId)?.areaId === areaId ? f.foundationId : '' })
   const submit = () => {
-    const patch = manual
-      ? { area: f.area, location: f.location, anchorageRef: f.anchorageRef, category: f.category, name: f.name, description: f.description, specification: f.specification, size: f.size, requiredQty: Number(f.requiredQty), unit: f.unit, supplier: f.supplier, poRef: f.poRef, expectedDate: f.expectedDate, claimedStatus: f.claimedStatus, notes: f.notes }
-      : { unit: f.unit, supplier: f.supplier, poRef: f.poRef, expectedDate: f.expectedDate, notes: f.notes }
-    // Only what actually changed is sent, so the history records real edits and not defaults being filled in.
-    const key = (k: string): keyof typeof f => (k === 'requiredQty' ? 'requiredQty' : k) as keyof typeof f
-    const changed = Object.fromEntries(Object.entries(patch).filter(([k, v]) => String(v) !== String(initial[key(k)])))
+    const all = { ...f, requiredQty: Number(f.requiredQty) }
+    const editable = manual ? Object.keys(all) : ['unit', 'supplierId', 'poRef', 'expectedDate', 'notes']
+    // Only what actually changed is sent, so the history records real edits and not defaults being filled in. An unlinked legacy value
+    // is left alone unless a record was chosen for it.
+    const changed = Object.fromEntries(editable.filter((k) => String((all as Record<string, unknown>)[k]) !== String((initial as Record<string, unknown>)[k])).map((k) => [k, (all as Record<string, unknown>)[k]]))
     if (Object.keys(changed).length === 0) { onDone(); return }
     run(editMaterial(line.id, changed), onDone)
   }
@@ -157,33 +169,34 @@ function EditForm({ line, manual, areas, locations, onDone }: { line: TrackerLin
     <section className="space-y-3 border border-line p-4">
       <h3 className="t-label">Edit details</h3>
       {!manual && <p className="text-xs text-muted">This line comes from the workbook: area, foundation, description and quantity stay as imported (change them in the workbook and re-import). Supplier, PO, expected delivery, unit and notes can be edited here.</p>}
-      <datalist id="ed-areas">{areas.map((a) => <option key={a} value={a} />)}</datalist>
-      <datalist id="ed-locations">{locations.map((a) => <option key={a} value={a} />)}</datalist>
       {manual && (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Area *"><Input list="ed-areas" value={f.area} onChange={(e) => set({ area: e.target.value })} /></Field>
-            <Field label="Foundation / location"><Input list="ed-locations" value={f.location} onChange={(e) => set({ location: e.target.value })} /></Field>
-            <Field label="Anchorage ref."><Input value={f.anchorageRef} onChange={(e) => set({ anchorageRef: e.target.value })} /></Field>
+            <Field label="Area *"><SearchSelect label="Area" value={f.areaId} options={refs.catalog.areas.map((a) => ({ value: a.id, label: a.name }))} onChange={changeArea} placeholder={legacyOf('area') ? `Not linked: “${legacyOf('area')!.value}”` : 'Select an area'} /></Field>
+            <Field label="Foundation"><SearchSelect label="Foundation" value={f.foundationId} disabled={!f.areaId} emptyLabel="No foundation" placeholder={legacyOf('foundation') ? `Not linked: “${legacyOf('foundation')!.value}”` : 'Select a foundation'}
+              options={[...keepCurrent, ...foundations].map((x) => ({ value: x.id, label: x.number, hint: x.archived ? 'Archived' : x.description || undefined }))} onChange={(id) => set({ foundationId: id })} /></Field>
+            <Field label="Anchorage type"><SearchSelect label="Anchorage type" value={f.anchorageTypeId} emptyLabel="None" placeholder={legacyOf('anchorage') ? `Not linked: “${legacyOf('anchorage')!.value}”` : 'Search by code or description'}
+              options={anchorageFor(refs.catalog, f.foundationId || null).map((a) => ({ value: a.id, label: a.code, hint: a.description || undefined, group: f.foundationId ? (a.onFoundation ? 'Used on this foundation' : 'Other anchorage types') : undefined }))} onChange={(id) => set({ anchorageTypeId: id })} /></Field>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Material name *"><Input value={f.name} onChange={(e) => set({ name: e.target.value })} /></Field>
-            <Field label="Category"><Select value={f.category} onChange={(e) => set({ category: e.target.value as ComponentCategory })}>{CATEGORY_ORDER.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</Select></Field>
+            <Field label="Category"><Select aria-label="Category" value={f.category} onChange={(e) => set({ category: e.target.value as ComponentCategory })}>{CATEGORY_ORDER.map((c) => <option key={c} value={c}>{CATEGORY_LABEL[c]}</option>)}</Select></Field>
             <Field label="Qty required *"><Input inputMode="numeric" value={f.requiredQty} onChange={(e) => set({ requiredQty: e.target.value })} /></Field>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Specification"><Input value={f.specification} onChange={(e) => set({ specification: e.target.value })} /></Field>
             <Field label="Size / dimensions"><Input value={f.size} onChange={(e) => set({ size: e.target.value })} /></Field>
-            <Field label="Delivery status note"><Select value={f.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Not verified</option><option>Pending</option><option>Delivered</option></Select></Field>
+            <Field label="Delivery status note"><Select aria-label="Delivery status note" value={f.claimedStatus} onChange={(e) => set({ claimedStatus: e.target.value })}><option value="">Not verified</option><option>Pending</option><option>Delivered</option></Select></Field>
           </div>
           <Field label="Description"><Input value={f.description} onChange={(e) => set({ description: e.target.value })} /></Field>
         </>
       )}
       <div className="grid gap-3 sm:grid-cols-4">
-        <Field label="Supplier"><Input value={f.supplier} onChange={(e) => set({ supplier: e.target.value })} /></Field>
+        <Field label="Supplier"><SearchSelect label="Supplier" value={f.supplierId} emptyLabel="No supplier" placeholder={legacyOf('supplier') ? `Not linked: “${legacyOf('supplier')!.value}”` : 'Select a supplier'}
+          options={refs.suppliers.filter((x) => !x.archived || x.id === f.supplierId).map((x) => ({ value: x.id, label: x.name }))} onChange={(id) => set({ supplierId: id })} /></Field>
         <Field label="PO / reference"><Input value={f.poRef} onChange={(e) => set({ poRef: e.target.value })} /></Field>
         <Field label="Expected delivery"><Input type="date" value={f.expectedDate} onChange={(e) => set({ expectedDate: e.target.value })} /></Field>
-        <Field label="Unit"><Select value={f.unit} onChange={(e) => set({ unit: e.target.value })}>{[...new Set([f.unit, ...UNITS])].map((u) => <option key={u}>{u}</option>)}</Select></Field>
+        <Field label="Unit"><Select aria-label="Unit" value={f.unit} onChange={(e) => set({ unit: e.target.value })}>{[...new Set([f.unit, ...UNITS])].map((u) => <option key={u}>{u}</option>)}</Select></Field>
       </div>
       <Field label="Notes"><Textarea rows={2} value={f.notes} onChange={(e) => set({ notes: e.target.value })} /></Field>
       <div className="flex gap-2"><Button variant="primary" disabled={saving} onClick={submit}>{saving ? 'Saving…' : 'Save changes'}</Button><Button variant="ghost" onClick={onDone}>Cancel</Button></div>

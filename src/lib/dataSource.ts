@@ -35,6 +35,13 @@ export function setViewDemo(on: boolean) {
 
 const stores: ModuleStore<never>[] = []
 
+/**
+ * Records from other modules that a module's rules check against (for example: the project's areas when adding a material). Used when
+ * the rules run in this browser; with saved data the server reads the same records from its own database.
+ */
+const contexts = new Map<ModuleName, () => Record<string, unknown>>()
+export const setModuleContext = (module: ModuleName, provider: () => Record<string, unknown>) => { contexts.set(module, provider) }
+
 /** Decides the mode once at start-up, then loads the saved records. Never falls back to demo data silently while signed out. */
 export async function startBackend(): Promise<void> {
   if (IS_PUBLIC_DEMO) { setBackend({ mode: 'demo', serverAvailable: false, reason: 'Public demo: sample data is kept in this browser only.' }); return }
@@ -78,7 +85,7 @@ export interface ModuleStore<S> {
   version(): number
 }
 
-type Reducer<S> = (s: S) => { state?: S; error?: string }
+type Reducer<S> = (s: S, ctx?: Record<string, unknown>) => { state?: S; error?: string }
 
 const newId = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`).replace(/[^A-Za-z0-9_-]/g, '')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -117,7 +124,7 @@ export function createModuleStore<S>(module: ModuleName, local: PersistedStore<S
     },
     run(reducer: Reducer<S>) {
       if (!isServer()) {
-        const result = reducer(local.get())
+        const result = reducer(local.get(), contexts.get(module)?.())
         if (result.error !== undefined) { notify(result.error); return Promise.resolve(result.error) }
         local.set(result.state as S)
         return Promise.resolve(null)

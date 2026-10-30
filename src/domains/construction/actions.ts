@@ -1,15 +1,18 @@
 import { identity } from '@/app/identity'
 import { addDays, type ISODate } from '@/lib/date'
 import { blankActivitiesFor } from './blankActivities'
-import { getDef, isDone } from './config'
+import { DEFAULT_HANDOVER_REQUIREMENTS, getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
+import type { TrackerState } from './tracker/types'
 import type {
   ProjectIssue, ProjectStatus, Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
 } from './types'
 
 /** A reducer returns the next state, or an error message when a business rule is violated. */
 export type Result = { state: ConstructionState; error?: undefined } | { error: string; state?: undefined }
-export type Reducer = (s: ConstructionState) => Result
+/** Supplied by the server (and by the browser demo) for rules that need another module's records. Never taken from a client request. */
+export interface Ctx { actor?: string; now?: string; /** Materials records, for rules about materials that reference a foundation. */ materials?: TrackerState }
+export type Reducer = (s: ConstructionState, ctx?: Ctx) => Result
 
 const ok = (state: ConstructionState): Result => ({ state })
 const fail = (error: string): Result => ({ error })
@@ -361,18 +364,91 @@ export const setProjectIssueStatus = (id: string, status: ProjectIssue['status']
 
 /* ── Foundation register (saved project data) ───────────────────────────── */
 
+const FOUNDATION_NUMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
+
+/** Why a foundation number cannot be used in an area, or null. Archived foundations still hold their number, so it cannot be reused by accident. */
+function numberProblem(s: ConstructionState, areaId: string, number: string, exceptId?: string): string | null {
+  const area = s.areas.find((a) => a.id === areaId)
+  if (!area) return 'Area not found.'
+  if (!FOUNDATION_NUMBER.test(number)) return 'Use letters, digits, dots, dashes or underscores for the foundation number (for example 21-03).'
+  const clash = s.foundations.find((f) => f.areaId === areaId && f.id !== exceptId && f.number.toLowerCase() === number.toLowerCase())
+  return clash ? `Foundation ${number} already exists in ${area.name}${clash.archived ? ' (archived — restore it instead)' : ''}.` : null
+}
+
+const newFoundation = (s: ConstructionState, areaId: string, number: string, description: string, plinthCount: number) => {
+  let id = `f-${areaId}-${number}`
+  for (let n = 2; s.foundations.some((f) => f.id === id); n++) id = `f-${areaId}-${number}-${n}` // an id is never reused, even after a rename
+  const foundation = { id, areaId, number, description: description.trim(), notes: '', docIds: [] as string[] }
+  const plinths = Array.from({ length: plinthCount }, (_, i) => ({ id: `${id}-p${i + 1}`, foundationId: id, index: i + 1, anchorageTypeId: null, notes: '' }))
+  return { foundation, plinths, activities: blankActivitiesFor(foundation, plinths) }
+}
+
+const plinthProblem = (n: number) => (!Number.isInteger(n) || n < 0 || n > 100 ? 'Enter the number of plinths as a whole number from 0 to 100.' : null)
+
 /**
  * Adds a foundation, with its plinths, to an area. Every applicable activity starts as "not started"; nothing is recorded as
- * done. Ids are derived from the area and foundation number so adding the same foundation twice is refused, not duplicated.
+ * done. A foundation that already exists in the area (archived or not) is refused, not duplicated.
  */
 export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number): Reducer => (s) => {
-  const area = s.areas.find((a) => a.id === areaId)
-  if (!area) return fail('Area not found.')
-  const num = number.trim()
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(num)) return fail('Use letters, digits, dots, dashes or underscores for the foundation number (for example 21-03).')
-  if (s.foundations.some((f) => f.areaId === areaId && f.number.toLowerCase() === num.toLowerCase())) return fail(`Foundation ${num} already exists in ${area.name}.`)
-  if (!Number.isInteger(plinthCount) || plinthCount < 0 || plinthCount > 100) return fail('Enter the number of plinths as a whole number from 0 to 100.')
-  const foundation = { id: `f-${areaId}-${num}`, areaId, number: num, description: description.trim(), notes: '', docIds: [] as string[] }
-  const plinths = Array.from({ length: plinthCount }, (_, i) => ({ id: `${foundation.id}-p${i + 1}`, foundationId: foundation.id, index: i + 1, anchorageTypeId: null, notes: '' }))
-  return ok({ ...s, foundations: [...s.foundations, foundation], plinths: [...s.plinths, ...plinths], activities: [...s.activities, ...blankActivitiesFor(foundation, plinths)] })
+  const num = String(number).trim()
+  const bad = numberProblem(s, areaId, num) ?? plinthProblem(plinthCount)
+  if (bad) return fail(bad)
+  const { foundation, plinths, activities } = newFoundation(s, areaId, num, String(description), plinthCount)
+  return ok({ ...s, foundations: [...s.foundations, foundation], plinths: [...s.plinths, ...plinths], activities: [...s.activities, ...activities] })
+}
+
+/** Renames a foundation. Its id, plinths, activities and every material, survey and QA/QC record that points at it are unaffected. */
+export const renameFoundation = (id: string, number: string): Reducer => (s) => {
+  const f = s.foundations.find((x) => x.id === id)
+  if (!f) return fail('Foundation not found.')
+  const num = String(number).trim()
+  const bad = numberProblem(s, f.areaId, num, id)
+  return bad ? fail(bad) : ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, number: num } : x)) })
+}
+
+export const editFoundation = (id: string, patch: { description?: string; notes?: string }): Reducer => (s) => {
+  if (!s.foundations.some((x) => x.id === id)) return fail('Foundation not found.')
+  const next = { ...(patch.description !== undefined ? { description: String(patch.description).trim().slice(0, 300) } : {}), ...(patch.notes !== undefined ? { notes: String(patch.notes).slice(0, 2000) } : {}) }
+  return ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, ...next } : x)) })
+}
+
+/**
+ * Archiving hides a foundation from pickers and the default register view; every record stays and keeps pointing at it. It is refused while
+ * active materials are assigned to the foundation (move or archive them first), and when materials cannot be checked.
+ */
+export const archiveFoundation = (id: string, archived: boolean): Reducer => (s, ctx) => {
+  const f = s.foundations.find((x) => x.id === id)
+  if (!f) return fail('Foundation not found.')
+  if (archived) {
+    if (!ctx?.materials) return fail('Materials could not be checked, so this foundation was not archived.')
+    const used = [...ctx.materials.lines, ...ctx.materials.manual].filter((l) => !l.archived && l.foundationId === id).length
+    if (used > 0) return fail(`${used} active material${used === 1 ? ' is' : 's are'} assigned to foundation ${f.number}. Move or archive them first.`)
+  }
+  return ok({ ...s, foundations: s.foundations.map((x) => (x.id === id ? { ...x, archived } : x)) })
+}
+
+export interface NewFoundation { number: string; description: string; plinthCount: number }
+
+/** Sets up a new construction area together with its foundations, so the register is complete from the start. */
+export const createArea = (projectId: string, name: string, foundations: NewFoundation[]): Reducer => (s) => {
+  if (!s.projects.some((p) => p.id === projectId)) return fail('Project not found.')
+  const clean = String(name).trim().replace(/\s+/g, ' ')
+  if (!clean || clean.length > 60) return fail('Enter an area name of 60 characters or fewer.')
+  if (s.areas.some((a) => a.projectId === projectId && a.name.toLowerCase() === clean.toLowerCase())) return fail(`An area named ${clean} already exists.`)
+  const slug = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'area'
+  let id = `area-${slug}`
+  for (let n = 2; s.areas.some((a) => a.id === id); n++) id = `area-${slug}-${n}`
+  const area = { id, projectId, name: clean, sequence: Math.max(0, ...s.areas.filter((a) => a.projectId === projectId).map((a) => a.sequence)) + 1 }
+  let next: ConstructionState = {
+    ...s, areas: [...s.areas, area],
+    handover: [...s.handover, { areaId: id, requirements: DEFAULT_HANDOVER_REQUIREMENTS.map((r, i) => ({ id: `${id}-req-${i + 1}`, label: r.label, metric: r.metric, done: false, doneDate: null, note: '' })), acceptance: 'not-submitted' as const, submittedDate: null, acceptedDate: null, acceptedBy: '', notes: '' }],
+  }
+  for (const f of foundations ?? []) {
+    const num = String(f.number).trim()
+    const bad = numberProblem(next, id, num) ?? plinthProblem(f.plinthCount)
+    if (bad) return fail(bad)
+    const made = newFoundation(next, id, num, String(f.description ?? ''), f.plinthCount)
+    next = { ...next, foundations: [...next.foundations, made.foundation], plinths: [...next.plinths, ...made.plinths], activities: [...next.activities, ...made.activities] }
+  }
+  return ok(next)
 }

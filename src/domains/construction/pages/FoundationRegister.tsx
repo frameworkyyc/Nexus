@@ -13,7 +13,7 @@ import {
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
-import { AddFoundationButton } from './AddFoundation'
+import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
 import { FoundationStateBadge, fraction } from '../ui'
 import type { Area, Foundation, Plinth } from '../types'
 
@@ -40,19 +40,20 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [typeFilter, setTypeFilter] = useState('all')
   const [areaFilter, setAreaFilter] = useState('all')
+  const [showArchived, setShowArchived] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'number', dir: 1 })
   const [open, setOpen] = useState<Set<string>>(new Set())
 
   const rows = useMemo<Row[]>(
     () =>
-      foundationsOf(idx, areaId).map((f) => {
+      foundationsOf(idx, areaId).filter((f) => showArchived || !f.archived).map((f) => {
         const plinths = idx.plinthsByFoundation.get(f.id) ?? []
         return {
           f, plinths, area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
           types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
         }
       }),
-    [idx, areaId],
+    [idx, areaId, showArchived],
   )
 
   const q = query.trim().toLowerCase()
@@ -106,7 +107,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         </div>
         {phone && <SortBar options={[{ key: 'number', label: 'Foundation' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />}
         {phone && <Segmented label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />}
-        <div className="flex items-center gap-3 lg:ml-auto phone:[&>div[role=group]]:hidden"><AddFoundationButton projectId={projectId} areaId={areaId} />
+        <div className="flex flex-wrap items-center gap-3 lg:ml-auto phone:[&>div[role=group]]:hidden"><label className="flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show archived</label>{!areaId && <AddAreaButton projectId={projectId} />}<AddFoundationButton projectId={projectId} areaId={areaId} />
         <div className="flex gap-1 text-[13px]" role="group" aria-label="Register view">
           {(['foundations', 'plinths'] as const).map((v) => (
             <button key={v} onClick={() => setView(v)} aria-pressed={view === v} className={`rounded-nx px-3 py-1.5 capitalize transition-colors ${view === v ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{v}</button>
@@ -152,7 +153,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                         </button>
                       </td>
                       <td className="py-3.5 pr-5 text-[13px]">
-                        <Link to={paths.foundation(projectId, r.f)} className="font-medium underline-offset-4 hover:underline">{r.f.number}</Link>
+                        <Link to={paths.foundation(projectId, r.f)} className="font-medium underline-offset-4 hover:underline">{r.f.number}</Link>{r.f.archived && <span className="ml-2 text-xs text-muted">Archived</span>}<span className="ml-2 inline-block align-middle"><ManageFoundationButton foundation={r.f} /></span>
                         <span className="block text-xs text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}<span className="sm:hidden"> · {r.types.join(', ')}</span></span>
                       </td>
                       {!areaId && <td className="hidden py-3.5 pr-5 text-[13px] text-muted lg:table-cell">{r.area.name}</td>}
@@ -280,7 +281,7 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
         return (
           <li key={r.f.id} className={`${CARD} p-4`}>
             <div className="flex items-start justify-between gap-3">
-              <Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}</Link>
+              <Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}{r.f.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</Link>
               <FoundationStateBadge state={r.state.state} blocked={r.state.blocked} />
             </div>
             <p className="mt-0.5 text-[14px] text-muted">{r.f.description} · {r.plinths.length} plinth{r.plinths.length === 1 ? '' : 's'}{!areaId && ` · ${r.area.name}`}</p>
@@ -291,7 +292,8 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
                 <div key={l} className="rounded-xl bg-canvas px-1 py-2"><dt className="text-[12px] text-muted">{l}</dt><dd className="text-[16px] font-medium tabular-nums">{v}</dd></div>
               ))}
             </dl>
-            <button type="button" onClick={() => toggleOpen(r.f.id)} aria-expanded={isOpen} className="mt-2 flex h-11 w-full items-center justify-between text-[15px] text-muted">
+            <div className="mt-2 flex justify-end"><ManageFoundationButton foundation={r.f} /></div>
+            <button type="button" onClick={() => toggleOpen(r.f.id)} aria-expanded={isOpen} className="flex h-11 w-full items-center justify-between text-[15px] text-muted">
               <span>Plinths ({r.plinths.length})</span><ChevronRight size={18} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
             </button>
             {isOpen && <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />}
