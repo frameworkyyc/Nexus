@@ -80,7 +80,7 @@ export function CrewPage() {
         <p className="mt-0.5 text-[14px] text-muted">The next {DAYS} days. Filled = on site.</p>
         {/* Intentional horizontal scroll: a timeline needs its width. The name column stays put. */}
         <div className="-mx-4 mt-4 overflow-x-auto px-4 pb-2" data-compact>
-          <table className="border-separate border-spacing-y-1.5 text-[13px]" style={{ minWidth: 120 + DAYS * 30 }}>
+          <table data-table="free" className="border-separate border-spacing-y-1.5 text-[13px]" style={{ minWidth: 120 + DAYS * 30 }}>
             <thead>
               <tr>
                 <th scope="col" className="sticky left-0 z-10 w-[120px] bg-canvas pr-2 text-left text-[12px] font-medium text-muted">Crew</th>

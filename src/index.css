@@ -192,3 +192,38 @@ body {
   main a:not(:where(p, dd, dt, td, th, summary, label, [data-compact]) a) { min-height: var(--nx-tap); }
   main a:not(:where(p, dd, dt, td, th, summary, label, [data-compact]) a):not(.block):not(.flex):not(.grid):not(.inline-flex):not(.inline-block):not(.hidden) { display: inline-flex; align-items: center; }
 }
+
+
+/* ── Table standard ──────────────────────────────────────────────────────────────────────────────────────────────────────
+ * Every table inside <main> gets `.nx-t` (see standardizeTables in cardTables.ts), so any table written in future follows these rules
+ * with no extra classes: one row height and one padding for all tables; headers on one line; body text on one line, cut with an
+ * ellipsis (the cell's title carries the full text); content centred vertically; numeric columns right-aligned with their headers and set
+ * in tabular figures. Opt out of the whole standard with data-table="free", or of truncation for one cell/column with data-wrap.
+ * Phones show card tables as stacked cards (above), which reset the one-line rules.
+ */
+.nx-t { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.nx-t > thead > tr > th, .nx-t > tbody > tr > td { padding: 10px 12px 10px 0; vertical-align: middle; }
+.nx-t > thead > tr > th:last-child, .nx-t > tbody > tr > td:last-child { padding-right: 0; }
+.nx-t > thead > tr > th { white-space: nowrap; line-height: 1rem; }
+.nx-t > tbody > tr > td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 15rem; line-height: 1.25rem; }
+@media (min-width: 768px) {
+  .nx-t > tbody > tr > td :is(div, p, span, a, button):not([class*='flex']):not([class*='grid']):not([data-wrap]) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  /* Inside a flex cell (a progress bar and its %, an icon and a label) the short parts keep their size; only .min-w-0 parts give way. */
+  .nx-t > tbody > tr > td :is(.flex, [class*='flex ']) > :is(span, div):not(.min-w-0):not([class*='truncate']) { flex-shrink: 0; overflow: visible; max-width: none; }
+  .nx-t > tbody > tr > td :is(.flex, [class*='flex ']) { min-width: 0; max-width: 100%; }
+  .nx-t { min-width: 0; }
+  .nx-t > tbody > tr > td button.text-left { display: block; }
+}
+.nx-t > tbody > tr > td[data-wrap], .nx-t > thead > tr > th[data-wrap] { white-space: normal; overflow: visible; max-width: none; }
+.nx-t > :is(thead, tbody) > tr > :is(th, td)[data-num] { text-align: right; }
+.nx-t > tbody > tr:not([data-wide]) { min-height: 44px; }
+.nx-t > tbody > tr > td:has(select, textarea, input:not([type='checkbox'])) { overflow: visible; }
+@media (min-width: 768px) { .nx-t > tbody > tr > td :is(select, input:not([type='checkbox'])) { width: 100%; min-width: 6rem; max-width: 11rem; } }
+.nx-t > tbody > tr > td { min-width: 0; }
+.nx-t > tbody > tr > td:first-child, .nx-t > tbody > tr > td:nth-child(2) { max-width: 20rem; }
+@media (max-width: 1100px) { .nx-t > tbody > tr > td { max-width: 11rem; } }
+@media (min-width: 768px) and (max-width: 900px) { .nx-t > thead > tr > th, .nx-t > tbody > tr > td { padding-right: 8px; } .nx-t > tbody > tr > td { max-width: 8.5rem; } .nx-t > tbody > tr > td:first-child, .nx-t > tbody > tr > td:nth-child(2) { max-width: 12rem; } }
+@media (max-width: 767.98px), (max-height: 500px) and (pointer: coarse) {
+  .nx-t.card-table > tbody > tr > td { white-space: normal; overflow: visible; max-width: none; line-height: inherit; }
+  .nx-t.card-table > tbody > tr > td :is(div, p, span, a, button) { overflow: visible; max-width: none; }
+}
