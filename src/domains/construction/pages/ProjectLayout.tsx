@@ -5,7 +5,6 @@ import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ChipTabs } from '@/components/mobile/Cards'
-import { NavMenu } from '@/components/ui/Menu'
 import { paths } from '../paths'
 import { useIsServer } from '@/lib/dataSource'
 import { resetDemoData, useConstruction } from '../store'
@@ -64,6 +63,12 @@ export function ProjectLayout() {
   // Procurement, fabrication and handover have no saved records yet, so saved-data mode leaves them out rather than showing fiction.
   const sections = server ? allSections.filter((x) => ![paths.fabrication(projectId), paths.handover(projectId)].includes(x.to)) : allSections
   const areaItems = state.areas.filter((a) => a.projectId === projectId && !a.archived).map((a) => ({ to: paths.area(projectId, a.id), label: a.name }))
+  const phoneItems = [
+    { to: sections[0].to, label: sections[0].short, end: !!sections[0].end },
+    { to: paths.areas(projectId), label: 'Areas', end: true },
+    ...sections.slice(1).map((s) => ({ to: s.to, label: s.short, end: !!s.end })),
+    ...areaItems.map((a) => ({ to: a.to, label: a.label, end: false })),
+  ]
   const link = (s: (typeof sections)[number]) => (
     <NavLink key={s.to} to={s.to} end={s.end} className={({ isActive }) => `${tab} ${isActive ? on : off}`}>
       <span className="hidden lg:inline">{s.full}</span>
@@ -75,14 +80,14 @@ export function ProjectLayout() {
       {/* Phones: one menu holds every destination. */}
       <div className="md:hidden">
         <ChipTabs label="Project sections">
-          {([...sections.map((s) => ({ to: s.to, label: s.short, end: !!s.end })), ...areaItems.map((a) => ({ to: a.to, label: a.label, end: false }))]).map((i) => (
+          {phoneItems.map((i) => (
             <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => `inline-flex h-11 shrink-0 items-center whitespace-nowrap rounded-full border px-4 text-[15px] font-medium ${isActive ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink'}`}>{i.label}</NavLink>
           ))}
         </ChipTabs>
       </div>
       <nav aria-label="Project sections" className="hidden gap-6 border-b border-line md:flex">
         {link(sections[0])}
-        {areaItems.length ? <NavMenu label={currentArea ? currentArea.name : 'Areas'} active={!!currentArea} items={areaItems} /> : <NavLink to={paths.register(projectId)} className={`${tab} ${off}`}>Areas</NavLink>}
+        <NavLink to={paths.areas(projectId)} className={() => `${tab} ${pathname.startsWith(paths.areas(projectId)) ? on : off}`}>{currentArea ? `Areas · ${currentArea.name}` : 'Areas'}</NavLink>
         {sections.slice(1).map(link)}
       </nav>
       <div className="pt-8">

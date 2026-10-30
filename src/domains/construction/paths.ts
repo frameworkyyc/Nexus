@@ -12,6 +12,7 @@ export const paths = {
   handover: (p: string) => `/projects/${p}/handover`,
   fleet: (p: string) => `/projects/${p}/fleet`,
   issues: (p: string) => `/projects/${p}/issues`,
+  areas: (p: string) => `/projects/${p}/areas`,
   area: (p: string, areaId: string, tab?: string) => `/projects/${p}/areas/${areaId}${tab ? `?tab=${tab}` : ''}`,
   foundation: (p: string, f: Pick<Foundation, 'areaId' | 'id'>, plinthId?: string) => `/projects/${p}/areas/${f.areaId}/foundations/${f.id}${plinthId ? `?plinth=${plinthId}` : ''}`,
 }

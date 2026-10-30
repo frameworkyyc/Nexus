@@ -7,6 +7,7 @@ import { FoundationPage } from './pages/FoundationPage'
 import { HandoverPage } from './pages/HandoverPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { MaterialsPage } from './pages/MaterialsPage'
+import { AreasPage } from './pages/AreasPage'
 import { PourPage } from './pages/PourPage'
 import { PoursPage } from './pages/PoursPage'
 import { ProcurementIndex, ProcurementPage } from './procurement/ProcurementPage'
@@ -65,6 +66,7 @@ export const constructionRoutes: RouteObject[] = [
           { path: 'handover', element: <DemoOnly><HandoverPage /></DemoOnly>, handle: text('Handover') },
           { path: 'issues', element: <IssuesPage />, handle: text('Issues') },
           ...projectFleetRoutes,
+          { path: 'areas', element: <AreasPage />, handle: text('Areas') },
           {
             path: 'areas/:areaId',
             element: <Outlet />,

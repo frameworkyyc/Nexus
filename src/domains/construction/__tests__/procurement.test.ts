@@ -210,3 +210,23 @@ describe('procurement', () => {
     expect(procurementRows(t, c).find((r) => r.name === 'Grout')).toMatchObject({ received: 20, status: 'received', unallocated: 12 })
   })
 })
+
+describe('areas flow through Foundations, Materials and Procurement', () => {
+  it('a new area appears with its requirements, and a rename updates every list without touching orders', () => {
+    let { c, A1 } = world()
+    c = build(c, K.createArea(c.projects[0].id, 'Control Building', [], { identifier: 'A-300' }))
+    const area = c.areas.find((a) => a.name === 'Control Building')!
+    c = build(c, K.createFoundation(area.id, 'CB-1', '', null, 2, { groups: [{ anchorageTypeId: A1, count: 2 }] }))
+    let t = tracked(c)
+    const row = () => procurementRows(t, c).find((r) => r.areaId === area.id && r.name === 'Anchor bolt')!
+    expect(row()).toMatchObject({ area: 'Control Building', required: 2 * 2 * 4 })
+    expect(areaTree(consolidate(t, c)).map((a) => a.name)).toContain('Control Building')
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-CB', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 16 }] }, TODAY))
+    const orders = t.orderLines
+    c = build(c, K.editArea(area.id, { name: 'Control Bldg', description: 'Renamed' }))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    expect(row()).toMatchObject({ area: 'Control Bldg', ordered: 16, key: orders![0].key })
+    expect(areaTree(consolidate(t, c)).map((a) => a.name)).toContain('Control Bldg')
+    expect(t.orderLines).toEqual(orders)
+  })
+})

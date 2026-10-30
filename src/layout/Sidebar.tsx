@@ -1,7 +1,10 @@
-import { Lock, X } from 'lucide-react'
-import { NavLink } from 'react-router-dom'
+import { ChevronRight, Lock, MapPinned, X } from 'lucide-react'
+import { useState } from 'react'
+import { NavLink, useLocation, useMatch } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { MODULES } from '@/app/modules'
+import { paths } from '@/domains/construction/paths'
+import { useConstruction } from '@/domains/construction/store'
 import { useBackend } from '@/lib/dataSource'
 
 function DisabledItem({ label, Icon }: { label: string; Icon: (typeof MODULES)[number]['icon'] }) {
@@ -26,8 +29,37 @@ function DisabledItem({ label, Icon }: { label: string; Icon: (typeof MODULES)[n
   )
 }
 
+/**
+ * Inside a project, Areas sits under Projects: the row opens the areas overview and the chevron expands a shortcut to each area. New and
+ * renamed areas appear here at once because the list is read from the same area records every other page uses.
+ */
+function AreasNav({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const { state } = useConstruction()
+  const { pathname } = useLocation()
+  const [open, setOpen] = useState(true)
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence)
+  const inAreas = pathname.startsWith(paths.areas(projectId))
+  const row = (active: boolean) => `flex h-9 items-center gap-3 rounded-nx px-3 text-[13px] transition-colors ${active ? 'bg-white/10 text-sidebar-ink' : 'text-neutral-400 hover:bg-white/5 hover:text-sidebar-ink'}`
+  return (
+    <li>
+      <div className="flex items-center">
+        <NavLink to={paths.areas(projectId)} end onClick={onClose} className={({ isActive }) => `${row(isActive)} ml-3 flex-1`}><MapPinned size={15} strokeWidth={1.5} />Areas</NavLink>
+        {areas.length > 0 && <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} areas`} className="grid h-9 w-9 place-items-center text-sidebar-muted hover:text-sidebar-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${open || inAreas ? 'rotate-90' : ''}`} /></button>}
+      </div>
+      {(open || false) && areas.length > 0 && (
+        <ul className="ml-[2.1rem] mt-0.5 space-y-0.5 border-l border-sidebar-line pl-2" aria-label="Area shortcuts">
+          {areas.map((a) => (
+            <li key={a.id}><NavLink to={paths.area(projectId, a.id)} onClick={onClose} title={a.name} className={({ isActive }) => `${row(isActive)} !h-8 !px-2 text-[12.5px]`}><span className="truncate">{a.name}</span></NavLink></li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { mode, environment } = useBackend()
+  const inProject = useMatch('/projects/:projectId/*')?.params.projectId
   return (
     <>
       {open && <div className="fixed inset-0 z-30 bg-ink/50 xl:hidden" onClick={onClose} />}
@@ -59,6 +91,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                     <Icon size={16} strokeWidth={1.5} />
                     {label}
                   </NavLink>
+                  {id === 'projects' && inProject && <ul className="mt-0.5"><AreasNav projectId={inProject} onClose={onClose} /></ul>}
                 </li>
               ) : (
                 <DisabledItem key={id} label={label} Icon={Icon} />

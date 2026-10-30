@@ -114,26 +114,28 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
 }
 
 /** Sets up a new construction area together with its foundations. Administrators only. */
-export function AddAreaButton({ projectId }: { projectId: string }) {
+export function AddAreaButton({ projectId, prominent = false }: { projectId: string; prominent?: boolean }) {
   const access = useAccess()
   const [open, setOpen] = useState(false)
   if (!access.can('structure.manage')) return null
   return (
     <>
-      <Button onClick={() => setOpen(true)}><Plus size={14} strokeWidth={1.5} />Add area</Button>
+      <Button variant={prominent ? 'primary' : 'secondary'} onClick={() => setOpen(true)}><Plus size={14} strokeWidth={1.5} />Add area</Button>
       {open && <AddAreaModal projectId={projectId} onClose={() => setOpen(false)} />}
     </>
   )
 }
 
+const areaName = (id: string) => constructionStore.get().areas.find((x) => x.id === id)?.name ?? ''
+
 /** Rename, describe, archive or restore an area. Administrators only. */
-export function ManageAreaButton({ areaId }: { areaId: string }) {
+export function ManageAreaButton({ areaId, label = 'Manage area', variant = 'secondary', className = '' }: { areaId: string; label?: string; variant?: 'primary' | 'secondary' | 'ghost'; className?: string }) {
   const access = useAccess()
   const [open, setOpen] = useState(false)
   if (!access.can('structure.manage')) return null
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Manage area</Button>
+      <Button variant={variant} className={className} aria-label={label === 'Manage area' ? label : `${label} ${areaName(areaId)}`} onClick={() => setOpen(true)}>{label}</Button>
       {open && <ManageAreaModal areaId={areaId} onClose={() => setOpen(false)} />}
     </>
   )
