@@ -461,7 +461,7 @@ export interface InspectionInput {
   date: ISODate; submittedBy: string; notes: string; defects: string[]
   /** Current odometer (km) or hour-meter reading (h). Recorded in the meter history; it never overwrites a newer reading. */
   meterReading?: number | null
-  /** Next oil change due, in the asset's meter unit. Sets the schedule only; it never records an oil change as done. */
+  /** Next oil change due, in the asset's meter unit. Sets the schedule only; it never records an oil change as done. A value below the current reading is accepted and shown as overdue. */
   nextOilDue?: number | null
   /** What the submitter judged the overall condition to be. A report only: the reviewer's condition is the one that counts. */
   reportedCondition?: RatedCondition | null
@@ -500,8 +500,7 @@ export const submitInspection = (vehicleId: string, input: InspectionInput, toda
     else if (!/already recorded/.test(r.error)) return { error: r.error }
   }
   if (nextDue !== null) {
-    const cur = latestOdometer(next, vehicleId)
-    if (cur && nextDue <= cur.reading) return { error: `The next oil change due (${fmtKm(nextDue, unit)}) must be above the current reading (${fmtKm(cur.reading, unit)}).` }
+    // A due value at or below the current reading is allowed: it means the oil change is already overdue, and the gauge says by how much.
     const existing = currentOilTarget(next, vehicleId)
     // A later-set schedule is newer information than an inspection dated before it; keep it.
     if (!(existing && existing.setDate !== null && existing.setDate > input.date)) {

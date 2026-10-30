@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import * as A from '../actions'
 import { lifespanIndicator, oilIndicator, tireIndicator } from '../indicators'
+import { VehicleGauges } from '../VehicleGauges'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { lifespanOf } from '../meter'
 import { buildFleetSeed } from '../seed'
 import { conditionOf, inspectionsOf, latestOdometer, maintenanceOf } from '../selectors'
@@ -120,7 +122,7 @@ describe('weekly inspection submission', () => {
     s = apply(s, A.submitInspection(V, insp({ date: '2026-10-05', nextOilDue: 108_000 }), TODAY))
     expect(oilIndicator(s, V).dueAt).toBe(112_000)
     expect(inspectionsOf(s, V)[0].nextOilDue).toBe(108_000) // still on the inspection record
-    expect(err(s, A.submitInspection(V, insp({ date: '2026-10-28', nextOilDue: 99_000 }), TODAY))).toMatch(/must be above the current reading/)
+    expect(err(s, A.submitInspection(V, insp({ date: '2026-10-28', nextOilDue: 99_000 }), TODAY))).toBeUndefined() // below the current reading is overdue, not invalid
     expect(err(s, A.submitInspection(V, insp({ date: '2026-10-28', meterReading: -5 }), TODAY))).toMatch(/odometer/)
     expect(err(s, A.submitInspection(V, insp({ date: '2026-10-28', reportedCondition: 'great' as never }), TODAY))).toMatch(/condition/)
     expect(err(s, A.submitInspection(V, insp({ date: '2026-11-30' }), TODAY))).toMatch(/future/)
@@ -131,5 +133,57 @@ describe('weekly inspection submission', () => {
     s = apply(s, A.submitInspection(V, insp({ date: '2026-10-01', meterReading: 100_000 }), TODAY))
     expect(s.odometer.filter((r) => r.reading === 100_000)).toHaveLength(1)
     expect(inspectionsOf(s, V)).toHaveLength(1)
+  })
+})
+
+describe('oil change overdue tracking', () => {
+  // Current odometer 12,554 km; oil change due at 12,000 km → 554 km overdue.
+  const overdue = () => {
+    let s: FleetState = { ...buildFleetSeed(), inspections: [], odometer: [], serviceTargets: [], maintenance: [], tireSets: [], accessories: [] }
+    s = apply(s, A.recordOdometer(V, { date: '2026-10-01', reading: 11_000, note: '' }, TODAY))
+    return apply(s, A.submitInspection(V, insp({ date: '2026-10-29', meterReading: 12_554, nextOilDue: 12_000 }), TODAY))
+  }
+
+  it('accepts a due value below the current reading and calculates the overdue amount', () => {
+    const s = overdue()
+    expect(oilIndicator(s, V)).toMatchObject({ status: 'bad', dueAt: 12_000, current: 12_554, remaining: -554, label: 'Overdue by 554 km' })
+    expect(inspectionsOf(s, V)[0]).toMatchObject({ nextOilDue: 12_000, meterReading: 12_554 })
+    expect(maintenanceOf(s, V)).toHaveLength(0) // it is a schedule, never a completed oil change
+  })
+
+  it('also works in operating hours and at exactly the due value', () => {
+    let s = overdue()
+    const exact = oilIndicator(apply(s, A.submitInspection(V, insp({ date: '2026-10-30', meterReading: 12_600, nextOilDue: 12_600 }), TODAY)), V)
+    expect(exact.remaining).toBe(0) // due now is not yet overdue
+    expect(exact.status).not.toBe('bad')
+    s = { ...buildFleetSeed(), inspections: [], odometer: [], serviceTargets: [], maintenance: [], tireSets: [], accessories: [] }
+    s = apply(s, A.setVehicleMeterUnit('veh-T6010', 'h'))
+    s = apply(s, A.submitInspection('veh-T6010', insp({ meterReading: 1_250.5, nextOilDue: 1_200 }), TODAY))
+    expect(oilIndicator(s, 'veh-T6010')).toMatchObject({ unit: 'h', status: 'bad', remaining: -50.5, label: 'Overdue by 50.5 h' })
+  })
+
+  it('grows as readings come in and stays overdue until the schedule is updated', () => {
+    let s = overdue()
+    s = apply(s, A.recordOdometer(V, { date: '2026-10-30', reading: 13_000, note: '' }, TODAY))
+    expect(oilIndicator(s, V)).toMatchObject({ status: 'bad', remaining: -1_000 })
+    // still overdue after unrelated records
+    s = apply(s, A.recordMaintenance(V, { date: '2026-10-30', serviceType: 'Tire rotation', odometer: 13_000, description: '', notes: '' }, TODAY))
+    expect(oilIndicator(s, V)).toMatchObject({ status: 'bad', remaining: -1_000 })
+    // a new due value clears it
+    const next = apply(s, A.submitInspection(V, insp({ date: '2026-10-30', meterReading: 13_000, nextOilDue: 18_000 }), TODAY))
+    expect(oilIndicator(next, V)).toMatchObject({ remaining: 5_000, dueAt: 18_000 })
+    expect(oilIndicator(next, V).status).not.toBe('bad')
+  })
+
+  it('the gauge shows the overdue amount with a red, full ring', () => {
+    const s = overdue()
+    const html = renderToStaticMarkup(<VehicleGauges state={s} vehicle={s.vehicles.find((v) => v.id === V)!} today={TODAY} handlers={{ jump: () => undefined }} />)
+    const oil = html.slice(html.indexOf('<div class="t-label">Oil Change</div>') - 2500, html.indexOf('<div class="t-label">Oil Change</div>') + 900)
+    expect(oil).toContain('>554<')
+    expect(oil).toContain('km overdue')
+    expect(oil).toContain('Overdue by 554 km')
+    expect(oil).toContain('data-status="bad"')
+    expect(oil).toContain('var(--nx-bad)')
+    expect(oil).toContain('Was due at 12,000 km')
   })
 })

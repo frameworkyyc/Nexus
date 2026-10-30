@@ -60,6 +60,9 @@ export function InspectionModal({ vehicle, onClose }: { vehicle: Vehicle; onClos
   const [error, setError] = useState('')
   const readingN = numOrNull(reading)
   // Say, before saving, when the reading will not become the current figure: an older inspection never overwrites a newer reading.
+  const nextN = numOrNull(nextOil)
+  const basis = readingN !== null && !(latest && ((latest.date && date < latest.date) || readingN < latest.reading)) ? readingN : latest?.reading ?? readingN
+  const overdueBy = nextN !== null && basis !== null && Number.isFinite(nextN) ? basis - nextN : null
   const held = readingN !== null && latest && ((latest.date && date < latest.date) || readingN < latest.reading)
   const save = () => {
     if (readingN === null) { setError(`Enter the current ${unit === 'h' ? 'hour-meter reading' : 'odometer'}.`); return }
@@ -79,7 +82,12 @@ export function InspectionModal({ vehicle, onClose }: { vehicle: Vehicle; onClos
           <Field label={`Next oil change due (${unit === 'h' ? 'h' : 'km'}, optional)`}><Input inputMode="numeric" value={nextOil} onChange={(e) => setNextOil(e.target.value)} placeholder="Leave as is" /></Field>
         </div>
         {held && <p role="status" className="-mt-2 text-xs text-muted">This reading is {latest && latest.date && date < latest.date ? 'dated before' : 'lower than'} the current {fmtMeter(latest!.reading, unit)}. It is saved with the inspection but held for review, so it does not replace the current figure.</p>}
-        {nextOil.trim() !== '' && <p className="-mt-2 text-xs text-muted">This sets when the next oil change falls due. It does not record an oil change as done.</p>}
+        {nextOil.trim() !== '' && (
+          <p className="-mt-2 text-xs text-muted">
+            {overdueBy !== null && overdueBy >= 0 ? <>That is {overdueBy === 0 ? 'at' : 'below'} the current reading, so the oil change will show as <span className="font-medium text-ink">{fmtMeter(overdueBy, unit)} overdue</span> until the schedule is updated. </> : null}
+            This sets when the next oil change falls due. It does not record an oil change as done.
+          </p>
+        )}
         <Field label="Overall condition (as observed, optional)">
           <Select value={condition} onChange={(e) => setCondition(e.target.value as RatedCondition | '')}>
             <option value="">Not stated</option>

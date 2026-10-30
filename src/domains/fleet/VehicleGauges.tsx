@@ -28,14 +28,16 @@ export interface GaugeHandlers {
 function DistanceGauge({ title, ind, noSchedule, onSelect, actions, row }: { title: string; ind: DistanceIndicator; noSchedule: string; onSelect: () => void; actions?: ReactNode; row?: boolean }) {
   const km = (n: number) => fmtMeter(n, ind.unit)
   const known = ind.remaining !== null
-  const value = ind.remainingPercent !== null ? pct(ind.remainingPercent) : ind.consumedPercent !== null ? '0%' : known ? num(Math.abs(ind.remaining!)) : 'Unknown'
-  const unit = known ? (ind.remaining! < 0 ? `${km(-ind.remaining!)} overdue` : `${km(ind.remaining!)} remaining`) : ind.schedule ? 'No valid odometer' : noSchedule
+  const overdue = known && ind.remaining! < 0
+  // Overdue: the ring is full and red, and the figure is how far past the due value the meter now is (it grows as readings come in).
+  const value = overdue ? num(-ind.remaining!) : ind.remainingPercent !== null ? pct(ind.remainingPercent) : ind.consumedPercent !== null ? '0%' : known ? num(Math.abs(ind.remaining!)) : 'Unknown'
+  const unit = overdue ? `${ind.unit === 'h' ? 'hours' : 'km'} overdue` : known ? `${km(ind.remaining!)} remaining` : ind.schedule ? 'No valid reading' : noSchedule
   const detail: string[] = []
-  if (ind.dueAt !== null) detail.push(`Due at ${km(ind.dueAt)}${ind.intervalKm ? ` · ${km(ind.intervalKm)} interval` : ''}`)
+  if (ind.dueAt !== null) detail.push(`${overdue ? `Was due at ${km(ind.dueAt)} · now at ${km(ind.current!)}` : `Due at ${km(ind.dueAt)}`}${ind.intervalKm ? ` · ${km(ind.intervalKm)} interval` : ''}`)
   if (ind.baselineCalculated && ind.intervalStart !== null) detail.push(`Interval start ${km(ind.intervalStart)} (calculated)`)
   else if (ind.last) detail.push(`Last done ${ind.lastAt !== null ? `at ${km(ind.lastAt)} · ` : ''}${formatDate(ind.last.date)}`)
   return (
-    <RadialGauge title={title} layout={row ? 'row' : 'stack'} size={row ? ROW_RING : undefined} word={value === 'Unknown'} percent={ind.remainingPercent} status={ind.status} statusLabel={ind.label} value={value} unit={unit} detail={detail.map((d) => <div key={d}>{d}</div>)} onSelect={onSelect} actions={actions} />
+    <RadialGauge title={title} layout={row ? 'row' : 'stack'} size={row ? ROW_RING : undefined} word={value === 'Unknown'} percent={overdue ? 100 : ind.remainingPercent} status={ind.status} statusLabel={ind.label} value={value} unit={unit} detail={detail.map((d) => <div key={d}>{d}</div>)} onSelect={onSelect} actions={actions} />
   )
 }
 
