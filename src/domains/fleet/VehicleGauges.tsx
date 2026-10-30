@@ -5,7 +5,7 @@ import { daysBetween } from '@/lib/date'
 import { useIsPhone } from '@/lib/useMedia'
 import { formatDate } from '@/lib/format'
 import { inspectionIndicator, lifespanIndicator, oilIndicator, pct1, serviceIndicator, tireIndicator, type DistanceIndicator } from './indicators'
-import { accessoriesOf, ACCESSORY_CATEGORY_LABEL, conditionOf, CONDITION_LABEL, latestOdometer, odometerHistory, readingsNeedingReview, TIRE_CONDITION_LABEL } from './selectors'
+import { accessoriesOf, conditionOf, CONDITION_LABEL, latestOdometer, odometerHistory, readingsNeedingReview, TIRE_CONDITION_LABEL } from './selectors'
 import type { AccessoryCategory, ConditionStatus, FleetState, Vehicle } from './types'
 
 const km = (n: number) => `${n.toLocaleString('en-CA')} km`
@@ -113,15 +113,15 @@ export function VehicleGauges({ state, vehicle, today, projectName, handlers }: 
         <h2 className="t-title">Installed accessories</h2>
         {accessories.length ? (
           <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {accessories.map(({ accessory: a, placement: p }) => {
+            {accessories.map(({ accessory: a, placement: p, label, typeLabel }) => {
               const Icon = ACCESSORY_ICON[a.category]
               return (
                 <li key={a.id}>
                   <button type="button" onClick={() => jump('accessories')} className="flex w-full items-start gap-4 rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--nx-line)] transition-shadow hover:shadow-[0_0_0_1px_var(--nx-ink)]">
                     <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-hover"><Icon size={22} strokeWidth={1.5} aria-hidden="true" /></span>
                     <span className="min-w-0">
-                      <span className="block text-[15px] font-medium leading-snug">{a.name}</span>
-                      <span className="mt-0.5 block text-xs text-muted">{ACCESSORY_CATEGORY_LABEL[a.category]}{a.specification && a.specification !== a.name ? ` · ${a.specification}` : ''}</span>
+                      <span className="block text-[15px] font-medium leading-snug">{label}</span>
+                      <span className="mt-0.5 block text-xs text-muted">{[typeLabel, a.specification && a.specification !== label ? a.specification : ''].filter(Boolean).join(' · ')}</span>
                       <span className="mt-1.5 block"><StatusMark status="info" label="Installed" /></span>
                       <span className="mt-1 block text-xs text-muted">{p.installDate ? `Since ${formatDate(p.installDate)}` : 'Install date not recorded'}</span>
                     </span>

@@ -1,4 +1,5 @@
 import { daysBetween, type ISODate } from '@/lib/date'
+import { accessoryLabel, typesOf } from './accessoryTypes'
 import type { Accessory, AccessoryPlacement, AccessoryStatus, ConditionStatus, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, ServiceTarget, TireSet, TreadMeasurement, Vehicle, VehicleAssignment } from './types'
 
 export const CONDITION_LABEL: Record<ConditionStatus, string> = {
@@ -137,7 +138,7 @@ export const TIRE_CONDITION_LABEL = { unknown: 'Not assessed', good: 'Good', fai
 
 /* ── Accessories ───────────────────────────────────────────────────────── */
 
-export interface AccessoryOnVehicle { accessory: Accessory; placement: AccessoryPlacement; status: AccessoryStatus }
+export interface AccessoryOnVehicle { accessory: Accessory; placement: AccessoryPlacement; status: AccessoryStatus; label: string; typeLabel: string }
 
 /** Every accessory that has ever been on this vehicle, with its latest placement here. Nothing is removed from view when it moves. */
 export function accessoriesOf(state: FleetState, vehicleId: string): AccessoryOnVehicle[] {
@@ -146,7 +147,9 @@ export function accessoriesOf(state: FleetState, vehicleId: string): AccessoryOn
     const here = accessory.placements.filter((p) => p.vehicleId === vehicleId)
     const placement = here.at(-1)
     if (!placement) continue
-    out.push({ accessory, placement, status: placement.endReason === null ? 'installed' : placement.endReason })
+    const label = accessoryLabel(state, accessory)
+    const typeName = typesOf(state).find((t) => t.id === accessory.typeId)?.name ?? (accessory.category === 'other' ? '' : ACCESSORY_CATEGORY_LABEL[accessory.category])
+    out.push({ accessory, placement, status: placement.endReason === null ? 'installed' : placement.endReason, label, typeLabel: typeName.toLowerCase() === label.toLowerCase() ? '' : typeName })
   }
   return out
 }
@@ -254,8 +257,8 @@ export function historyOf(state: FleetState, vehicleId: string, projectName: (id
   }
   for (const a of state.accessories) a.placements.forEach((p, i) => {
     if (p.vehicleId !== vehicleId) return
-    events.push({ id: `${a.id}:${i}:in`, date: p.installDate, text: `${a.name} installed` })
-    if (p.endReason) events.push({ id: `${a.id}:${i}:out`, date: p.endDate, text: p.endReason === 'transferred' ? `${a.name} transferred to another vehicle` : `${a.name} removed` })
+    events.push({ id: `${a.id}:${i}:in`, date: p.installDate, text: `${accessoryLabel(state, a)} installed` })
+    if (p.endReason) events.push({ id: `${a.id}:${i}:out`, date: p.endDate, text: p.endReason === 'transferred' ? `${accessoryLabel(state, a)} transferred to another vehicle` : `${accessoryLabel(state, a)} removed` })
   })
   // Dated events newest first (ties broken by creation order, newest first); undated events last.
   return events

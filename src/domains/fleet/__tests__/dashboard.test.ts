@@ -13,12 +13,12 @@ import type { FleetState } from '../types'
 
 const TODAY = '2026-10-21'
 // Most tests exercise genuine records, so they start without the demonstration inspections (covered in demo.test).
-const seed = () => { const s = buildFleetSeed(); return { ...s, inspections: s.inspections.filter((i) => !i.demo) } }
+const seed = () => { const s = buildFleetSeed(); return { ...s, inspections: s.inspections.filter((i) => !i.demo), accessoryTypes: [{ id: 'aty-light-bar', name: 'Light bar', archived: false, createdAt: '', createdBy: '' }] } }
 const apply = (s: FleetState, r: A.Reducer): FleetState => { const o = r(s); if (o.error !== undefined) throw new Error(o.error); return o.state }
 const err = (s: FleetState, r: A.Reducer) => r(s).error
 const T6005 = 'veh-T6005'
 const tire = (over: Partial<A.TireInput> = {}): A.TireInput => ({ manufacturer: 'Michelin', model: 'X-Ice', size: '', classes: ['winter'], studded: 'unknown', origin: '', installDate: null, installOdometer: 12_000, condition: 'unknown', notes: '', ...over })
-const acc = (over: Partial<A.AccessoryInput> = {}): A.AccessoryInput => ({ name: 'Light bar', category: 'light-bar', description: '', specification: '', cost: null, warranty: '', notes: '', ...over })
+const acc = (over: Partial<A.AccessoryInput> = {}): A.AccessoryInput => ({ typeId: 'aty-light-bar', name: '', description: '', specification: '', cost: null, warranty: '', notes: '', ...over })
 
 describe('T6010 verified information', () => {
   const s = seed()
@@ -195,16 +195,16 @@ describe('maintenance thresholds', () => {
 
 describe('accessories', () => {
   it('creates an accessory with its details and an installation record', () => {
-    const s = apply(seed(), A.addAccessory(T6010_ID, acc({ name: 'Roof light bar', specification: '40 in', cost: 899.5, warranty: '2 years', notes: 'wired to aux' }), { date: '2026-10-15', odometer: 11_000 }, TODAY))
+    const s = apply(seed(), A.addAccessory(T6010_ID, acc({ description: 'Roof light bar', specification: '40 in', cost: 899.5, warranty: '2 years', notes: 'wired to aux' }), { date: '2026-10-15', odometer: 11_000 }, TODAY))
     const mine = accessoriesOf(s, T6010_ID)
-    expect(mine.map((x) => x.accessory.name)).toEqual(['750 L Tidy Tank', 'Roof light bar'])
+    expect(mine.map((x) => x.label)).toEqual(['750 L Tidy Tank', 'Light bar'])
     expect(mine[1]).toMatchObject({ status: 'installed', placement: { installDate: '2026-10-15', installOdometer: 11_000 }, accessory: { cost: 899.5, warranty: '2 years', specification: '40 in' } })
-    expect(historyOf(s, T6010_ID, (i) => i).map((h) => h.text)).toContain('Roof light bar installed')
+    expect(historyOf(s, T6010_ID, (i) => i).map((h) => h.text)).toContain('Light bar installed')
   })
 
   it('validates accessories', () => {
     const s = seed()
-    expect(err(s, A.addAccessory(T6010_ID, acc({ name: ' ' }), { date: null, odometer: null }, TODAY))).toMatch(/name/)
+    expect(err(s, A.addAccessory(T6010_ID, acc({ typeId: null }), { date: null, odometer: null }, TODAY))).toMatch(/accessory type/)
     expect(err(s, A.addAccessory(T6010_ID, acc({ cost: -1 }), { date: null, odometer: null }, TODAY))).toMatch(/Cost/)
     expect(err(s, A.addAccessory(T6010_ID, acc(), { date: '2027-01-01', odometer: null }, TODAY))).toMatch(/not in the future/)
     expect(err(s, A.addAccessory(T6010_ID, acc(), { date: null, odometer: 50_000 }, TODAY))).toMatch(/above the vehicle/)
@@ -215,7 +215,7 @@ describe('accessories', () => {
     let s = seed()
     const id = s.accessories[0].id
     s = apply(s, A.updateInstallation(id, T6010_ID, { date: '2026-02-01', odometer: 500 }, TODAY))
-    s = apply(s, A.updateAccessory(id, acc({ name: '750 L Tidy Tank', category: 'tidy-tank', specification: '750 L', cost: 4200, warranty: '1 year' })))
+    s = apply(s, A.updateAccessory(id, acc({ typeId: null, name: '750 L Tidy Tank', specification: '750 L', cost: 4200, warranty: '1 year' })))
     expect(accessoriesOf(s, T6010_ID)[0]).toMatchObject({ placement: { installDate: '2026-02-01', installOdometer: 500 }, accessory: { cost: 4200, warranty: '1 year', specification: '750 L' } })
   })
 

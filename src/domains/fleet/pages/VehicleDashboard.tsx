@@ -21,7 +21,7 @@ import { fleetPaths } from '../paths'
 import { oilIndicator, pct1 } from '../indicators'
 import { VehicleGauges } from '../VehicleGauges'
 import {
-  accessoriesOf, ACCESSORY_CATEGORY_LABEL, currentAssignment, fleetRow, historyOf, inspectionsOf, lastService, latestTread, maintenanceOf, odometerHistory, tireKm, tireSetsOf, TIRE_CLASS_LABEL,
+  accessoriesOf, currentAssignment, fleetRow, historyOf, inspectionsOf, lastService, latestTread, maintenanceOf, odometerHistory, tireKm, tireSetsOf, TIRE_CLASS_LABEL,
   TIRE_CONDITION_LABEL, vehicleTitle,
 } from '../selectors'
 import { useFleet, useFleetActor, useFleetCommand, useProjectRegistry } from '../store'
@@ -245,10 +245,10 @@ export function VehicleDashboard() {
       {/* 5 · Modifications and accessories */}
       <Section title="Modifications and accessories" description="An accessory is one record for its whole life. Removing or transferring it adds to its history; nothing is deleted." actions={editable && <Btn onClick={() => setModal({ kind: 'accessory-add' })}>Add accessory</Btn>}>
         <span id="accessories" className="relative -top-4 block" />
-        {accessories.length ? accessories.map(({ accessory: a, placement: p, status }) => (
+        {accessories.length ? accessories.map(({ accessory: a, placement: p, status, label, typeLabel }) => (
           <article key={a.id} className="border-t border-line py-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-[15px] font-medium">{a.name}<span className="ml-2 text-xs font-normal text-muted">{ACCESSORY_CATEGORY_LABEL[a.category]}</span></h3>
+              <h3 className="text-[15px] font-medium">{label}{typeLabel && <span className="ml-2 text-xs font-normal text-muted">{typeLabel}</span>}</h3>
               <span className="flex items-center gap-3"><StatusBadge tone={status === 'installed' ? 'info' : 'muted'} label={status === 'installed' ? 'Installed' : status === 'removed' ? 'Removed' : 'Transferred'} />
                 {editable && <button className={link} onClick={() => setModal({ kind: 'accessory-edit', accessory: a })}>Edit</button>}</span>
             </div>

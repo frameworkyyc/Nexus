@@ -20,7 +20,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
   let s: FleetState
   if (from >= 2) s = data as FleetState
   else s = {
-    vehicles: d.vehicles ?? [], assignments: d.assignments ?? [], maintenance: d.maintenance ?? [], serviceTargets: [], tireSets: [], accessories: [],
+    vehicles: d.vehicles ?? [], assignments: d.assignments ?? [], maintenance: d.maintenance ?? [], serviceTargets: [], tireSets: [], accessories: [], accessoryTypes: [],
     odometer: (d.odometer ?? []).map((r) => ({ id: r.id!, vehicleId: r.vehicleId!, date: r.date!, reading: r.reading!, unit: r.unit ?? 'km', review: 'valid', flag: null, correctsId: null, note: '', reviewNote: '', reviewedDate: null })),
     inspections: (d.inspections ?? []).map((i) => ({ id: i.id!, vehicleId: i.vehicleId!, date: i.date!, submittedBy: '', notes: i.notes ?? '', defects: [], review: 'reviewed', reviewedBy: '', reviewedDate: i.date ?? null, reviewNote: '', condition: i.condition ?? null, demo: false })),
   }
@@ -50,7 +50,7 @@ export function migrateFleet(data: unknown, from: number): FleetState {
  * Fleet records. With a server (saved-data mode) they live in the database and every change is confirmed by the server before
  * it is shown as saved. Without one (demonstration mode, local development) they stay in this browser, as before.
  */
-const emptyFleet = (): FleetState => ({ vehicles: [], assignments: [], odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [] })
+const emptyFleet = (): FleetState => ({ vehicles: [], assignments: [], odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [], accessoryTypes: [] })
 
 const fleetLocal = IS_PUBLIC_DEMO
   ? createPersistedStore({ key: identity.storageKeys.fleet, version: 5, seed: buildFleetSeed, migrate: migrateFleet })

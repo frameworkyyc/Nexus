@@ -2,13 +2,16 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
+import { SearchSelect, type SelectOption } from '@/components/ui/SearchSelect'
+import { useAccess } from '@/lib/access'
+import { accessoryLabel, findAccessoryType, typesOf } from './accessoryTypes'
 import * as A from './commands'
 import type { AccessoryInput, TireInput } from './actions'
 import { recordOdometer, reviewInspection, setServiceTarget, submitInspection } from './commands'
-import { activeTireSet, ACCESSORY_CATEGORY_LABEL, currentOilTarget, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
+import { activeTireSet, currentOilTarget, latestOdometer, odometerHistory, serviceStatus, TIRE_CLASS_LABEL, TIRE_CONDITION_LABEL, vehicleTitle } from './selectors'
 import { oilIndicator } from './indicators'
-import { useFleet, useFleetCommand } from './store'
-import type { Accessory, AccessoryCategory, InspectionRecord, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
+import { fleetStore, useFleet, useFleetCommand } from './store'
+import type { Accessory, InspectionRecord, RatedCondition, Studded, TireClass, TireCondition, TireSet, Vehicle } from './types'
 
 const Body = ({ children }: { children: React.ReactNode }) => <div className="space-y-4 p-6 text-[13px]">{children}</div>
 
@@ -276,40 +279,65 @@ export function RemoveTireModal({ tire, onClose }: { tire: TireSet; onClose: () 
   )
 }
 
-const CATEGORIES: AccessoryCategory[] = ['tidy-tank', 'light-bar', 'job-box', 'headache-rack', 'radio', 'other']
-
-/** Add an accessory to a vehicle, or edit its details. */
+/** Add an accessory to a vehicle, or edit its details. The accessory type names it, so there is no separate name to enter. */
 export function AccessoryModal({ vehicle, accessory, onClose }: { vehicle: Vehicle; accessory?: Accessory; onClose: () => void }) {
   const { state, today } = useFleet()
   const { run, saving } = useFleetCommand()
-  const cur = latestOdometer(state, vehicle.id)
-  const [f, setF] = useState({ name: accessory?.name ?? '', category: (accessory?.category ?? 'other') as AccessoryCategory, description: accessory?.description ?? '', specification: accessory?.specification ?? '', cost: accessory?.cost == null ? '' : String(accessory.cost), warranty: accessory?.warranty ?? '', notes: accessory?.notes ?? '', installDate: '', installOdometer: cur ? String(cur.reading) : '' })
+  const access = useAccess()
+  const [f, setF] = useState({ typeId: accessory?.typeId ?? '', pendingType: '', name: accessory?.name ?? '', description: accessory?.description ?? '', specification: accessory?.specification ?? '', cost: accessory?.cost == null ? '' : String(accessory.cost), warranty: accessory?.warranty ?? '', notes: accessory?.notes ?? '', installDate: '', installOdometer: '' })
+  const [adding, setAdding] = useState<string | null>(null)
+  const [typeError, setTypeError] = useState('')
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
-  const input = (): AccessoryInput => ({ name: f.name, category: f.category, description: f.description, specification: f.specification, cost: numOrNull(f.cost), warranty: f.warranty, notes: f.notes })
+  // A type just created from this form is selected as soon as the saved directory contains it.
+  const typeId = f.typeId || (f.pendingType ? findAccessoryType(state, f.pendingType)?.id ?? '' : '')
+  const typeOptions: SelectOption[] = typesOf(state).filter((t) => !t.archived || t.id === accessory?.typeId).sort((a, b) => a.name.localeCompare(b.name)).map((t) => ({ value: t.id, label: t.archived ? `${t.name} (archived)` : t.name }))
+  const canAddType = access.can('data.edit')
+  const input = (): AccessoryInput => ({ typeId: typeId || null, name: f.name, description: f.description, specification: f.specification, cost: numOrNull(f.cost), warranty: f.warranty, notes: f.notes })
+  const legacyUnlinked = !!accessory && accessory.typeId === null
+  const [error, setError] = useState('')
   const save = () => {
+    if (!typeId && !(legacyUnlinked && f.name.trim())) { setError('Choose an accessory type.'); return }
+    setError('')
     const r = accessory ? A.updateAccessory(accessory.id, input()) : A.addAccessory(vehicle.id, input(), { date: dateOrNull(f.installDate), odometer: numOrNull(f.installOdometer) }, today)
     run(r, onClose)
   }
+  const createType = async (name: string) => {
+    setTypeError('')
+    const err = await fleetStore.run(A.addAccessoryType(name))
+    if (err !== null) { setTypeError(err); return }
+    setF((x) => ({ ...x, typeId: '', pendingType: name }))
+    setAdding(null)
+  }
   return (
-    <Modal title={accessory ? `Edit ${accessory.name}` : `Add accessory · ${vehicle.unitNumber}`} onClose={onClose}>
+    <Modal title={accessory ? `Edit ${accessoryLabel(state, accessory)}` : `Add accessory · ${vehicle.unitNumber}`} onClose={onClose}>
       <Body>
+        <Field label="Accessory type *">
+          <SearchSelect label="Accessory type" value={typeId} options={typeOptions} onChange={(v) => setF((x) => ({ ...x, typeId: v, pendingType: '' }))} placeholder="Search accessory types…"
+            onCreate={canAddType ? (text) => { setTypeError(''); setAdding(text) } : undefined} createLabel={(t) => `Add new type “${t}”`} />
+        </Field>
+        {canAddType && adding === null && <button type="button" className="min-h-9 text-[13px] text-muted underline-offset-2 hover:text-ink hover:underline phone:min-h-11" onClick={() => { setTypeError(''); setAdding('') }}>+ Add new type</button>}
+        {adding !== null && (
+          <form className="space-y-2 rounded-nx border border-line p-3" onSubmit={(e) => { e.preventDefault(); void createType(adding) }}>
+            <Field label="New accessory type name *"><Input autoFocus value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="e.g. Tidy Tank" /></Field>
+            {typeError && <p role="alert" className="text-status-bad">{typeError}</p>}
+            <div className="flex gap-2"><Button variant="primary" type="submit" disabled={!adding.trim()}>Add type</Button><Button type="button" onClick={() => { setAdding(null); setTypeError('') }}>Cancel</Button></div>
+          </form>
+        )}
+        {accessory && accessory.name && <Field label="Custom name (from earlier records)"><Input value={f.name} onChange={set('name')} /></Field>}
+        <Field label="Description / details (optional)"><Input value={f.description} onChange={set('description')} placeholder="e.g. Aluminum fuel tank, 2 compartments" /></Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Name"><Input autoFocus value={f.name} onChange={set('name')} /></Field>
-          <Field label="Type"><Select value={f.category} onChange={set('category')}>{CATEGORIES.map((c) => <option key={c} value={c}>{ACCESSORY_CATEGORY_LABEL[c]}</option>)}</Select></Field>
+          <Field label="Capacity / specification (optional)"><Input value={f.specification} onChange={set('specification')} placeholder="e.g. 500 L" /></Field>
+          <Field label="Cost (optional)"><Input inputMode="decimal" value={f.cost} onChange={set('cost')} placeholder="Not recorded" /></Field>
         </div>
-        <Field label="Description"><Input value={f.description} onChange={set('description')} /></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Specification / capacity"><Input value={f.specification} onChange={set('specification')} placeholder="e.g. 500 L" /></Field>
-          <Field label="Cost (if known)"><Input inputMode="decimal" value={f.cost} onChange={set('cost')} placeholder="Not recorded" /></Field>
-        </div>
-        <Field label="Warranty"><Input value={f.warranty} onChange={set('warranty')} placeholder="Not recorded" /></Field>
+        <Field label="Warranty (optional)"><Input value={f.warranty} onChange={set('warranty')} placeholder="Not recorded" /></Field>
         {!accessory && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Installation date (optional)"><Input type="date" max={today} value={f.installDate} onChange={set('installDate')} /></Field>
-            <Field label="Installation odometer (km)"><Input inputMode="numeric" value={f.installOdometer} onChange={set('installOdometer')} /></Field>
+            <Field label="Installation odometer (km, optional)"><Input inputMode="numeric" value={f.installOdometer} onChange={set('installOdometer')} /></Field>
           </div>
         )}
-        <Field label="Notes"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
+        <Field label="Notes (optional)"><Textarea rows={3} value={f.notes} onChange={set('notes')} /></Field>
+        {error && <p role="alert" className="text-status-bad">{error}</p>}
         <Button variant="primary" disabled={saving} onClick={save}>{accessory ? 'Save changes' : 'Add accessory'}</Button>
       </Body>
     </Modal>
@@ -340,7 +368,7 @@ export function AccessoryMoveModal({ vehicle, accessory, mode, onClose }: { vehi
   const title = { 'install-details': 'Installation details', remove: 'Remove accessory', transfer: 'Transfer accessory', reinstall: 'Install accessory' }[mode]
   const others = state.vehicles.filter((v) => v.id !== vehicle.id)
   return (
-    <Modal title={`${title} · ${accessory.name}`} onClose={onClose}>
+    <Modal title={`${title} · ${accessoryLabel(state, accessory)}`} onClose={onClose}>
       <Body>
         {mode === 'transfer' && <p className="text-muted">The accessory moves to another vehicle. Its record and history stay together, and both vehicles keep their part of it.</p>}
         {mode === 'transfer' && (

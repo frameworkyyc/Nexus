@@ -53,8 +53,12 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
 /** Foundation and area setup is an Admin task; everything else in construction stays at `data.edit`. */
 const CONSTRUCTION_COMMANDS: Record<string, Permission> = { createOrganization: 'structure.manage', updateOrganization: 'structure.manage', createProject: 'structure.manage', updateProject: 'structure.manage', createFoundation: 'structure.manage', renameFoundation: 'structure.manage', editFoundation: 'structure.manage', archiveFoundation: 'structure.manage', createArea: 'structure.manage', addFoundations: 'structure.manage', editArea: 'structure.manage', archiveArea: 'structure.manage', addAnchorageType: 'structure.manage', editAnchorageType: 'structure.manage', archiveAnchorageType: 'structure.manage' }
 
+/** Anyone who can edit fleet records may add an accessory type; renaming and archiving types is an Admin task. */
+const FLEET_COMMANDS: Record<string, Permission> = { renameAccessoryType: 'structure.manage', setAccessoryTypeArchived: 'structure.manage' }
+
 export function permissionForCommand(module: string, name: string): Permission {
   if (module === 'materials') return MATERIALS_COMMANDS[name] ?? 'materials.configure'
+  if (module === 'fleet') return FLEET_COMMANDS[name] ?? 'data.edit'
   if (module === 'construction') return CONSTRUCTION_COMMANDS[name] ?? 'data.edit'
   return 'data.edit'
 }

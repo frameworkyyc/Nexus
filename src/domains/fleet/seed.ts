@@ -33,7 +33,7 @@ const t6010Tires = (): TireSet => ({
   installDate: null, installOdometer: 0, removalDate: null, removalOdometer: null, condition: 'unknown', expectedLifeKm: PRIMARY.tire.lifeKm, replaceAtMm: null, treads: [], notes: '',
 })
 const t6010Tank = (): Accessory => ({
-  id: `acc-${PRIMARY.unit}-tidy-tank`, name: PRIMARY.accessory.name, category: 'tidy-tank', description: '', specification: PRIMARY.accessory.specification, cost: null, warranty: '', notes: '',
+  id: `acc-${PRIMARY.unit}-tidy-tank`, typeId: null, name: PRIMARY.accessory.name, category: 'tidy-tank', description: '', specification: PRIMARY.accessory.specification, cost: null, warranty: '', notes: '',
   placements: [{ vehicleId: T6010_ID, installDate: null, installOdometer: null, endDate: null, endOdometer: null, endReason: null, toVehicleId: null, note: '' }],
 })
 
@@ -73,6 +73,6 @@ export function buildFleetSeed(): FleetState {
   const assignments: VehicleAssignment[] = vehicles.map((v) => ({
     id: `asg-${v.unitNumber}-1`, vehicleId: v.id, projectId: PROJECT_ID, startDate: null, endDate: null,
   }))
-  const base = applyVerifiedT6010({ vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [] })
+  const base = applyVerifiedT6010({ vehicles, assignments, odometer: [], serviceTargets: [], inspections: [], maintenance: [], tireSets: [], accessories: [], accessoryTypes: [] })
   return identity.fleet.extras ? addSampleHistory(base, T6010_ID, todayISO()) : base
 }

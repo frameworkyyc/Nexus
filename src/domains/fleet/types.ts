@@ -151,10 +151,14 @@ export interface AccessoryPlacement {
   note: string
 }
 
+/** An entry in the organization-wide accessory type directory. Never deleted; archived types stay on existing accessories but cannot be chosen for new ones. */
+export interface AccessoryType { id: string; name: string; archived: boolean; createdAt: string; createdBy: string }
+
 /** The accessory is one record for life: transferring it adds a placement, it never copies or deletes the record. */
 export interface Accessory {
   id: string
-  name: string
+  typeId: string | null // directory type; null only for records that predate the directory
+  name: string // legacy custom name; empty for accessories named by their type
   category: AccessoryCategory
   description: string
   specification: string // capacity or specification, e.g. "500 L"
@@ -173,4 +177,5 @@ export interface FleetState {
   maintenance: MaintenanceRecord[]
   tireSets: TireSet[]
   accessories: Accessory[]
+  accessoryTypes: AccessoryType[]
 }

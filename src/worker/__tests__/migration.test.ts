@@ -19,7 +19,8 @@ function localFleet(): FleetState {
   f = run(f, F.recordOdometer('veh-T6010', { date: '2026-10-20', reading: 12_400, note: '' }, TODAY))
   f = run(f, F.submitInspection('veh-T6010', { date: '2026-10-20', submittedBy: 'Clay', notes: '', defects: ['light'] }, TODAY))
   f = run(f, F.replaceTireSet('veh-T6010', { manufacturer: 'Nokian', model: 'Hakka', size: '', classes: ['winter'], studded: 'yes', origin: '', installDate: null, installOdometer: 12_400, condition: 'unknown', notes: '' }, { date: null, odometer: 12_400 }, TODAY))
-  f = run(f, F.addAccessory('veh-T6010', { name: 'Light bar', category: 'light-bar', description: '', specification: '', cost: null, warranty: '', notes: '' }, { date: null, odometer: null }, TODAY))
+  f = run(f, F.addAccessoryType('Light bar'))
+  f = run(f, F.addAccessory('veh-T6010', { typeId: 'aty-light-bar', name: '', description: '', specification: '', cost: null, warranty: '', notes: '' }, { date: null, odometer: null }, TODAY))
   return f
 }
 async function localTracker(): Promise<TrackerState> {
@@ -62,7 +63,9 @@ describe('browser-data migration', () => {
     const f = (await s.call('GET', '/api/state/fleet')).body.state as FleetState
     expect(f.odometer.map((o) => o.reading)).toEqual([11_856, 12_000, 12_400])
     expect(f.tireSets.filter((t) => t.vehicleId === 'veh-T6010').map((t) => [t.manufacturer, t.active])).toEqual([['Bridgestone', false], ['Nokian', true]])
-    expect(f.accessories.map((a) => a.name)).toEqual(['750 L Tidy Tank', 'Light bar'])
+    expect(f.accessories.map((a) => a.name)).toEqual(['750 L Tidy Tank', ''])
+    expect(f.accessories[1].typeId).toBe('aty-light-bar')
+    expect(f.accessoryTypes.map((t) => t.name)).toEqual(['Light bar'])
     expect(f.inspections.find((i) => !i.demo)!.defects[0].description).toBe('light')
     const t = (await s.call('GET', '/api/state/materials')).body.state as TrackerState
     expect(t.lines).toHaveLength(14)

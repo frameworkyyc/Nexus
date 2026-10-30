@@ -1,5 +1,6 @@
 import type { ISODate } from '@/lib/date'
-import type { Accessory, AccessoryCategory, AccessoryPlacement, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, RatedCondition, Studded, TireClass, TireCondition, TireSet, TreadMeasurement, Vehicle } from './types'
+import { accessoryTypeKey, cleanTypeName, typesOf } from './accessoryTypes'
+import type { Accessory, AccessoryType, AccessoryPlacement, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, RatedCondition, Studded, TireClass, TireCondition, TireSet, TreadMeasurement, Vehicle } from './types'
 import { countsAsCurrent, currentAssignment, currentOilTarget, currentServiceTarget, isOilChange, latestOdometer, odometerHistory } from './selectors'
 
 export type Result = { state: FleetState; error?: undefined } | { error: string; state?: undefined }
@@ -252,9 +253,50 @@ export const setTireCondition = (tireId: string, condition: TireCondition): Redu
 
 /* ── Accessories ───────────────────────────────────────────────────────── */
 
-export interface AccessoryInput { name: string; category: AccessoryCategory; description: string; specification: string; cost: number | null; warranty: string; notes: string }
-const validateAccessory = (a: AccessoryInput) =>
-  !a.name.trim() ? 'Enter a name for the accessory.' : a.cost !== null && (!Number.isFinite(a.cost) || a.cost < 0) ? 'Cost must be zero or more.' : null
+export interface AccessoryInput { typeId: string | null; name: string; description: string; specification: string; cost: number | null; warranty: string; notes: string }
+
+/** `name` is only a legacy custom name; the type names every new accessory. */
+const validateAccessory = (s: FleetState, a: AccessoryInput, current?: Accessory) => {
+  if (a.cost !== null && (!Number.isFinite(a.cost) || a.cost < 0)) return 'Cost must be zero or more.'
+  if (a.typeId === null) return current && (current.typeId === null && a.name.trim()) ? null : 'Choose an accessory type.'
+  const t = typesOf(s).find((x) => x.id === a.typeId)
+  if (!t) return 'That accessory type does not exist.'
+  if (t.archived && t.id !== current?.typeId) return `“${t.name}” is archived and cannot be used for new accessories.`
+  return null
+}
+
+/* ── Accessory type directory (organization-wide) ──────────────────────── */
+
+const validateTypeName = (name: string) => { const n = cleanTypeName(name); return n.length < 2 || n.length > 60 ? 'Enter an accessory type name of 2 to 60 characters.' : null }
+const typeConflict = (s: FleetState, name: string, exceptId?: string) => {
+  const t = typesOf(s).find((x) => x.id !== exceptId && accessoryTypeKey(x.name) === accessoryTypeKey(name))
+  return t ? `“${t.name}” already exists${t.archived ? ' (archived — restore it instead)' : ''}. Choose that type.` : null
+}
+const typeSlug = (name: string) => accessoryTypeKey(name).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'type'
+
+/** Adds a type to the directory. A name that matches an existing type, ignoring capitalization and spacing, is refused; similar spellings are not merged. */
+export const addAccessoryType = (name: string): Reducer => (s, ctx) => {
+  const bad = validateTypeName(name) ?? typeConflict(s, name)
+  if (bad) return { error: bad }
+  const n = cleanTypeName(name)
+  const taken = new Set(typesOf(s).map((t) => t.id))
+  let id = `aty-${typeSlug(n)}`
+  for (let i = 2; taken.has(id); i++) id = `aty-${typeSlug(n)}-${i}`
+  const rec: AccessoryType = { id, name: n, archived: false, createdAt: ctx?.now ?? new Date().toISOString(), createdBy: ctx?.actor ?? '' }
+  return { state: { ...s, accessoryTypes: [...typesOf(s), rec] } }
+}
+
+/** Renames a type. Accessories reference it by id, so every one shows the new name and no history is touched. */
+export const renameAccessoryType = (id: string, name: string): Reducer => (s) => {
+  if (!typesOf(s).some((t) => t.id === id)) return { error: 'Accessory type not found.' }
+  const bad = validateTypeName(name) ?? typeConflict(s, name, id)
+  if (bad) return { error: bad }
+  return { state: { ...s, accessoryTypes: typesOf(s).map((t) => (t.id === id ? { ...t, name: cleanTypeName(name) } : t)) } }
+}
+
+/** Archived types stay on the accessories that already use them but are not offered for new ones. Types are never deleted. */
+export const setAccessoryTypeArchived = (id: string, archived: boolean): Reducer => (s) =>
+  typesOf(s).some((t) => t.id === id) ? { state: { ...s, accessoryTypes: typesOf(s).map((t) => (t.id === id ? { ...t, archived } : t)) } } : { error: 'Accessory type not found.' }
 
 function validatePlacementDates(s: FleetState, vehicleId: string, date: ISODate | null, odometer: number | null, today: ISODate): string | null {
   if (date !== null && (!validDate(date) || date > today)) return 'Enter a valid date that is not in the future.'
@@ -267,10 +309,10 @@ function validatePlacementDates(s: FleetState, vehicleId: string, date: ISODate 
 /** Adds an accessory and installs it on a vehicle. */
 export const addAccessory = (vehicleId: string, input: AccessoryInput, install: { date: ISODate | null; odometer: number | null }, today: ISODate): Reducer => (s) => {
   if (!s.vehicles.some((v) => v.id === vehicleId)) return { error: 'Vehicle not found.' }
-  const bad = validateAccessory(input) ?? validatePlacementDates(s, vehicleId, install.date, install.odometer, today)
+  const bad = (input.typeId === null ? 'Choose an accessory type.' : validateAccessory(s, input)) ?? validatePlacementDates(s, vehicleId, install.date, install.odometer, today)
   if (bad) return { error: bad }
   const acc: Accessory = {
-    id: nextId('acc'), name: input.name.trim(), category: input.category, description: input.description.trim(), specification: input.specification.trim(), cost: input.cost, warranty: input.warranty.trim(), notes: input.notes.trim(),
+    id: nextId('acc'), typeId: input.typeId, name: '', category: 'other', description: input.description.trim(), specification: input.specification.trim(), cost: input.cost, warranty: input.warranty.trim(), notes: input.notes.trim(),
     placements: [{ vehicleId, installDate: install.date, installOdometer: install.odometer, endDate: null, endOdometer: null, endReason: null, toVehicleId: null, note: '' }],
   }
   return { state: { ...s, accessories: [...s.accessories, acc] } }
@@ -284,7 +326,7 @@ const patchAccessory = (s: FleetState, id: string, fn: (a: Accessory) => Accesso
 }
 
 export const updateAccessory = (accessoryId: string, input: AccessoryInput): Reducer => (s) =>
-  patchAccessory(s, accessoryId, (a) => validateAccessory(input) ?? { ...a, name: input.name.trim(), category: input.category, description: input.description.trim(), specification: input.specification.trim(), cost: input.cost, warranty: input.warranty.trim(), notes: input.notes.trim() })
+  patchAccessory(s, accessoryId, (a) => validateAccessory(s, input, a) ?? { ...a, typeId: input.typeId, name: input.name.trim(), description: input.description.trim(), specification: input.specification.trim(), cost: input.cost, warranty: input.warranty.trim(), notes: input.notes.trim() })
 
 /** Fills in or corrects when and at what odometer an accessory was installed on a vehicle (its latest placement there). */
 export const updateInstallation = (accessoryId: string, vehicleId: string, install: { date: ISODate | null; odometer: number | null }, today: ISODate): Reducer => (s) =>

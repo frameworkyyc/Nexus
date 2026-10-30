@@ -8,7 +8,7 @@ import type { Backup } from './service'
 const ORDER = [
   'companies', 'projects', 'areas', 'foundations', 'plinths', 'activities',
   'vehicles', 'vehicle_assignments', 'odometer_readings', 'service_targets', 'maintenance_records', 'tire_sets', 'tread_measurements',
-  'accessories', 'accessory_placements', 'inspections', 'inspection_defects',
+  'accessory_types', 'accessories', 'accessory_placements', 'inspections', 'inspection_defects',
   'material_import_batches', 'suppliers', 'category_suppliers', 'material_lines', 'material_line_ops', 'material_receipts', 'manual_materials', 'manual_material_receipts', 'material_audit', 'workbook_summary_rows', 'anchorage_sheet_rows', 'import_flags', 'flag_acknowledgements',
   'change_log', 'module_versions', 'schema_info',
 ]

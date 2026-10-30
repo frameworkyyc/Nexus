@@ -1,5 +1,6 @@
 import type { Row, RowSet } from '../db'
-import type { Accessory, AccessoryPlacement, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, ServiceTarget, TireSet, TreadMeasurement, Vehicle, VehicleAssignment } from '@/domains/fleet/types'
+import { accessoryTypeKey } from '@/domains/fleet/accessoryTypes'
+import type { Accessory, AccessoryPlacement, AccessoryType, Defect, FleetState, InspectionRecord, MaintenanceRecord, OdometerReading, ServiceTarget, TireSet, TreadMeasurement, Vehicle, VehicleAssignment } from '@/domains/fleet/types'
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v))
@@ -14,7 +15,8 @@ export function fleetToRows(state: FleetState): RowSet {
     maintenance_records: state.maintenance.map((m, seq): Row => ({ id: m.id, vehicle_id: m.vehicleId, service_date: m.date, service_type: m.serviceType, odometer: m.odometer, description: m.description, condition: m.condition ?? null, notes: m.notes, seq })),
     tire_sets: state.tireSets.map((t, seq): Row => ({ id: t.id, vehicle_id: t.vehicleId, manufacturer: t.manufacturer, model: t.model, size: t.size, classes_json: JSON.stringify(t.classes), studded: t.studded, origin: t.origin, active: t.active ? 1 : 0, install_date: t.installDate, install_odometer: t.installOdometer, removal_date: t.removalDate, removal_odometer: t.removalOdometer, condition: t.condition, expected_life_km: t.expectedLifeKm, replace_at_mm: t.replaceAtMm, notes: t.notes, seq })),
     tread_measurements: state.tireSets.flatMap((t) => t.treads.map((m, seq): Row => ({ id: m.id, tire_set_id: t.id, measured_date: m.date, odometer: m.odometer, depth_mm: m.depthMm, note: m.note, seq }))),
-    accessories: state.accessories.map((a, seq): Row => ({ id: a.id, name: a.name, category: a.category, description: a.description, specification: a.specification, cost: a.cost, warranty: a.warranty, notes: a.notes, seq })),
+    accessory_types: (state.accessoryTypes ?? []).map((t, seq): Row => ({ id: t.id, name: t.name, name_key: accessoryTypeKey(t.name), archived: t.archived ? 1 : 0, created_at: t.createdAt, created_by: t.createdBy, seq })),
+    accessories: state.accessories.map((a, seq): Row => ({ id: a.id, type_id: a.typeId ?? null, name: a.name, category: a.category, description: a.description, specification: a.specification, cost: a.cost, warranty: a.warranty, notes: a.notes, seq })),
     accessory_placements: state.accessories.flatMap((a) => a.placements.map((p, seq): Row => ({ id: `${a.id}:${seq}`, accessory_id: a.id, seq, vehicle_id: p.vehicleId, install_date: p.installDate, install_odometer: p.installOdometer, end_date: p.endDate, end_odometer: p.endOdometer, end_reason: p.endReason, to_vehicle_id: p.toVehicleId, note: p.note }))),
     inspections: state.inspections.map((i, seq): Row => ({ id: i.id, vehicle_id: i.vehicleId, inspection_date: i.date, submitted_by: i.submittedBy, notes: i.notes, review: i.review, reviewed_by: i.reviewedBy, reviewed_date: i.reviewedDate, review_note: i.reviewNote, condition: i.condition, demo: i.demo ? 1 : 0, seq })),
     inspection_defects: state.inspections.flatMap((i) => i.defects.map((d, seq): Row => ({ id: d.id, inspection_id: i.id, description: d.description, status: d.status, resolved_date: d.resolvedDate, resolution_note: d.resolutionNote, seq }))),
@@ -45,9 +47,10 @@ export function fleetFromRows(rows: RowSet): FleetState {
       treads: (treads.get(String(r.id)) ?? []).map((m): TreadMeasurement => ({ id: String(m.id), date: s(m.measured_date), odometer: n(m.odometer), depthMm: Number(m.depth_mm), note: String(m.note) })),
     })),
     accessories: (rows.accessories ?? []).map((r): Accessory => ({
-      id: String(r.id), name: String(r.name), category: String(r.category) as Accessory['category'], description: String(r.description), specification: String(r.specification), cost: n(r.cost), warranty: String(r.warranty), notes: String(r.notes),
+      id: String(r.id), typeId: s(r.type_id), name: String(r.name), category: String(r.category) as Accessory['category'], description: String(r.description), specification: String(r.specification), cost: n(r.cost), warranty: String(r.warranty), notes: String(r.notes),
       placements: (placements.get(String(r.id)) ?? []).map((p): AccessoryPlacement => ({ vehicleId: String(p.vehicle_id), installDate: s(p.install_date), installOdometer: n(p.install_odometer), endDate: s(p.end_date), endOdometer: n(p.end_odometer), endReason: s(p.end_reason) as AccessoryPlacement['endReason'], toVehicleId: s(p.to_vehicle_id), note: String(p.note) })),
     })),
+    accessoryTypes: (rows.accessory_types ?? []).map((r): AccessoryType => ({ id: String(r.id), name: String(r.name), archived: Number(r.archived) === 1, createdAt: String(r.created_at), createdBy: String(r.created_by) })),
     inspections: (rows.inspections ?? []).map((r): InspectionRecord => ({
       id: String(r.id), vehicleId: String(r.vehicle_id), date: String(r.inspection_date), submittedBy: String(r.submitted_by), notes: String(r.notes), review: String(r.review) as InspectionRecord['review'], reviewedBy: String(r.reviewed_by), reviewedDate: s(r.reviewed_date), reviewNote: String(r.review_note), condition: s(r.condition) as InspectionRecord['condition'], demo: Number(r.demo) === 1,
       defects: (defects.get(String(r.id)) ?? []).map((d): Defect => ({ id: String(d.id), description: String(d.description), status: String(d.status) as Defect['status'], resolvedDate: s(d.resolved_date), resolutionNote: String(d.resolution_note) })),
