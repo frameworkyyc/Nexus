@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import * as K from '../actions'
 import { boxVolumeM3, concreteByAnchorage, foundationConcrete, toMetres } from '../concrete'
 import { emptyConstruction } from '../empty'
+import { plinthsPerFoundationFromGroups } from '../foundationQuantity'
 import { anchorageFor, buildCatalog } from '../tracker/catalog'
 import { emptyTracker } from '../tracker/types'
 import { componentInfo, pourBreakdown, pourTotals } from '../pours'
@@ -68,6 +69,21 @@ describe('anchorage groups', () => {
     expect(n.anchorageGroups!.filter((g) => g.foundationId === f.id)).toMatchObject([{ anchorageTypeId: null, count: 4 }])
     expect(n.plinths.filter((p) => p.foundationId === f.id).every((p) => p.anchorageTypeId === null)).toBe(true)
     expect(n.plinths.filter((p) => p.foundationId === n.foundations.find((x) => x.number === 'N-2')!.id)).toHaveLength(0)
+  })
+})
+
+describe('register quantities: footings and total plinths', () => {
+  it('18 footings with 3 plinths each is 18 footings / 54 plinths, from the quantity and the anchorage groups', () => {
+    const { s, f } = world()
+    const groups = s.anchorageGroups!.filter((g) => g.foundationId === f.id)
+    const per = plinthsPerFoundationFromGroups(f, s.plinths.length, groups)
+    expect(per).toBe(3)
+    expect(f.quantity! * per!).toBe(54)
+    // groups are the source: a stale stored count does not change the result
+    expect(plinthsPerFoundationFromGroups({ ...f, plinthsPerFoundation: 99 }, 99, groups)).toBe(3)
+    // without groups (older records) the stored value still applies; unknown stays unknown
+    expect(plinthsPerFoundationFromGroups({ ...f, plinthsPerFoundation: 4 }, 4, [])).toBe(4)
+    expect(plinthsPerFoundationFromGroups({ ...f, plinthsPerFoundation: null }, 0, [])).toBeNull()
   })
 })
 

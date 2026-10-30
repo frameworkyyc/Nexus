@@ -12,6 +12,14 @@ export function plinthsPerFoundation(f: Foundation, plinthRecords: number): numb
   return f.plinthsPerFoundation === undefined ? plinthRecords : f.plinthsPerFoundation
 }
 
+/**
+ * Plinths on each physical foundation, from its anchorage groups when it has them (the sum of the groups' counts), otherwise from the stored
+ * count / plinth records as before. null = not known. The register's total is this × the foundation quantity.
+ */
+export function plinthsPerFoundationFromGroups(f: Foundation, plinthRecords: number, groups: { count: number }[]): number | null {
+  return groups.length > 0 ? groups.reduce((t, g) => t + g.count, 0) : plinthsPerFoundation(f, plinthRecords)
+}
+
 export function totalPlinths(f: Foundation, plinthRecords: number): number | null {
   const per = plinthsPerFoundation(f, plinthRecords)
   return per === null ? null : foundationQuantity(f) * per

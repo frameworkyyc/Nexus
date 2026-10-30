@@ -16,7 +16,7 @@ import {
 } from '../selectors'
 import { useConstruction } from '../store'
 import { foundationConcrete, volumeLabel, type FoundationConcrete } from '../concrete'
-import { foundationQuantity, foundationTotals, plinthsPerFoundation, totalPlinths } from '../foundationQuantity'
+import { foundationQuantity, foundationTotals, plinthsPerFoundationFromGroups } from '../foundationQuantity'
 import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
 import { FoundationStateBadge, fraction } from '../ui'
 import type { Area, ConstructionState, Foundation, Plinth } from '../types'
@@ -75,8 +75,9 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
       (areaId ? foundationsOf(idx, areaId) : foundationsOfProject(idx, projectId)).filter((f) => showArchived || !f.archived).map((f) => {
         const plinths = idx.plinthsByFoundation.get(f.id) ?? []
         const groups = (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)
+        const perOf = plinthsPerFoundationFromGroups(f, plinths.length, groups)
         return {
-          f, plinths, qty: foundationQuantity(f), per: plinthsPerFoundation(f, plinths.length), total: totalPlinths(f, plinths.length), area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
+          f, plinths, qty: foundationQuantity(f), per: perOf, total: perOf === null ? null : foundationQuantity(f) * perOf, area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
           types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
           groups: groups.length ? groups.map((g) => ({ typeId: g.anchorageTypeId, count: g.count })) : [...new Set(plinths.map((p) => p.anchorageTypeId ?? null))].map((t) => ({ typeId: t, count: plinths.filter((p) => (p.anchorageTypeId ?? null) === t).length })),
           concrete: foundationConcrete(f, plinths, groups),
@@ -194,13 +195,12 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
               <tr className="border-b border-line">
                 <th className="w-8"><span className="sr-only">Expand</span></th>
                 <Th k="number">Name</Th>
-                <Th right title="Physical foundations sharing this name">Qty</Th>
-                <Th right show="lg" title="Plinths on each foundation">Plinths</Th>
-                <Th right show="lg" title="Quantity × plinths per foundation">Total</Th>
+                <Th right title="Physical foundations of this name">Footings</Th>
+                <Th right show="md" title="Plinths across all footings (footings × plinths on each)">Plinths</Th>
                 <Th right show="lg" title="Calculated concrete for all foundations of this name">Concrete</Th>
                 {!areaId && <Th show="wide">Area</Th>}
-                <Th show="md">Anchorage</Th>
-                <Th show="wide" title="Next footing step">Footing</Th>
+                <Th show="lg">Anchorage</Th>
+                <Th show="wide" title="Next footing step">Step</Th>
                 <Th k="construction" title="Construction progress">Progress</Th>
                 <Th k="state">Status</Th>
                 <th className="w-9"><span className="sr-only">Actions</span></th>
@@ -225,11 +225,10 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                         </div>
                       </Td>
                       <Td right>{r.qty.toLocaleString('en-CA')}</Td>
-                      <Td right show="lg" muted>{r.per === null ? <span title="Not known">—</span> : r.per}</Td>
-                      <Td right show="lg">{r.total === null ? <span className="text-muted" title="Plinths per foundation is not known">—</span> : r.total.toLocaleString('en-CA')}</Td>
+                      <Td right show="md">{r.total === null ? <span className="text-muted" title="Plinths per foundation is not known">—</span> : r.total.toLocaleString('en-CA')}</Td>
                       <Td right show="lg" title={concreteTitle(r.concrete)}>{concreteCell(r.concrete)}</Td>
                       {!areaId && <Td show="wide" muted title={r.area.name}><div className="max-w-[7rem] truncate">{r.area.name}</div></Td>}
-                      <Td show="md" title={anchorageSummary(state, r)}><div className="max-w-[9rem] truncate min-[1400px]:max-w-[11rem]">{anchorageShort(state, r)}</div></Td>
+                      <Td show="lg" title={anchorageSummary(state, r)}><div className="max-w-[9rem] truncate min-[1400px]:max-w-[11rem]">{anchorageShort(state, r)}</div></Td>
                       <Td show="wide" muted>{shortStep(r.step)}</Td>
                       <Td><ProgressBar value={r.stats.progress} width="w-12" /></Td>
                       <Td><FoundationStateBadge state={r.state.state} blocked={r.state.blocked} /></Td>
@@ -376,7 +375,7 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
               <FoundationStateBadge state={r.state.state} blocked={r.state.blocked} />
             </div>
             <p className="mt-0.5 text-[14px] text-muted">{[r.f.description, !areaId && r.area.name].filter(Boolean).join(' · ')}</p>
-            <p className="text-[14px]">Qty {r.qty.toLocaleString('en-CA')} · {r.per === null ? 'plinths not known' : `${r.per} plinth${r.per === 1 ? '' : 's'} each`}{r.total !== null && <> · <span className="font-medium">{r.total.toLocaleString('en-CA')} total</span></>}</p>
+            <p className="text-[14px]"><span className="font-medium">{r.qty.toLocaleString('en-CA')}</span> footing{r.qty === 1 ? '' : 's'} · {r.total === null ? 'plinths not known' : <><span className="font-medium">{r.total.toLocaleString('en-CA')}</span> plinth{r.total === 1 ? '' : 's'}</>}</p>
             <p className="text-[14px] text-muted">Anchorage {anchorageSummary(state, r)} · {r.step}</p>
             <p className="text-[14px] text-muted" title={concreteTitle(r.concrete)}>Concrete {concreteCell(r.concrete)}{!r.concrete.complete && <span> (incomplete)</span>}</p>
             <div className="mt-3 flex items-center gap-3"><MeterBar value={r.stats.progress} label={`${r.f.number} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{r.stats.progress}%</span></div>
