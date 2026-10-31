@@ -6,7 +6,7 @@ import * as A from '../tracker/actions'
 import { procurementRows } from '../tracker/procurement'
 import type { TrackerState } from '../tracker/types'
 import { getIndex } from '../selectors'
-import { isOverdue, procurementSummary } from '../procurement/summary'
+import { dueOf, hasLineIn, isOverdue, procurementSummary } from '../procurement/summary'
 import { fails, liveRows, run, tracked, TODAY, world } from './materialsFixtures'
 
 const s = (() => { const w = world(); const t0 = tracked(w.c); return { ...w, t0, rows: liveRows(t0, w.c) } })()
@@ -96,6 +96,53 @@ vi.mock('../tracker/manage/AccessBar', () => ({ AccessBar: () => null }))
 const lateState = order(order(s.t0, [{ key: r1.key, qty: 10 }], '2026-10-01', 'LATE'), [{ key: r2.key, qty: 2 }])
 const { ProcurementPage } = await import('../procurement/ProcurementPage')
 const { ProcurementGauges } = await import('../procurement/ProcurementGauges')
+
+describe('gauges follow the selected Area', () => {
+  const eh = s.rows.filter((r) => r.areaId === s.eh), pr = s.rows.filter((r) => r.areaId === s.pr)
+  // one late order spanning both areas, partly delivered in E-House only
+  const mixed = (() => {
+    let t = order(s.t0, [{ key: eh[0].key, qty: 6 }, { key: pr[0].key, qty: 5 }], '2026-10-01', 'MIX')
+    t = run(t, s.c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: [{ key: eh[0].key, qty: 2 }] }, TODAY))
+    return t
+  })()
+  const at = (area = '') => procurementSummary(procurementRows(mixed, s.c), mixed, mixed.orders!, TODAY, area)
+
+  it('all areas gives the project totals; each area counts only its own requirements, orders and deliveries; the areas add up', () => {
+    const all = at(), a = at(s.eh), b = at(s.pr)
+    expect(a.required + b.required).toBe(all.required)
+    for (const k of ['pending', 'awaiting', 'delivered', 'overdue'] as const) expect(a[k] + b[k]).toBe(all[k])
+    expect(a).toMatchObject({ awaiting: 4, delivered: 2, overdue: 4 }) // 6 ordered, 2 received, 4 still due in E-House
+    expect(b).toMatchObject({ awaiting: 5, delivered: 0, overdue: 5 })
+    expect(all.overdue).toBe(9)
+    expect(a.percent.delivered).toBe(Math.round((2 / a.required) * 100))
+  })
+
+  it('the Orders list and its Ordered / Overdue filters look only at the chosen area', () => {
+    const o = mixed.orders![0]
+    expect(hasLineIn(mixed, o.id, s.eh) && hasLineIn(mixed, o.id, s.pr)).toBe(true)
+    // an order that is complete in E-House but still owed in Pipe Rack is overdue only there
+    let t = run(mixed, s.c, A.recordDelivery({ orderId: o.id, date: TODAY, lines: [{ key: eh[0].key, qty: 4 }] }, TODAY))
+    expect(isOverdue(t, t.orders![0], TODAY, s.eh)).toBe(false)
+    expect(isOverdue(t, t.orders![0], TODAY, s.pr)).toBe(true)
+    expect(dueOf(t, o.id, s.eh)).toBe(0)
+    expect(dueOf(t, o.id)).toBe(5)
+    // an order with no line in an area is not listed for it
+    t = order(s.t0, [{ key: eh[1].key, qty: 1 }])
+    expect(hasLineIn(t, t.orders![0].id, s.pr)).toBe(false)
+  })
+
+  it('the page shows the selected area\'s figures, and the Area selector sits above the gauges so it drives both tabs', () => {
+    const html = (q: string) => renderToStaticMarkup(<MemoryRouter initialEntries={[`/projects/${s.c.projects[0].id}/manage/materials${q}`]}><Routes><Route path="/projects/:projectId/manage/materials" element={<ProcurementPage />} /></Routes></MemoryRouter>)
+    const figures = (h: string) => [...h.matchAll(/aria-label="(Pending|Ordered|Delivered|Overdue): \d+%, ([\d,]+) of ([\d,]+)\./g)].map((m) => `${m[1]}:${m[2]}/${m[3]}`)
+    const whole = figures(html('')), scoped = figures(html(`?area=${s.eh}`)), other = figures(html(`?area=${s.pr}`))
+    expect(whole).toHaveLength(4)
+    expect(scoped).not.toEqual(whole)
+    expect(scoped).not.toEqual(other)
+    const h = html(`?area=${s.eh}&tab=orders`)
+    expect(h.indexOf('aria-label="Area"')).toBeGreaterThan(0)
+    expect(h.indexOf('aria-label="Area"')).toBeLessThan(h.indexOf('aria-label="Procurement progress"'))
+  })
+})
 
 describe('the gauges on the page', () => {
   const page = (q = '') => renderToStaticMarkup(<MemoryRouter initialEntries={[`/projects/${s.c.projects[0].id}/manage/materials${q}`]}><Routes><Route path="/projects/:projectId/manage/materials" element={<ProcurementPage />} /></Routes></MemoryRouter>)

@@ -9,7 +9,7 @@ import { useAccess } from '@/lib/access'
 import { AccessBar } from '../tracker/manage/AccessBar'
 import { Chips } from '../tracker/manage/MaterialsByArea'
 import { specText } from '../tracker/consolidate'
-import { orderProgress, procurementRows, PROC_LABEL, type ProcRow, type ProcStatus } from '../tracker/procurement'
+import { procurementRows, PROC_LABEL, type ProcRow, type ProcStatus } from '../tracker/procurement'
 import { useTracker } from '../tracker/store'
 import { useToast } from '@/components/ui/Toast'
 import { paths } from '../paths'
@@ -17,7 +17,7 @@ import { useConstruction } from '../store'
 import { CorrectDeliveryModal, OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
 import { OrdersTab } from './OrdersTab'
 import { ProcurementGauges, type GaugeKey } from './ProcurementGauges'
-import { isOverdue, procurementSummary } from './summary'
+import { dueOf, hasLineIn, isOverdue, procurementSummary } from './summary'
 import { UnlinkedNotice } from './UnlinkedNotice'
 import { RequirementsView, type RequirementsLayout } from './RequirementsView'
 import { ViewToggle } from '@/components/ui/Toolbar'
@@ -73,12 +73,13 @@ export function ProcurementPage() {
   const canOrder = access.can('materials.edit'), canReceive = access.can('materials.receive'), canVoid = access.can('materials.void-receipt')
   const orders = (state.orders ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number))
   const projectOrder = (o: { id: string }) => (state.orderLines ?? []).some((l) => l.orderId === o.id && (!l.areaId || rows.some((r) => r.key === l.key) || areas.some(([id]) => id === l.areaId)))
-  const summary = useMemo(() => procurementSummary(rows, state, orders.filter(projectOrder), today), [rows, state, orders, today]) // eslint-disable-line react-hooks/exhaustive-deps
+  const summary = useMemo(() => procurementSummary(rows, state, orders.filter(projectOrder), today, areaFilter), [rows, state, orders, today, areaFilter]) // eslint-disable-line react-hooks/exhaustive-deps
   const gauge: GaugeKey | null = tab === 'materials' ? (status === 'pending' ? 'pending' : status === 'any-received' ? 'delivered' : null) : orderFilter === 'awaiting' ? 'awaiting' : orderFilter === 'overdue' ? 'overdue' : null
   const pickGauge = (k: GaugeKey) => {
     if (k === 'pending' || k === 'delivered') { setTab('materials'); setStatus(k === 'pending' ? 'pending' : 'any-received'); setSearch(''); setOrderFilter('') } else { setTab('orders'); setOrderFilter(k); setStatus('') }
   }
-  const shownOrders = orders.filter(projectOrder).filter((o) => !orderFilter || (orderFilter === 'overdue' ? isOverdue(state, o, today) : !o.cancelled && orderProgress(state, o.id).due > 0))
+  // with an area chosen, the Orders tab lists the orders that have lines in it, and the Ordered / Overdue filters look only at what is owed there
+  const shownOrders = orders.filter(projectOrder).filter((o) => hasLineIn(state, o.id, areaFilter)).filter((o) => !orderFilter || (orderFilter === 'overdue' ? isOverdue(state, o, today, areaFilter) : !o.cancelled && dueOf(state, o.id, areaFilter) > 0))
   const deliveries = (state.deliveries ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at))
   const projectDelivery = (d: { id: string }) => (state.deliveryLines ?? []).some((l) => l.deliveryId === d.id && (!l.areaId || areas.some(([id]) => id === l.areaId)))
   const dlg = dialog?.kind === 'row' ? rows.find((r) => r.key === dialog.key) : undefined
@@ -99,14 +100,12 @@ export function ProcurementPage() {
     <>
       <PageHeader title="Procurement" description="Order and receive the materials each area requires. Requirements come from Materials and follow the foundations and the Anchorage Library; orders and deliveries are recorded once per area and specification." actions={<><Link to={paths.materials(projectId)} className={HEAD_LINK}>Materials by area</Link><Link to={paths.materialRecords(projectId)} className={HEAD_LINK}>Material records</Link></>} />
       <AccessBar />
+      {areas.length > 1 && <div className="mb-6"><Chips label="Area" value={areaFilter} onChange={(v) => setParams(v ? { area: v } : {})} items={[{ id: '', label: 'All areas' }, ...areas.map(([id, name]) => ({ id, label: name }))]} /></div>}
       <ProcurementGauges summary={summary} active={gauge} onPick={pickGauge} />
       <Tabs<Tab> value={tab} onChange={setTab} items={[{ ...PROCUREMENT_TABS[0], count: rows.length }, { ...PROCUREMENT_TABS[1], count: orders.filter(projectOrder).length }]} />
 
       {tab === 'materials' && (
         <div className="space-y-4 pt-6">
-          <div className="flex flex-wrap items-center gap-3">
-            {areas.length > 1 && <Chips label="Area" value={areaFilter} onChange={(v) => setParams(v ? { area: v } : {})} items={[{ id: '', label: 'All areas' }, ...areas.map(([id, name]) => ({ id, label: name }))]} />}
-          </div>
           <div className="flex flex-wrap items-center gap-3" data-compact>
             <Input aria-label="Search materials" className="!w-64" placeholder="Search material, specification, area" value={search} onChange={(e) => setSearch(e.target.value)} />
             <Select aria-label="Status" className="!w-auto" value={status} onChange={(e) => setStatus(e.target.value as ProcStatus | 'any-received' | '')}>
