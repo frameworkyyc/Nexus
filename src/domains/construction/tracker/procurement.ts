@@ -53,6 +53,8 @@ export interface ProcRow extends Consolidated {
   outstanding: number
   /** Still to order: required − ordered, never below zero. */
   toOrder: number
+  /** What each foundation has had set aside, by foundation id (allocation records plus receipts on lines tied to one foundation). */
+  allocatedBy: Map<string, number>
   /** Received and not yet set aside for a foundation. */
   unallocated: number
   status: ProcStatus
@@ -113,7 +115,24 @@ export function keyAliases(groups: Pick<Consolidated, 'key' | 'designation'>[]):
   return out
 }
 
+const rowsCache = new WeakMap<TrackerState, WeakMap<object, ProcRow[]>>()
+
+/**
+ * Every requirement with what has been ordered, received, allocated and installed against it. This is the single calculation behind Materials,
+ * Procurement, Foundation details and the Area Overview. States are immutable, so the answer is remembered per (tracker, construction) pair and
+ * worked out once however many views ask.
+ */
 export function procurementRows(s: TrackerState, c: ConsolidationSource): ProcRow[] {
+  let byC = rowsCache.get(s)
+  if (!byC) { byC = new WeakMap(); rowsCache.set(s, byC) }
+  const hit = byC.get(c)
+  if (hit) return hit
+  const rows = computeProcurementRows(s, c)
+  byC.set(c, rows)
+  return rows
+}
+
+function computeProcurementRows(s: TrackerState, c: ConsolidationSource): ProcRow[] {
   const groups = consolidate(s, c)
   const alias = keyAliases(groups)
   const at = <T extends { key: string }>(r: T): T => (alias.has(r.key) ? { ...r, key: alias.get(r.key)! } : r)
@@ -136,10 +155,12 @@ export function procurementRows(s: TrackerState, c: ConsolidationSource): ProcRo
     const ordered = orderedOnLines + sum(ol.map((l) => l.qty))
     const received = receivedOnLines + sum(dl.map((l) => l.qty))
     const allocated = allocatedOnLines + sum(al.map((a) => a.qty))
+    const allocatedBy = legacyAllocatedBy(g)
+    for (const a of al) allocatedBy.set(a.foundationId, (allocatedBy.get(a.foundationId) ?? 0) + a.qty)
     const il = installs.filter((x) => x.key === g.key)
     const installed = sum(il.map((x) => x.qty))
     return {
-      ...g, ordered, orderedOnLines, received, receivedOnLines, allocated, allocatedOnLines, outstanding: Math.max(0, g.required - received), toOrder: Math.max(0, g.required - ordered),
+      ...g, ordered, orderedOnLines, received, receivedOnLines, allocated, allocatedOnLines, allocatedBy, outstanding: Math.max(0, g.required - received), toOrder: Math.max(0, g.required - ordered),
       unallocated: Math.max(0, received - allocated), status: procStatus(g.required, ordered, received), installed, installations: il, stage: materialStatus({ required: g.required, ordered, received, installed }), installable: Math.max(0, Math.min(received, g.required) - installed), orderLines: ol, deliveryLines: dl, allocations: al, orphan: g.lines.length === 0 || (g.removed && g.required === 0),
     }
   }).filter((r) => !(r.removed && r.required === 0 && r.ordered === 0 && r.received === 0))

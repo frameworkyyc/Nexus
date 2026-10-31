@@ -11,7 +11,7 @@ import { ProgressBar } from '@/components/ui/Progress'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { paths } from '../paths'
 import {
-  BOLT_STAGE_LABEL, FOUNDATION_STATE_LABEL, computeStats, footingActivities, footingStep, foundationState, foundationsOf, foundationsOfProject, percent, plinthActivities, plinthBoltStage,
+  FOUNDATION_STATE_LABEL, boltStageLabel, computeStats, footingActivities, footingStep, foundationState, foundationsOf, foundationsOfProject, percent, plinthActivities,
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
 import { useConstruction } from '../store'
@@ -281,7 +281,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                     <Td><ProgressBar value={progressOf(idx, acts)} width="w-12" /></Td>
                     <Td right show="lg" muted>{fraction(tallyCategory(idx, acts, 'survey'))}</Td>
                     <Td right show="lg" muted>{fraction(tallyCategory(idx, acts, 'qaqc'))}</Td>
-                    <Td show="wide" muted>{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</Td>
+                    <Td show="wide" muted>{boltStageLabel(idx, p)}</Td>
                     <Td><FoundationStateBadge state={ps.state} blocked={ps.blocked} /></Td>
                   </tr>
                 )
@@ -329,7 +329,7 @@ function PlinthDetail({ projectId, f, plinths, footingStatsLine }: { projectId: 
             <span className="w-16">{codeOfType(state, p.anchorageTypeId)}</span>
             <span className="w-44 text-muted phone:w-auto">{plinthStep(idx, p)}</span>
             <span className="w-20 tabular-nums text-muted phone:w-auto">{progressOf(idx, acts)}%</span>
-            <span className="text-muted">{BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</span>
+            <span className="text-muted">{boltStageLabel(idx, p)}</span>
             <StatusBadge tone={ps.blocked ? 'bad' : ps.state === 'in-progress' ? 'info' : ps.state === 'not-started' ? 'muted' : 'ok'} label={ps.blocked ? 'Blocked' : FOUNDATION_STATE_LABEL[ps.state]} />
           </div>
         )
@@ -359,7 +359,7 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
               </div>
               <p className="mt-0.5 text-[14px] text-muted">{!areaId && `${r.area.name} · `}{codeOfType(state, p.anchorageTypeId)} · {plinthStep(idx, p)}</p>
               <div className="mt-3 flex items-center gap-3"><MeterBar value={progress} label={`${r.f.number} plinth ${p.index} construction`} /><span className="w-12 shrink-0 text-right text-[16px] font-medium tabular-nums">{progress}%</span></div>
-              <p className="mt-2 text-[13px] text-muted">Survey {fraction(tallyCategory(idx, acts, 'survey'))} · QA/QC {fraction(tallyCategory(idx, acts, 'qaqc'))} · {BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</p>
+              <p className="mt-2 text-[13px] text-muted">Survey {fraction(tallyCategory(idx, acts, 'survey'))} · QA/QC {fraction(tallyCategory(idx, acts, 'qaqc'))} · {boltStageLabel(idx, p)}</p>
             </li>
           )
         })}

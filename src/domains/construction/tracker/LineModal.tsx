@@ -12,6 +12,9 @@ import { anchorageFor, displayOf, foundationsOfArea, legacyIssues } from './cata
 import { useMaterialRefs, type MaterialRefs } from './manage/useMaterialRefs'
 import { allLines, CATEGORY_LABEL, CATEGORY_ORDER, deliveryLabelOf, receivedOf, remainingOf } from './selectors'
 import { QuantityScope } from './manage/QuantityScope'
+import { materialsModel } from './model'
+import { MATERIAL_STATUS_LABEL } from './procurement'
+import { useConstruction } from '../store'
 import { useTracker, useTrackerCommand } from './store'
 import type { ComponentCategory, ImportFlag, QtyBasis, TrackerLine } from './types'
 import { UNITS } from './templates'
@@ -24,6 +27,7 @@ const dash = (v?: string | null) => (v ? v : <span className="text-muted">—</s
 /** One material: its facts, quantities, deliveries and history. Editing and recording depend on the role. */
 export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => void }) {
   const { state, today } = useTracker()
+  const { state: construction } = useConstruction()
   const { run, saving } = useTrackerCommand()
   const access = useAccess()
   const { projectId } = useParams()
@@ -43,8 +47,12 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   const calculated = line.origin === 'anchorage'
   const showCalc = calculated || (manual && !!line.basis && line.basis !== 'fixed')
   const flags: ImportFlag[] = state.flags.filter((f) => f.lineId === line.id)
-  const remaining = remainingOf(line)
-  const got = receivedOf(line)
+  // The quantities are the requirement's (the same unified figures as Materials and Procurement); a line that belongs to no requirement falls back to its own receipts.
+  const row = materialsModel(state, construction).rowOfLine(line.id)
+  const remaining = row ? row.outstanding : remainingOf(line)
+  const got = row ? row.received : receivedOf(line)
+  const required = row ? row.required : line.requiredQty
+  const standing = row ? MATERIAL_STATUS_LABEL[row.stage] : deliveryLabelOf(line)
   const unit = line.unit || 'ea'
   const shown = displayOf(line, refs.catalog, refs.suppliers)
   const legacy = legacyIssues(line, refs.catalog, refs.suppliers)
@@ -90,13 +98,16 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
         {flags.length > 0 && <section><h3 className="t-label mb-2">Flagged for review</h3><ul className="space-y-1.5">{flags.map((f) => <li key={f.id} className="text-muted">{f.message}</li>)}</ul></section>}
 
         <section>
-          <h3 className="t-label mb-2">Quantities · {deliveryLabelOf(line)}</h3>
+          <h3 className="t-label mb-2">Quantities · {standing}</h3>
           <dl className="border-t border-line">
-            <Row k="Required">{line.requiredQty.toLocaleString('en-CA')} {unit}</Row>
+            <Row k="Required">{required.toLocaleString('en-CA')} {unit}</Row>
+            {row && <Row k="Ordered">{row.ordered.toLocaleString('en-CA')} {unit}</Row>}
             <Row k="Delivered">{got.toLocaleString('en-CA')} {unit}</Row>
-            <Row k="Outstanding">{`${remaining.toLocaleString('en-CA')} ${unit}`}{got > line.requiredQty && <span className="text-muted"> (over-delivered by {(got - line.requiredQty).toLocaleString('en-CA')})</span>}</Row>
+            {row && <Row k="Allocated">{row.allocated.toLocaleString('en-CA')} {unit}</Row>}
+            {row && <Row k="Installed">{row.installed.toLocaleString('en-CA')} {unit}</Row>}
+            <Row k="Outstanding">{`${remaining.toLocaleString('en-CA')} ${unit}`}{got > required && <span className="text-muted"> (over-delivered by {(got - required).toLocaleString('en-CA')})</span>}</Row>
           </dl>
-          <p className="mt-2 text-xs text-muted">Delivered means the material was physically received, checked and confirmed. Outstanding = required − delivered.</p>
+          <p className="mt-2 text-xs text-muted">{row && row.lines.length > 1 ? `These are the totals for the whole requirement: all ${row.lines.length} lines of this specification in ${row.area}. ` : ''}Delivered means the material was physically received, checked and confirmed. Outstanding = required − delivered. Orders and deliveries are managed in Procurement.</p>
           {line.requirementRemoved && <p role="status" className="mt-2 border-l-2 border-warn pl-3 text-xs">This requirement no longer applies (the anchorage configuration changed). Its orders and deliveries are kept.</p>}
           {line.receipts.length > 0 && (
             <ul className="mt-2">

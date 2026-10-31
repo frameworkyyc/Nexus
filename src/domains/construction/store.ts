@@ -10,6 +10,7 @@ import type { Reducer } from './actions'
 import { emptyConstruction } from './empty'
 import { buildPortfolio, buildSeed, REEF_PROJECT } from './seed'
 import type { ConstructionState } from './types'
+import type { TrackerState } from './tracker/types'
 import { getIndex } from './selectors'
 
 /** v1 → v2: keep every saved edit, add project status fields and the summary-tracked portfolio. */
@@ -35,9 +36,18 @@ const constructionLocal = IS_PUBLIC_DEMO
 
 export const constructionStore = createModuleStore<ConstructionState>('construction', constructionLocal, emptyConstruction, notify)
 
+/**
+ * Where the construction views get the materials records from. The materials store registers itself here (it depends on this store, so it cannot be
+ * imported from here), which lets every construction view's index carry the same materials records, and so the same unified model, as Materials and
+ * Procurement. Until it registers there are no materials records.
+ */
+let useMaterialsRecords: () => TrackerState | null = () => null
+export const registerMaterialsRecords = (hook: () => TrackerState | null) => { useMaterialsRecords = hook }
+
 export function useConstruction() {
   const state = constructionStore.use()
-  const idx = useMemo(() => getIndex(state), [state])
+  const tracker = useMaterialsRecords()
+  const idx = useMemo(() => getIndex(state, tracker), [state, tracker])
   return { state, idx, today: todayISO() }
 }
 

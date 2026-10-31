@@ -6,6 +6,8 @@ import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
   Foundation, HandoverRecord, HardwareKind, Person, Plinth, PlinthReady, POLine, PurchaseOrder, Supplier,
 } from './types'
+import { materialsModel } from './tracker/model'
+import type { ComponentCategory, TrackerState } from './tracker/types'
 
 /* ── Index: lookup tables built once per state snapshot ─────────────────── */
 
@@ -31,6 +33,11 @@ export interface Index {
   allocatedToPlinth: Map<string, number> // `${kind}:${itemId}:${plinthId}`
   ready: Map<string, PlinthReady>
   fabByPlinth: Map<string, FabricationRequest[]>
+  /**
+   * The materials records (orders, deliveries, allocations, installations, requirements). When present, every material figure and status comes from the
+   * materials model built on them (tracker/model.ts). Absent only where there are no materials records at all (the fictional seed's own tests).
+   */
+  tracker?: TrackerState | null
 }
 
 const cache = new WeakMap<ConstructionState, Index>()
@@ -45,7 +52,20 @@ function add(m: Map<string, number>, k: string, n: number) {
 }
 const by = <T extends { id: string }>(list: T[]) => new Map(list.map((x) => [x.id, x]))
 
-export function getIndex(state: ConstructionState): Index {
+const withTracker = new WeakMap<ConstructionState, WeakMap<TrackerState, Index>>()
+
+/** The construction index, optionally joined to the materials records so material statuses come from the unified model. */
+export function getIndex(state: ConstructionState, tracker?: TrackerState | null): Index {
+  const base = baseIndex(state)
+  if (!tracker) return base
+  let byT = withTracker.get(state)
+  if (!byT) { byT = new WeakMap(); withTracker.set(state, byT) }
+  let joined = byT.get(tracker)
+  if (!joined) { joined = { ...base, tracker }; byT.set(tracker, joined) }
+  return joined
+}
+
+function baseIndex(state: ConstructionState): Index {
   const hit = cache.get(state)
   if (hit) return hit
   const poLine = new Map<string, { po: PurchaseOrder; line: POLine }>()
@@ -142,12 +162,37 @@ export const BOLT_STAGE_LABEL: Record<BoltStage, string> = {
   ready: 'Ready for installation',
 }
 
+/** One line saying where a foundation stands on a category: "12 of 20 allocated to this foundation · ordered". */
+export function materialNote(m: { required: number; allocated: number; sourced: boolean; rows: { row: { received: number; ordered: number; required: number } }[] }): string {
+  const sourcing = m.rows.every((x) => x.row.received >= x.row.required) ? 'delivered' : m.sourced ? 'ordered or part delivered' : 'not yet ordered'
+  return `${m.allocated} of ${m.required} allocated to this foundation · ${sourcing}`
+}
+
+/** The label for how a plinth's anchor bolts stand: from the unified model when there are materials records, otherwise the fictional seed's own pipeline. */
+export function boltStageLabel(idx: Index, plinth: Plinth): string {
+  if (!idx.tracker) return BOLT_STAGE_LABEL[plinthBoltStage(idx, plinth)]
+  const m = foundationMaterial(idx, plinth.foundationId, 'bolt')
+  return !m || m.allocated === 0 ? 'Not allocated' : m.allocated >= m.required ? 'Allocated' : 'Partially allocated'
+}
+
 /* ── Effective activity status (derived where a record exists elsewhere) ── */
+
+/** The material category a derived material activity measures. */
+const DERIVED_CATEGORY: Record<string, ComponentCategory> = { bolts: 'bolt', nuts: 'nut', washers: 'washer', templates: 'template' }
+
+/**
+ * What the foundation's materials are doing for one category, from the unified materials model: complete when everything the foundation needs of that
+ * category has been allocated to it, in progress when some has been allocated or any of it has been ordered or delivered, otherwise not started.
+ */
+export function foundationMaterial(idx: Index, foundationId: string, category: ComponentCategory) {
+  return idx.tracker ? materialsModel(idx.tracker, idx.state).forFoundation(foundationId)[category] : undefined
+}
 
 export function effectiveStatus(idx: Index, a: Activity): ActivityStatus {
   const def = getDef(a.scope, a.key)
   if (!def.derived || !a.plinthId) return a.status
   const plinth = idx.plinth.get(a.plinthId)!
+  if (idx.tracker) return foundationMaterial(idx, plinth.foundationId, DERIVED_CATEGORY[def.derived])?.status ?? 'not-started'
   if (def.derived === 'bolts') {
     const stage = plinthBoltStage(idx, plinth)
     if (stage === 'ready') return 'complete'
@@ -172,6 +217,10 @@ export function derivedNote(idx: Index, a: Activity): string | null {
   const def = getDef(a.scope, a.key)
   if (!def.derived || !a.plinthId) return null
   const plinth = idx.plinth.get(a.plinthId)!
+  if (idx.tracker) {
+    const m = foundationMaterial(idx, plinth.foundationId, DERIVED_CATEGORY[def.derived])
+    return m ? materialNote(m) : 'No requirement for this foundation'
+  }
   if (def.derived === 'bolts') return BOLT_STAGE_LABEL[plinthBoltStage(idx, plinth)]
   if (def.derived === 'templates') {
     const r = (idx.fabByPlinth.get(plinth.id) ?? [])[0]

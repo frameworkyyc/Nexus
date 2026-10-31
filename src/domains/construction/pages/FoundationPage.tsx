@@ -12,15 +12,16 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Section } from '@/components/ui/Section'
 import { Stat } from '@/components/ui/Stat'
 import { formatDate } from '@/lib/format'
-import { addDeficiency, linkFoundationDoc, returnAllocation, setBoltsReady, setDeficiencyStatus, setPlinthAnchorage } from '../actions'
+import { addDeficiency, linkFoundationDoc, setDeficiencyStatus, setPlinthAnchorage } from '../actions'
 import { setFoundationNotes, setPlinthNotes } from '../commands'
+import { FoundationMaterials } from './FoundationMaterials'
 import { ActivityTable } from '../ActivityTable'
 import { DocumentModal } from '../DocumentModal'
 import { STATUS_LABEL, STATUS_TONE, FOUNDATION_COMPLETE_DEFINITION } from '../config'
 import { paths } from '../paths'
 import {
-  BOLT_STAGE_LABEL, areaOfPlinth, computeStats, deriveIssues, footingActivities, footingStep, foundationActivities, foundationState, plinthActivities, plinthBoltRequirements,
-  effectiveStatus, plinthBoltStage, plinthHardware, plinthMaterials, plinthState, plinthStep, progressOf, specLabel, tallyCategory, type Index,
+  computeStats, deriveIssues, footingActivities, footingStep, foundationActivities, foundationState, plinthActivities,
+  effectiveStatus, plinthMaterials, plinthState, plinthStep, progressOf, tallyCategory, type Index,
 } from '../selectors'
 import { useConstruction, useConstructionCommand, useRun } from '../store'
 import { FoundationStateBadge, fraction, IssueList } from '../ui'
@@ -74,24 +75,9 @@ export function FoundationPage() {
 
       <FoundationConcrete f={f} plinths={plinths} projectId={projectId} />
 
-      <Section title="Required materials" description="Anchor bolts, hardware and templates per plinth. Allocation is managed in Materials.">
-        <ul className="text-[13px]">
-          {plinths.map((p) => {
-            const hw = plinthHardware(idx, p, f.areaId)
-            const bolts = plinthBoltRequirements(idx, p)
-            const tpl = (idx.fabByPlinth.get(p.id) ?? [])[0]
-            return (
-              <li key={p.id} className="flex flex-wrap items-baseline gap-x-6 gap-y-1 border-b border-line py-3">
-                <span className="w-20 font-medium">Plinth {p.index}</span>
-                <span className="w-16">{state.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code ?? '—'}</span>
-                <span className="text-muted">Bolts: {bolts.map((b) => `${b.allocated}/${b.qty} × ${specLabel(b.spec)}`).join(', ') || '—'} · {BOLT_STAGE_LABEL[plinthBoltStage(idx, p)]}</span>
-                <span className="text-muted">{hw.map((h) => `${h.kind === 'nut' ? 'Nuts' : 'Washers'} ${h.allocated}/${h.demand}`).join(' · ')}</span>
-                <span className="text-muted">Template: {tpl ? `${tpl.number}${tpl.siteReceipt === 'received' ? ' (on site)' : ''}` : 'none requested'}</span>
-              </li>
-            )
-          })}
-        </ul>
-        <p className="mt-2 text-xs text-muted"><Link to={paths.materials(projectId)} className="underline underline-offset-4 hover:text-ink">Open Materials</Link> to receive, allocate and order.</p>
+      <Section title="Materials" description="What this foundation needs, from its anchorage types and its own bolts and plates, and where each stands. The figures are the same as in Materials and Procurement; ordering, delivery and allocation are managed there.">
+        <FoundationMaterials idx={idx} foundationId={f.id} />
+        <p className="mt-2 text-xs text-muted"><Link to={paths.procurement(projectId)} className="underline underline-offset-4 hover:text-ink">Open Procurement</Link> to order, receive and allocate.</p>
       </Section>
 
       <Section title="Footing" description="Foundation-level activities, tracked separately from each plinth.">
@@ -101,7 +87,7 @@ export function FoundationPage() {
       <Section title="Plinths" description="Each plinth is tracked independently.">
         <div className="border-t border-line">
           {plinths.map((p) => (
-            <PlinthBlock key={p.id} f={f} p={p} projectId={projectId} defaultOpen={plinths.length === 1 || wantedPlinth === p.id} />
+            <PlinthBlock key={p.id} f={f} p={p} defaultOpen={plinths.length === 1 || wantedPlinth === p.id} />
           ))}
         </div>
       </Section>
@@ -164,18 +150,13 @@ export function FoundationPage() {
   )
 }
 
-function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plinth; projectId: string; defaultOpen: boolean }) {
-  const { state, idx, today } = useConstruction()
+function PlinthBlock({ f, p, defaultOpen }: { f: Foundation; p: Plinth; defaultOpen: boolean }) {
+  const { state, idx } = useConstruction()
   const run = useRun()
   const { run: save } = useConstructionCommand()
   const [notes, setNotes] = useState<string | null>(null)
   const acts = plinthActivities(idx, p)
   const ps = plinthState(idx, p)
-  const reqs = plinthBoltRequirements(idx, p)
-  const hw = plinthHardware(idx, p, areaOfPlinth(idx, p))
-  const stage = plinthBoltStage(idx, p)
-  const allocs = state.allocations.filter((a) => a.plinthId === p.id)
-  const ready = stage === 'ready'
   const grouped = (state.anchorageGroups ?? []).some((g) => g.id === p.groupId)
 
   return (
@@ -201,37 +182,9 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
             {grouped && <p className="mt-1 text-xs text-muted">Set by this foundation’s anchorage groups (Manage in Foundations).</p>}
           </Field>
           <div>
-            <span className="t-label mb-1.5 block">Anchor bolts</span>
-            <p className="text-[13px]">{BOLT_STAGE_LABEL[stage]}</p>
-            <div className="mt-2 flex gap-2">
-              <Button disabled={!reqs.length} onClick={() => run(setBoltsReady(p.id, !ready, today))}>{ready ? 'Unmark ready' : 'Mark ready for installation'}</Button>
-              <Link to={paths.materials(projectId)} className="inline-flex h-9 items-center text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">Allocate in Materials</Link>
-            </div>
+            <span className="t-label mb-1.5 block">Materials</span>
+            <p className="text-[13px] text-muted">Tracked for the whole foundation: see Materials above.</p>
           </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="card-table w-full min-w-[480px] border-collapse text-left text-[13px]">
-            <thead><tr className="border-b border-line">{['Material', 'Required', 'Allocated', 'Remaining'].map((h) => <th key={h} className="t-label py-2 pr-4 font-medium">{h}</th>)}</tr></thead>
-            <tbody>
-              {reqs.map((r) => <tr key={r.spec.id} className="border-b border-line"><td className="py-2 pr-4">{specLabel(r.spec)} anchor bolt <span className="text-xs text-muted">{r.spec.id} · {r.spec.grade}</span></td><td className="pr-4">{r.qty}</td><td className="pr-4">{r.allocated}</td><td>{Math.max(0, r.qty - r.allocated)}</td></tr>)}
-              {hw.map((h, i) => <tr key={i} className="border-b border-line"><td className="py-2 pr-4">{h.kind === 'nut' ? 'Nut' : 'Washer'} {h.size}</td><td className="pr-4">{h.demand}</td><td className="pr-4">{h.allocated}</td><td>{Math.max(0, h.demand - h.allocated)}</td></tr>)}
-              {!reqs.length && <tr><td colSpan={4} className="py-3 text-muted">Assign an anchorage type to see material requirements.</td></tr>}
-            </tbody>
-          </table>
-          {allocs.length > 0 && (
-            <details className="mt-2 text-xs text-muted">
-              <summary className="cursor-pointer hover:text-ink">{allocs.length} allocation record{allocs.length === 1 ? '' : 's'}</summary>
-              <ul className="mt-1">
-                {allocs.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-4 py-1">
-                    <span>{a.qty} × {a.itemType === 'bolt' ? idx.spec.get(a.itemId)?.id : idx.bulk.get(a.itemId)?.description} · {formatDate(a.date)}</span>
-                    <button className="hover:text-ink" onClick={() => run(returnAllocation(a.id))}>Return to stock</button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
         </div>
 
         <ActivityTable activities={acts} />

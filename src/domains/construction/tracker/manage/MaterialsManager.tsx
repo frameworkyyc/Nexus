@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Download, Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { CompactInput, CompactSelect } from '@/components/ui/Field'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -14,10 +14,14 @@ import { archiveMaterials, bulkEditMaterials, editMaterial } from '../commands'
 import { ImportButton } from '../ImportModal'
 import { LineModal } from '../LineModal'
 import {
-  areaBreakdown, CATEGORY_LABEL, CATEGORY_ORDER, dashboardCounts, DELIVERY_LABEL, deliveryLabelOf, deliveryState, distinct, filterLines, groupLabel, receivedOf, remainingOf, sortLines,
-  type DeliveryState, type GroupKey, type LineFilter, type SortKey,
+  areaBreakdown, CATEGORY_LABEL, CATEGORY_ORDER, dashboardCounts, DELIVERY_LABEL, distinct, filterLines, groupLabel, sortLines,
+  type DeliveryState, type GroupKey, type LineFilter, type LineView, type SortKey,
 } from '../selectors'
-import { useTrackerCommand } from '../store'
+import { lineProgress, materialsModel } from '../model'
+import { MATERIAL_STATUS_LABEL } from '../procurement'
+import { useConstruction } from '../../store'
+import { StageBadge } from './MaterialsByArea'
+import { useTracker, useTrackerCommand } from '../store'
 import type { MaterialRefs } from './useMaterialRefs'
 import type { ComponentCategory, TrackerLine } from '../types'
 import { anchorageFor, foundationsOfArea, legacyIssues } from '../catalog'
@@ -50,20 +54,26 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
   const [adding, setAdding] = useState(false)
   const [bulk, setBulk] = useState(false)
 
+  // Every figure on this page comes from the unified materials model, so Material records agree with Materials, Procurement and the Area Overview.
+  const { state: tracker } = useTracker()
+  const { state: construction } = useConstruction()
+  const model = useMemo(() => materialsModel(tracker, construction), [tracker, construction])
+  const progress = useCallback((l: TrackerLine) => lineProgress(model, l), [model])
+  const view = useCallback((l: TrackerLine): LineView => { const p = progress(l); return { received: p.received, outstanding: p.outstanding, state: p.state, label: p.stage ? MATERIAL_STATUS_LABEL[p.stage] : DELIVERY_LABEL[p.state] } }, [progress])
   const active = useMemo(() => lines.filter((l) => !l.archived), [lines])
   const archivedCount = lines.length - active.length
-  const counts = useMemo(() => dashboardCounts(active), [active])
-  const breakdown = useMemo(() => areaBreakdown(active), [active])
-  const rows = useMemo(() => sortLines(filterLines(lines, filter), sort.key, sort.dir), [lines, filter, sort])
+  const counts = useMemo(() => dashboardCounts(active, (l) => progress(l).state), [active, progress])
+  const breakdown = useMemo(() => areaBreakdown(active, progress), [active, progress])
+  const rows = useMemo(() => sortLines(filterLines(lines, filter, (l) => progress(l).state), sort.key, sort.dir, view), [lines, filter, sort, progress, view])
   const set = (patch: Partial<LineFilter>) => setFilter((f) => ({ ...f, ...patch }))
   const canAdd = access.can('materials.add'), canEdit = access.can('materials.edit'), canBulk = access.can('materials.bulk'), canArchive = access.can('materials.archive')
   const chosen = rows.filter((l) => selected.has(l.id))
   const groups = useMemo(() => {
     if (!group) return [{ label: '', rows }]
     const m = new Map<string, TrackerLine[]>()
-    for (const l of rows) { const k = groupLabel(l, group); m.set(k, [...(m.get(k) ?? []), l]) }
+    for (const l of rows) { const k = groupLabel(l, group, view); m.set(k, [...(m.get(k) ?? []), l]) }
     return [...m].map(([label, r]) => ({ label, rows: r }))
-  }, [rows, group])
+  }, [rows, group, view])
   const sortBy = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const filtered = Object.values(filter).some((v) => v && v !== 'active')
@@ -134,7 +144,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
         {canAdd && <Button variant="primary" onClick={() => setAdding(true)}><Plus size={14} strokeWidth={1.5} />Add material</Button>}
         {access.can('materials.import') && <ImportButton label="Import workbook" />}
         <Button variant="ghost" onClick={() => setSettings(true)}>Suppliers &amp; defaults</Button>
-        <Button onClick={() => downloadMaterialsCsv(chosen.length ? chosen : rows, 'materials')} disabled={rows.length === 0}><Download size={14} strokeWidth={1.5} />Export {chosen.length ? `${chosen.length} selected` : filtered ? 'filtered' : 'all'}</Button>
+        <Button onClick={() => downloadMaterialsCsv(chosen.length ? chosen : rows, 'materials', view)} disabled={rows.length === 0}><Download size={14} strokeWidth={1.5} />Export {chosen.length ? `${chosen.length} selected` : filtered ? 'filtered' : 'all'}</Button>
       </div>
 
       {issues.length > 0 && (
@@ -187,7 +197,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
               <tbody key={g.label || 'all'}>
                 {g.label && <tr data-wide><td colSpan={11} className="border-b border-line bg-hover px-2 py-2 text-xs font-medium">{g.label} <span className="font-normal text-muted">· {g.rows.length} item{g.rows.length === 1 ? '' : 's'}</span></td></tr>}
                 {g.rows.map((l) => {
-                  const d = deliveryState(l)
+                  const pr = progress(l)
                   return (
                     <tr key={l.id} className={`border-b border-line transition-colors hover:bg-hover ${l.archived ? 'opacity-60' : ''}`}>
                       <td className="min-w-[17rem] py-2.5 pr-4 align-middle">
@@ -203,9 +213,9 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
                       <td className="py-2.5 pr-4">{l.footingType || <span className="text-muted">—</span>}</td>
                       <td className="hidden py-2.5 pr-4 md:table-cell">{CATEGORY_LABEL[l.category]}</td>
                       <td className="py-2.5 pr-4 text-right">{l.origin === 'anchorage' || (l.basis && l.basis !== 'fixed') ? <span className="tabular-nums">{l.requiredQty.toLocaleString('en-CA')}</span> : inline(l, 'requiredQty', String(l.requiredQty), { type: 'text', label: 'Required' })}{l.unit && l.unit !== 'ea' && <span className="ml-1 text-xs text-muted">{l.unit}</span>}{(l.origin === 'anchorage' || (l.basis && l.basis !== 'fixed')) && <span className="block max-w-[16rem] text-xs text-muted" title={l.calc.expression}>{l.calc.expression}</span>}</td>
-                      <td className="py-2.5 pr-4 text-right">{num(receivedOf(l))}</td>
-                      <td className="py-2.5 pr-4 text-right">{num(remainingOf(l))}</td>
-                      <td className="py-2.5 pr-4"><StatusBadge tone={TONE[d]} label={deliveryLabelOf(l)} /></td>
+                      <td className="py-2.5 pr-4 text-right" title={pr.shared ? 'Received for the whole requirement (all lines of this specification in the area)' : undefined}>{num(pr.received)}</td>
+                      <td className="py-2.5 pr-4 text-right" title={pr.shared ? 'Outstanding for the whole requirement (all lines of this specification in the area)' : undefined}>{num(pr.outstanding)}</td>
+                      <td className="py-2.5 pr-4">{pr.stage ? <StageBadge stage={pr.stage} /> : <StatusBadge tone={TONE[pr.state]} label={DELIVERY_LABEL[pr.state]} />}</td>
                       <td className="py-2.5 pr-4">{supplierCell(l)}</td>
                       <td className="hidden py-2.5 pr-4 md:table-cell">{inline(l, 'expectedDate', l.expectedDate ?? '', { type: 'date', label: 'Expected delivery' })}</td>
                       <td className="hidden py-2.5 pr-4 md:table-cell">{inline(l, 'poRef', l.poRef ?? '', { label: 'PO / reference' })}</td>

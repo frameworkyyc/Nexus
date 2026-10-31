@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { createEphemeralStore, createPersistedStore } from '@/lib/createPersistedStore'
 import { createModuleStore, setModuleContext, useSaver } from '@/lib/dataSource'
-import { constructionStore } from '../store'
+import { constructionStore, registerMaterialsRecords } from '../store'
 import { buildSeed } from '../seed'
 import { todayISO } from '@/lib/date'
 import { notify } from '@/lib/notify'
@@ -42,6 +42,9 @@ export function useTracker() {
   return { state, today: todayISO() }
 }
 export const useTrackerCommand = () => useSaver(trackerStore)
+
+// Construction views (foundation pages, activity statuses, the area overview) read their material figures from these same records.
+registerMaterialsRecords(() => useTracker().state)
 
 // Rules that span modules: a material is checked against the project's areas, foundations and anchorage types; archiving a foundation checks its materials.
 setModuleContext('materials', () => ({ construction: constructionStore.get() }))
