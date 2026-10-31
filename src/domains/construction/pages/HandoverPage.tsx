@@ -36,7 +36,7 @@ export function HandoverPage() {
   return (
     <>
       <PageHeader title="Area handover" description="Each area is handed over individually. Construction completion and formal acceptance are tracked separately, and the requirements below are configurable placeholders." />
-      <DataTable columns={columns} rows={rows} getKey={(r) => r.area.id} onRowClick={(r) => navigate(paths.area(projectId, r.area.id, 'handover'))} />
+      <DataTable columns={columns} rows={rows} getKey={(r) => r.area.id} onRowClick={(r) => navigate(paths.area(projectId, r.area.id))} />
     </>
   )
 }

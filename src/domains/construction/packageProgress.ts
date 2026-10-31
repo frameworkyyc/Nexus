@@ -53,7 +53,7 @@ export function installationIndicator(idx: Index, areaId: string): PackageIndica
     return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : NOT_TRACKED }
   }
   return {
-    key: 'installation', title: 'Installation',
+    key: 'installation', title: 'Construction',
     basis: 'Completed activities against applicable activities across every footing and plinth.',
     percent: ratio(doneOf(acts), acts.length),
     rows: [group('Formwork', ['formed']), group('Rebar', ['rebarBuilt', 'rebarInstalled']), group('Concrete pours', ['poured']), { label: 'Anchor bolt installation', value: NOT_TRACKED }],

@@ -8,7 +8,7 @@ import { packageProgress, type PackageIndicator } from '../packageProgress'
 import type { Index } from '../selectors'
 import { useTracker } from '../tracker/store'
 
-const TAB: Record<PackageIndicator['key'], string> = { materials: 'materials', installation: 'construction', survey: 'quality', qaqc: 'quality' }
+export const PACKAGE_TAB: Record<PackageIndicator['key'], string> = { materials: 'materials', installation: 'construction', survey: 'survey', qaqc: 'qaqc' }
 
 /** Four monochrome indicators at the top of an area. Each links to its detail tab; all figures come from records. */
 export function PackageDashboard({ idx, projectId, areaId }: { idx: Index; projectId: string; areaId: string }) {
@@ -22,7 +22,7 @@ export function PackageDashboard({ idx, projectId, areaId }: { idx: Index; proje
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {items.map((p) => (
             <li key={p.key} className={`${CARD} p-4`}>
-              <Link to={paths.area(projectId, areaId, TAB[p.key])} className="flex items-center gap-4" aria-label={`${p.title} details`}>
+              <Link to={paths.area(projectId, areaId, PACKAGE_TAB[p.key])} className="flex items-center gap-4" aria-label={`${p.title} details`}>
                 <div className="shrink-0"><Donut value={p.percent} label={p.title} size={112} /></div>
                 <div className="min-w-0 flex-1">
                   <span className="t-label">{p.title}</span>
@@ -43,7 +43,7 @@ export function PackageDashboard({ idx, projectId, areaId }: { idx: Index; proje
       <ul className={GAUGE_GRID}>
         {items.map((p) => (
           <li key={p.key}>
-            <Link to={paths.area(projectId, areaId, TAB[p.key])} className="group block" aria-label={`${p.title} details`}>
+            <Link to={paths.area(projectId, areaId, PACKAGE_TAB[p.key])} className="group block" aria-label={`${p.title} details`}>
               <ProgressGauge title={p.title} percent={p.percent} action={<span className="text-xs text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">Details →</span>} />
             </Link>
             <dl className="mt-4 space-y-1.5 border-t border-line pt-3 text-xs">

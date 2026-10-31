@@ -1,5 +1,5 @@
 import { identity } from '@/app/identity'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { Disclosure } from '@/components/ui/Disclosure'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -26,35 +26,43 @@ import { BoltTable, BulkTable } from './materials/Tables'
 import { PurchaseOrders } from './materials/Purchasing'
 import { MaterialTracker } from '../tracker/TrackerView'
 
-type Tab = 'overview' | 'register' | 'construction' | 'materials' | 'quality' | 'handover'
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'overview', label: 'Overview' }, { id: 'register', label: 'Foundations' }, { id: 'construction', label: 'Construction' },
-  { id: 'materials', label: 'Materials' }, { id: 'quality', label: 'Survey & QA/QC' }, { id: 'handover', label: 'Handover' },
+export type AreaTab = 'overview' | 'materials' | 'construction' | 'survey' | 'qaqc'
+/** The same five tabs, in this order, on every area of every project. Foundations and Handover are sections of Overview, not tabs. */
+export const AREA_TABS: { id: AreaTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' }, { id: 'materials', label: 'Materials' }, { id: 'construction', label: 'Construction' },
+  { id: 'survey', label: 'Survey' }, { id: 'qaqc', label: 'QA/QC' },
 ]
+/** Tab names from before the five-tab layout: the old Foundations and Handover tabs now live in Overview; Survey & QA/QC became two tabs. */
+const LEGACY_TAB: Record<string, AreaTab> = { register: 'overview', handover: 'overview', quality: 'survey' }
+
+/** The tab a ?tab= value means, and whether the value was an old name (so the address can be tidied). */
+export function resolveAreaTab(value: string | null): { tab: AreaTab; legacy: boolean } {
+  if (value && value in LEGACY_TAB) return { tab: LEGACY_TAB[value], legacy: true }
+  const known = AREA_TABS.find((t) => t.id === value)
+  return { tab: known?.id ?? 'overview', legacy: !!value && !known }
+}
 
 /** Level 3 of 4: an area's own dashboard, with detail one tab away. */
 export function AreaPage() {
   const { projectId = '', areaId = '' } = useParams()
   const [params, setParams] = useSearchParams()
   const { idx } = useConstruction()
-  const server = useIsServer()
   const area = idx.area.get(areaId)
   if (!area) return <EmptyState title="Area not found" />
-  // Handover has no saved records yet, so saved-data mode leaves the tab out.
-  const tabs = server ? TABS.filter((t) => t.id !== 'handover') : TABS
-  const tab = (tabs.find((t) => t.id === params.get('tab'))?.id ?? 'overview') as Tab
+  const { tab, legacy } = resolveAreaTab(params.get('tab'))
+  // Old bookmarks (?tab=register, ?tab=quality, ?tab=handover) land on the right tab, and the address is tidied.
+  if (legacy) return <Navigate to={paths.area(projectId, areaId, tab === 'overview' ? undefined : tab)} replace />
   const foundations = foundationsOf(idx, areaId)
   return (
     <>
       <PageHeader title={area.name} description={[area.identifier, `${foundations.length} foundation name${foundations.length === 1 ? '' : 's'} · ${foundationTotals(foundations, foundations.flatMap((f) => idx.plinthsByFoundation.get(f.id) ?? [])).physical.toLocaleString('en-CA')} foundations`, area.archived ? 'Archived' : '', area.description].filter(Boolean).join(' · ')} actions={<><ManageAreaButton areaId={areaId} /><AddFoundationButton projectId={projectId} areaId={areaId} /></>} />
-      <Tabs<Tab> items={tabs} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
+      <Tabs<AreaTab> items={AREA_TABS} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
       <div className="pt-6">
         {tab === 'overview' && (foundations.length === 0 ? <EmptyState title="No foundations in this area yet" description="Add the foundations to start tracking construction, survey and QA/QC here. Materials can already be added to the area." action={<AddFoundationButton projectId={projectId} areaId={areaId} />} /> : <Overview projectId={projectId} areaId={areaId} />)}
-        {tab === 'register' && <FoundationRegister projectId={projectId} areaId={areaId} />}
         {tab === 'construction' && <Construction projectId={projectId} areaId={areaId} />}
         {tab === 'materials' && <AreaMaterials projectId={projectId} areaId={areaId} />}
-        {tab === 'quality' && <Quality projectId={projectId} areaId={areaId} />}
-        {tab === 'handover' && <AreaHandover areaId={areaId} />}
+        {tab === 'survey' && <Quality projectId={projectId} areaId={areaId} kind="survey" />}
+        {tab === 'qaqc' && <Quality projectId={projectId} areaId={areaId} kind="qaqc" />}
       </div>
     </>
   )
@@ -62,6 +70,7 @@ export function AreaPage() {
 
 function Overview({ projectId, areaId }: { projectId: string; areaId: string }) {
   const { idx, today } = useConstruction()
+  const server = useIsServer()
   const foundations = foundationsOf(idx, areaId)
   const stats = computeStats(idx, foundations)
   const total = stats.foundations
@@ -94,11 +103,14 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
           {stats.closedOut > 0 && <li>{stats.closedOut} closed out (survey and QA/QC complete)</li>}
         </ul>
         <FoundationTiles projectId={projectId} foundations={foundations} />
+        <div className="mt-8"><FoundationRegister projectId={projectId} areaId={areaId} /></div>
       </Section>
 
       <Section title="Needs attention" actions={<Link to={`${paths.issues(projectId)}?area=${areaId}`} className="text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">All issues</Link>}>
         <ExceptionList items={items} showArea={false} empty="Nothing in this area needs attention." />
       </Section>
+
+      {!server && <Section title="Handover"><AreaHandover areaId={areaId} /></Section>}
 
       <div className="mt-12 border-t border-line">
         <Disclosure summary={<span className="text-xs text-muted">What counts as a complete foundation</span>}>
@@ -208,30 +220,45 @@ function AreaMaterials({ projectId, areaId }: { projectId: string; areaId: strin
   )
 }
 
-const QUALITY_COLUMNS: { key: string; label: string }[] = [
+const SURVEY_COLUMNS: { key: string; label: string }[] = [
   { key: 'layout', label: 'Layout' }, { key: 'preSurvey', label: 'Pre-pour survey' }, { key: 'postSurvey', label: 'Post-pour survey' },
-  { key: 'preInspection', label: 'Pre-pour inspection' }, { key: 'postInspection', label: 'Post-pour inspection' },
 ]
+const QAQC_COLUMNS: { key: string; label: string }[] = [
+  { key: 'preInspection', label: 'Pre-pour inspection (CM03)' }, { key: 'postInspection', label: 'Post-pour inspection (CM04)' },
+]
+const NOTE = {
+  survey: 'Survey records whether each check is complete. A completed survey does not mean an inspection is approved: that is on the QA/QC tab.',
+  qaqc: 'QA/QC records inspections and their approval. Each cell counts the footing and every plinth for that inspection. Survey checks are on the Survey tab.',
+  both: 'Survey and QA/QC are separate processes: a completed survey does not mean an inspection is approved. Each cell counts the footing and every plinth for that activity.',
+}
 
-export function Quality({ projectId, areaId }: { projectId: string; areaId: string }) {
+/**
+ * The survey and inspection records of an area's foundations. `survey` and `qaqc` each show their own discipline (the Area tabs); `both`
+ * (the default) is the combined table Project Management uses. Same records and cells in every case.
+ */
+export function Quality({ projectId, areaId, kind = 'both' }: { projectId: string; areaId: string; kind?: 'survey' | 'qaqc' | 'both' }) {
   const { idx } = useConstruction()
   const rows = foundationsOf(idx, areaId)
+  const survey = kind !== 'qaqc' ? SURVEY_COLUMNS : []
+  const qaqc = kind !== 'survey' ? QAQC_COLUMNS : []
+  const columns = [...survey, ...qaqc]
+  if (rows.length === 0) return <EmptyState title="No foundations in this area yet" description="Add foundations on the Overview tab to record this work." />
   return (
     <>
-      <p className="mb-3 max-w-2xl text-xs leading-relaxed text-muted">Survey and QA/QC are separate processes: a completed survey does not mean an inspection is approved. Each cell counts the footing and every plinth for that activity.</p>
+      <p className="mb-3 max-w-2xl text-xs leading-relaxed text-muted">{NOTE[kind]}</p>
       <div className="overflow-x-auto">
-        <table className="card-table w-full min-w-[720px] border-collapse text-left">
+        <table className="card-table w-full min-w-[420px] border-collapse text-left">
           <thead>
             <tr className="border-b border-line"><th className="t-label py-3 pr-4 font-medium">Foundation</th>
-              {QUALITY_COLUMNS.map((c, i) => <th key={c.key} className={`t-label py-3 pr-4 font-medium ${i === 3 ? 'border-l border-line pl-4' : ''}`}>{c.label}</th>)}
+              {columns.map((c) => <th key={c.key} className={`t-label py-3 pr-4 font-medium ${kind === 'both' && c.key === 'preInspection' ? 'border-l border-line pl-4' : ''}`}>{c.label}</th>)}
             </tr>
-            <tr className="border-b border-line text-xs text-muted"><td /><td colSpan={3} className="pb-1">Survey</td><td colSpan={2} className="border-l border-line pb-1 pl-4">QA/QC</td></tr>
+            {kind === 'both' && <tr className="border-b border-line text-xs text-muted"><td /><td colSpan={3} className="pb-1">Survey</td><td colSpan={2} className="border-l border-line pb-1 pl-4">QA/QC</td></tr>}
           </thead>
           <tbody>
             {rows.map((f) => (
               <tr key={f.id} className="border-b border-line">
                 <td className="py-3 pr-4 text-[13px] font-medium"><TextLink to={paths.foundation(projectId, f)}>{f.number}</TextLink></td>
-                {QUALITY_COLUMNS.map((c, i) => <td key={c.key} className={`py-3 pr-4 ${i === 3 ? 'border-l border-line pl-4' : ''}`}><QualityCell idx={idx} f={f} k={c.key} /></td>)}
+                {columns.map((c) => <td key={c.key} className={`py-3 pr-4 ${kind === 'both' && c.key === 'preInspection' ? 'border-l border-line pl-4' : ''}`}><QualityCell idx={idx} f={f} k={c.key} /></td>)}
               </tr>
             ))}
           </tbody>

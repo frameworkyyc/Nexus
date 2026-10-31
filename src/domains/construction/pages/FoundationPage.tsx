@@ -55,7 +55,7 @@ export function FoundationPage() {
 
   return (
     <>
-      <Link to={paths.area(projectId, area.id, 'register')} className="mb-5 phone:hidden inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
+      <Link to={paths.area(projectId, area.id)} className="mb-5 phone:hidden inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
         <ArrowLeft size={14} strokeWidth={1.5} />{area.name} foundations
       </Link>
       <PageHeader title={f.number} description={[area.name, f.description, `Quantity ${foundationQuantity(f).toLocaleString('en-CA')}`, plinthsPerFoundation(f, plinths.length) === null ? 'Plinths per foundation not known' : `${plinthsPerFoundation(f, plinths.length)} plinth${plinthsPerFoundation(f, plinths.length) === 1 ? '' : 's'} per foundation`, totalPlinths(f, plinths.length) === null ? '' : `${totalPlinths(f, plinths.length)!.toLocaleString('en-CA')} plinths in total`].filter(Boolean).join(' · ')} actions={<FoundationStateBadge state={fs.state} blocked={fs.blocked} />} />
