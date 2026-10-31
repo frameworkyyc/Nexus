@@ -250,3 +250,101 @@ describe('PO numbers are optional and editable', () => {
     expect(t.orders!.filter((o) => o.number === 'PO-1')).toHaveLength(2)
   })
 })
+
+describe('materials without an anchorage type are named and separated by foundation', () => {
+  const fbolt = { qty: 4, diameter: '3/4"', length: 460, lengthUnit: 'mm' as const, thread: 'all-thread' as const, nutsPerBolt: 2, washersPerBolt: 2 }
+  function plain() {
+    let c: ConstructionState = { ...emptyConstruction(), company: { id: '', name: '' } }
+    c = build(c, K.createOrganization({ name: 'Northline' }))
+    c = build(c, K.createProject({ name: 'P1' }))
+    c = build(c, K.createArea(c.projects[0].id, 'E-House', []))
+    const area = c.areas[0].id
+    c = build(c, K.createFoundation(area, 'OP1-01-01', '', null, 7, { bolts: [fbolt] }))
+    c = build(c, K.createFoundation(area, 'OP1-21-26', '', null, 5, { bolts: [fbolt] }))
+    return { c, area }
+  }
+
+  it('identical bolts, nuts and washers on two foundations are two requirements named by foundation, each with its own foundation', () => {
+    const { c } = plain()
+    const t = tracked(c)
+    for (const [cat, per] of [['bolt', 4], ['nut', 8], ['washer', 8]] as const) {
+      const g = consolidate(t, c).filter((x) => x.category === cat)
+      expect(g.map((x) => [materialLabel(x).title, x.required])).toEqual([[`OP1-01-01 ${cat === 'bolt' ? 'Anchor bolt' : cat === 'nut' ? 'Nut' : 'Washer'}`, 7 * per], [`OP1-21-26 ${cat === 'bolt' ? 'Anchor bolt' : cat === 'nut' ? 'Nut' : 'Washer'}`, 5 * per]])
+      expect(g.map((x) => x.contributions.map((y) => y.foundation))).toEqual([['OP1-01-01'], ['OP1-21-26']])
+    }
+    // Procurement reads the same groups
+    expect(procurementRows(t, c).filter((r) => r.category === 'bolt').map((r) => [r.key, r.designation, r.required])).toEqual(consolidate(t, c).filter((r) => r.category === 'bolt').map((r) => [r.key, r.designation, r.required]))
+  })
+
+  it('an entered material with a foundation and no anchorage type takes the foundation designation; a type, if present, wins; "other" materials stay plain', () => {
+    const { c, area } = plain()
+    const f = c.foundations[0].id
+    let t = tracked(c)
+    const entered = (category: string, name: string, foundationId = f) => ({ areaId: area, foundationId, category, name, specification: 'X', size: '', unit: 'ea', requiredQty: 3, basis: 'fixed' }) as never
+    t = run(t, c, A.addMaterials([entered('bolt', 'Anchor bolt'), entered('embed-plate', 'Embed plate'), entered('other', 'Grout')], true))
+    const g = consolidate(t, c)
+    expect(displayName(g.find((x) => x.name === 'Embed plate')!)).toBe('OP1-01-01 Embed plate')
+    expect(displayName(g.find((x) => x.name === 'Anchor bolt' && x.specification === 'X')!)).toBe('OP1-01-01 Anchor bolt')
+    expect(displayName(g.find((x) => x.name === 'Grout')!)).toBe('Grout')
+  })
+
+  it('orders and deliveries made against the previous (unseparated) footing-bolt key follow it when one foundation owns it, and stay visible when several do', () => {
+    const { c } = plain()
+    let t = tracked(c)
+    const [a, b] = consolidate(t, c).filter((x) => x.category === 'bolt')
+    const strip = (k: string) => k.slice(0, k.lastIndexOf('|'))
+    expect(strip(a.key)).toBe(strip(b.key)) // identical specification: the old key was shared
+    const o = { id: 'po1', number: 'PO-1', supplierId: null, supplier: 'Nucor', date: TODAY, expectedDate: null, notes: '', createdAt: NOW, createdBy: 'x' }
+    const ref = { areaId: a.areaId, area: 'E-House', category: 'bolt' as const, name: 'Anchor bolt', specification: a.specification, size: '', unit: 'ea' }
+    t = { ...t, orders: [o], orderLines: [{ ...ref, key: strip(a.key), id: 'l1', orderId: 'po1', qty: 10 }] }
+    const rows = procurementRows(t, c).filter((r) => r.category === 'bolt')
+    expect(rows.reduce((s, r) => s + r.ordered, 0)).toBe(10) // counted once
+    expect(rows.find((r) => r.ordered === 10)!.required).toBe(0) // on its own old key, not guessed onto either foundation
+    // with only one foundation left, the old key follows it
+    const only = build(c, K.configureFoundation(c.foundations[1].id, { bolts: [] }))
+    const r1 = procurementRows(refreshRequirements(t, only, { log: false }), only).filter((r) => r.category === 'bolt' && r.required > 0)
+    expect(r1.map((r) => [r.designation, r.required, r.ordered])).toEqual([['OP1-01-01', 28, 10]])
+  })
+})
+
+describe('supplier is optional and can be added or changed afterwards', () => {
+  const order = (key: string, o: Partial<Parameters<typeof A.createPurchaseOrder>[0]> = {}) => A.createPurchaseOrder({ number: 'PO-1', supplier: '', date: TODAY, lines: [{ key, qty: 5 }], ...o }, TODAY)
+
+  it('orders without a supplier behave exactly like orders with one', () => {
+    const { c } = world()
+    const t0 = tracked(c)
+    const [d2] = rowsOf(t0, c, 'Plywood template')
+    const none = run(t0, c, order(d2.key))
+    const some = run(t0, c, order(d2.key, { supplier: 'Nucor' }))
+    expect(none.orders![0].supplier).toBe('')
+    const view = (t: TrackerState) => { const r = rowsOf(t, c, 'Plywood template')[0]; return { ordered: r.ordered, status: r.status, toOrder: r.toOrder, stage: r.stage } }
+    expect(view(none)).toEqual(view(some))
+    let t = run(none, c, A.recordDelivery({ orderId: none.orders![0].id, date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
+    t = run(t, c, A.setAllocations(d2.key, [{ foundationId: c.foundations[0].id, qty: 5 }]))
+    expect(rowsOf(t, c, 'Plywood template')[0]).toMatchObject({ ordered: 5, received: 5, allocated: 5, status: 'received' })
+    expect(none.history.find((h) => h.action === 'order')!.summary).not.toMatch(/ with /)
+  })
+
+  it('a supplier can be added, changed to a listed one, and cleared, in place, keeping the history; an unknown supplier is refused', () => {
+    const { c } = world()
+    let t = run(tracked(c), c, A.addSupplier('Nucor'))
+    const nucor = t.suppliers![0].id
+    const [d2] = rowsOf(t, c, 'Plywood template')
+    t = run(t, c, order(d2.key))
+    const id = t.orders![0].id
+    const frozen = { lines: t.orderLines, number: t.orders![0].number, row: rowsOf(t, c, 'Plywood template')[0] }
+    t = run(t, c, A.setPurchaseOrderSupplier(id, null, '  Local Lumber '))
+    expect(t.orders![0]).toMatchObject({ supplier: 'Local Lumber', supplierId: null })
+    t = run(t, c, A.setPurchaseOrderSupplier(id, nucor, ''))
+    expect(t.orders![0]).toMatchObject({ supplier: 'Nucor', supplierId: nucor })
+    expect(fails(t, c, A.setPurchaseOrderSupplier(id, 'nope', ''))).toMatch(/not available/)
+    expect(fails(t, c, A.setPurchaseOrderSupplier('nope', null, 'X'))).toMatch(/not available/)
+    t = run(t, c, A.setPurchaseOrderSupplier(id, null, ''))
+    expect(t.orders![0]).toMatchObject({ supplier: '', supplierId: null })
+    expect(t.orders).toHaveLength(1)
+    expect({ lines: t.orderLines, number: t.orders![0].number, row: rowsOf(t, c, 'Plywood template')[0] }).toEqual(frozen)
+    const notes = t.history.filter((h) => h.action === 'order' && /^Supplier /.test(h.summary)).map((h) => h.summary.replace(/ \(ordered.*/, ''))
+    expect(notes).toEqual(['Supplier added on PO-1: Not Assigned → Local Lumber', 'Supplier changed on PO-1: Local Lumber → Nucor', 'Supplier changed on PO-1: Nucor → Not Assigned'])
+    expect(run(t, c, A.setPurchaseOrderSupplier(id, null, '')).history).toHaveLength(t.history.length) // unchanged: no noise
+  })
+})

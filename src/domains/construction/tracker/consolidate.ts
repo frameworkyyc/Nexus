@@ -46,8 +46,8 @@ export function groupKey(areaKey: string, l: Pick<TrackerLine, 'category' | 'com
  * The anchorage designation a material line belongs to. Anchorage-specific components (bolts, nuts, washers, sole plates, templates, embed plates of an
  * anchorage type) stay separate per designation even when physically identical; a generic material has none and consolidates by specification.
  */
-export const designationOf = (l: Pick<TrackerLine, 'origin' | 'designation' | 'category' | 'anchorageType'>): string =>
-  l.origin === 'anchorage' ? (l.designation ?? '') : l.category !== 'other' ? (l.anchorageType ?? '').trim() : ''
+export const designationOf = (l: Pick<TrackerLine, 'origin' | 'designation' | 'category' | 'anchorageType' | 'footingType'>): string =>
+  l.origin === 'anchorage' ? (l.designation ?? '') : l.category !== 'other' ? (l.anchorageType ?? '').trim() || (l.footingType ?? '').trim() : ''
 
 /** "OP1-D2 Anchor bolt": the material's name with its designation in front. */
 export const displayName = (g: { name: string; designation?: string }) => (g.designation ? `${g.designation} ${g.name}` : g.name)
@@ -78,7 +78,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
       const comp = compById.get(e.componentId)
       if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
-        if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code ?? '') !== l.deriveKey) continue
+        if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code || f.number) !== l.deriveKey) continue
         out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: `${f.number} · ${u.label}`, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? f.number, qty: it.each, individual: true })
       }
     }
@@ -88,7 +88,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     const comp = embedComponent(fe, compById)
     if (!f || f.archived || !comp || comp.kind !== 'embed-plate') continue
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
-      if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code ?? '') !== l.deriveKey) continue
+      if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code || f.number) !== l.deriveKey) continue
       const qty = it.each * (fe.mode === 'total' ? 1 : (f.quantity ?? 1))
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === comp.anchorageTypeId && !x.individual)
       if (existing) existing.qty += qty
@@ -99,7 +99,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     const f = foundationOf.get(fb.foundationId)
     if (!f || f.archived) continue
     for (const it of itemsOf(boltAsComponent(fb))) {
-      if (reqKey(f.areaId, it, '') !== l.deriveKey) continue
+      if (reqKey(f.areaId, it, f.number) !== l.deriveKey) continue
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === null)
       const qty = it.each * (fb.mode === 'total' ? 1 : f.quantity ?? 1)
       if (existing) existing.qty += qty

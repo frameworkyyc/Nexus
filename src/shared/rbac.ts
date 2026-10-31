@@ -46,6 +46,7 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
   archiveMaterials: 'materials.archive',
   createPurchaseOrder: 'materials.edit',
   setPurchaseOrderNumber: 'materials.edit',
+  setPurchaseOrderSupplier: 'materials.edit',
   addOrderLines: 'materials.edit',
   cancelPurchaseOrder: 'materials.void-receipt',
   recordDelivery: 'materials.receive',

@@ -19,7 +19,7 @@ import { trackerStore, useTracker } from '../tracker/store'
 import { useToast } from '@/components/ui/Toast'
 import { paths } from '../paths'
 import { useConstruction } from '../store'
-import { fmt, OrderModal, PoNumberModal, poLabel, ReceiveModal, RowModal, when, who } from './Dialogs'
+import { fmt, OrderModal, OrderDetailsModal, poLabel, ReceiveModal, RowModal, when, who } from './Dialogs'
 
 type Tab = 'requirements' | 'orders' | 'deliveries'
 const TONE: Record<ProcStatus, Tone> = { pending: 'muted', ordered: 'info', partial: 'warn', received: 'ok' }
@@ -151,7 +151,7 @@ export function ProcurementPage() {
                     <Fragment key={o.id}>
                       <tr className={`border-b border-line transition-colors hover:bg-hover ${o.cancelled ? 'opacity-60' : ''}`}>
                         <td><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} lines of ${poLabel(o)}`} onClick={() => setOpen(toggle(open, o.id))} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
-                        <td className="font-medium">{o.number ? o.number : <span className="font-normal text-muted">Not Assigned</span>}{!o.cancelled && canOrder && <button type="button" className="ml-2 text-xs font-normal text-muted underline-offset-4 hover:text-ink hover:underline" aria-label={`${o.number ? 'Edit' : 'Add'} PO number for ${poLabel(o)} ${o.supplier}`} onClick={() => setDialog({ kind: 'po', order: o.id })}>{o.number ? 'Edit' : 'Add PO number'}</button>}</td><td>{o.supplier}</td><td>{formatDate(o.date)}</td>
+                        <td className="font-medium">{o.number ? o.number : <span className="font-normal text-muted">Not Assigned</span>}{!o.cancelled && canOrder && <button type="button" className="ml-2 text-xs font-normal text-muted underline-offset-4 hover:text-ink hover:underline" aria-label={`${o.number ? 'Edit' : 'Add'} PO number for ${poLabel(o)} ${o.supplier}`} onClick={() => setDialog({ kind: 'po', order: o.id })}>{o.number ? 'Edit' : 'Add PO number'}</button>}</td><td>{o.supplier ? o.supplier : <span className="text-muted">Not Assigned</span>}{!o.cancelled && canOrder && <button type="button" className="ml-2 text-xs text-muted underline-offset-4 hover:text-ink hover:underline" aria-label={`${o.supplier ? 'Change' : 'Add'} supplier for ${poLabel(o)}`} onClick={() => setDialog({ kind: 'po', order: o.id })}>{o.supplier ? 'Change' : 'Add supplier'}</button>}</td><td>{formatDate(o.date)}</td>
                         <td className="text-right">{fmt(p.ordered)}</td><td className="text-right">{fmt(p.received)}</td><td className="text-right">{fmt(o.cancelled ? 0 : p.due)}</td>
                         <td><StatusBadge tone={st === 'Complete' ? 'ok' : st === 'Partially received' ? 'warn' : st === 'Cancelled' ? 'muted' : 'info'} label={st} /></td>
                         <td className="whitespace-nowrap text-right">
@@ -209,7 +209,7 @@ export function ProcurementPage() {
       )}
 
       {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
-      {dialog?.kind === 'po' && (state.orders ?? []).some((o) => o.id === dialog.order) && <PoNumberModal order={(state.orders ?? []).find((o) => o.id === dialog.order)!} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'po' && (state.orders ?? []).some((o) => o.id === dialog.order) && <OrderDetailsModal order={(state.orders ?? []).find((o) => o.id === dialog.order)!} state={state} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'receive' && <ReceiveModal rows={rows} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
       {dlg && <RowModal row={dlg as ProcRow} state={state} foundationName={foundationName} onClose={() => setDialog(null)} onOrder={() => setDialog({ kind: 'order', keys: [dlg.key] })} onReceive={() => setDialog({ kind: 'receive', keys: [dlg.key] })} />}
     </>

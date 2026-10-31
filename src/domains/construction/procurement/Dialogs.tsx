@@ -5,7 +5,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
-import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, setPurchaseOrderNumber } from '../tracker/commands'
+import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, setPurchaseOrderNumber, setPurchaseOrderSupplier } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
 import { orderProgress, PROC_LABEL, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
@@ -83,16 +83,16 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
         {!order && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Field label="PO number (optional)"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Add later if not yet known" /></Field>
-            <Field label="Supplier *">
+            <Field label="Supplier">
               <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-                <option value="">Choose a supplier…</option>
+                <option value="">Not assigned</option>
                 {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 <option value="__other">Another supplier…</option>
               </Select>
             </Field>
             <Field label="Order date *"><Input aria-label="Order date" type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
             <Field label="Expected delivery"><Input aria-label="Expected delivery" type="date" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
-            {supplierId === '__other' && <Field label="Supplier name *"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
+            {supplierId === '__other' && <Field label="Supplier name"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
           </div>
         )}
         <p className="text-muted">{order ? 'Add materials to this order.' : 'One order can cover several materials and areas. Quantities start at what is still to be ordered.'}</p>
@@ -201,7 +201,7 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
           <h3 className="t-label mb-2">Orders</h3>
           {row.orderLines.length === 0 && row.orderedOnLines === 0 ? <p className="text-muted">Not ordered yet.</p> : (
             <ul className="divide-y divide-line border-y border-line">
-              {row.orderLines.map((l) => { const o = orders.get(l.orderId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{o ? poLabel(o) : ''} · {o?.supplier} · {formatDate(o?.date)}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
+              {row.orderLines.map((l) => { const o = orders.get(l.orderId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{o ? poLabel(o) : ''} · {o?.supplier || 'Not Assigned'} · {formatDate(o?.date)}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
               {row.orderedOnLines > 0 && <li className="flex flex-wrap justify-between gap-2 py-2 text-muted"><span>Ordered on individual material lines (earlier records)</span><span className="tabular-nums">{fmt(row.orderedOnLines)} {row.unit}</span></li>}
             </ul>
           )}
@@ -245,22 +245,36 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
   )
 }
 
-/** Adds, corrects or clears a purchase order's PO number. The order, its lines, deliveries and allocations are not touched. */
-export function PoNumberModal({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
+/** Adds, corrects or clears an order's PO number and supplier. The order's materials, deliveries and allocations are not touched. */
+export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOrder; state: TrackerState; onClose: () => void }) {
+  const suppliers = (state.suppliers ?? []).filter((s) => !s.archived)
   const [number, setNumber] = useState(order.number)
+  const listed = order.supplierId && suppliers.some((s) => s.id === order.supplierId)
+  const [supplierId, setSupplierId] = useState(listed ? order.supplierId! : order.supplier ? '__other' : '')
+  const [other, setOther] = useState(listed ? '' : order.supplier)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const save = async () => {
     setSaving(true); setError('')
-    const e = await trackerStore.run(setPurchaseOrderNumber(order.id, number))
+    let e: string | null | undefined = null
+    if (number.trim() !== order.number) e = await trackerStore.run(setPurchaseOrderNumber(order.id, number))
+    if (!e) e = await trackerStore.run(setPurchaseOrderSupplier(order.id, supplierId && supplierId !== '__other' ? supplierId : null, supplierId === '__other' ? other : ''))
     setSaving(false)
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title={order.number ? 'Edit PO number' : 'Add PO number'} onClose={onClose}>
+    <Modal title="Order details" onClose={onClose}>
       <div className="space-y-4 p-6 text-[13px]">
-        <p className="text-muted">{order.supplier} · ordered {formatDate(order.date)}. Changing the number does not change the order&apos;s materials, deliveries or allocations.</p>
+        <p className="text-muted">Ordered {formatDate(order.date)}. Changing these does not change the order&apos;s materials, deliveries or allocations.</p>
         <Field label="PO number"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Leave empty if not yet assigned" autoFocus /></Field>
+        <Field label="Supplier">
+          <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+            <option value="">Not assigned</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <option value="__other">Another supplier…</option>
+          </Select>
+        </Field>
+        {supplierId === '__other' && <Field label="Supplier name"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
         {error && <p role="alert" className="text-danger">{error}</p>}
         <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={saving}>Save</Button></div>
       </div>

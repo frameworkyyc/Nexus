@@ -31,7 +31,7 @@ export interface Requirement {
 /**
  * The key of a calculated requirement. Anchorage-specific components (bolts, nuts, washers, sole plates, templates and embed plates of an anchorage type)
  * carry their anchorage designation in the key, so OP1-D2's plywood templates and OP1-D3's stay separate requirements even when physically identical.
- * Generic materials (footing bolts, plates created in a foundation) have no designation and consolidate by specification alone, exactly as before.
+ * A material with no anchorage type (footing bolts, plates created in a foundation) is identified by its foundation's designation instead, so each foundation's own requirement stays distinguishable.
  */
 export const reqKey = (areaId: string, it: { category: string; name: string; spec: string; size: string }, designation = '') =>
   `anchorage|${areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}${designation ? `|${norm(designation)}` : ''}`
@@ -142,8 +142,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     const footings = total ? 1 : f.quantity ?? 1
     const sentinel = total ? '#bolt-total' : ''
     for (const it of itemsOf(boltAsComponent(fb))) {
-      const key = reqKey(area.id, it, '')
-      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: '' }
+      const key = reqKey(area.id, it, f.number)
+      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: f.number }
       const part = g.parts.find((p) => p.anchorageTypeId === sentinel && p.each === it.each)
       if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: sentinel, code: 'Footing', instances: footings, each: it.each })
       g.required += it.each * footings
@@ -162,8 +162,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
       if (!comp || comp.kind !== 'embed-plate') continue
       const code = typeOf.get(comp.anchorageTypeId)?.code ?? f.number
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
-        const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code ?? '')
-        const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code ?? '' }
+        const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code || f.number)
+        const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code || f.number }
         const part = g.parts.find((p) => p.anchorageTypeId === '#unit' && p.each === it.each && p.code === code)
         if (part) part.instances += 1; else g.parts.push({ anchorageTypeId: '#unit', code, instances: 1, each: it.each })
         g.required += it.each
@@ -180,8 +180,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     const code = typeOf.get(comp.anchorageTypeId)?.code ?? f.number
     const each = fe.mode === 'per-foundation'
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
-      const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code ?? '')
-      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code ?? '' }
+      const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code || f.number)
+      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code || f.number }
       const id = each ? '#embed-each' : '#embed-total'
       const n = each ? (f.quantity ?? 1) : 1
       const part = g.parts.find((p) => p.anchorageTypeId === id && p.each === it.each && p.code === code)
@@ -337,7 +337,7 @@ export function expectedTotals(c: RefSource): Map<string, number> {
       const comp = embedComponent(e, all)
       if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
-        const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code ?? '')
+        const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code || f.number)
         out.set(key, (out.get(key) ?? 0) + it.each * (e.mode === 'total' ? 1 : footings))
       }
     }
@@ -346,14 +346,14 @@ export function expectedTotals(c: RefSource): Map<string, number> {
         const comp = all.get(e.componentId)
         if (!comp || comp.kind !== 'embed-plate') continue
         for (const it of itemsOf({ ...comp, qty: e.qty })) {
-          const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code ?? '')
+          const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code || f.number)
           out.set(key, (out.get(key) ?? 0) + it.each)
         }
       }
     }
     for (const b of (c.foundationBolts ?? []).filter((x) => x.foundationId === f.id)) {
       for (const it of itemsOf(boltAsComponent(b))) {
-        const key = reqKey(f.areaId, it, '')
+        const key = reqKey(f.areaId, it, f.number)
         out.set(key, (out.get(key) ?? 0) + (b.mode === 'total' ? 1 : footings) * it.each)
       }
     }

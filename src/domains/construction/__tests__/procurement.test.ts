@@ -140,7 +140,7 @@ describe('procurement', () => {
     const b = rowOf(t, c, 'E-House', 'Anchor bolt')
     const order = (o: Partial<Parameters<typeof A.createPurchaseOrder>[0]> = {}) => A.createPurchaseOrder({ number: 'PO-1', supplier: 'Nucor', date: TODAY, lines: [{ key: b.key, qty: 10 }], ...o }, TODAY)
     expect(fails(t, c, order({ number: '' }))).toBeUndefined() // the PO number is optional
-    expect(fails(t, c, order({ supplier: '' }))).toMatch(/supplier/)
+    expect(fails(t, c, order({ supplier: '' }))).toBeUndefined() // the supplier is optional
     expect(fails(t, c, order({ lines: [] }))).toMatch(/at least one/)
     expect(fails(t, c, order({ lines: [{ key: b.key, qty: 0 }] }))).toMatch(/whole number/)
     expect(fails(t, c, order({ lines: [{ key: 'nope', qty: 1 }] }))).toMatch(/no longer required/)
@@ -346,12 +346,12 @@ describe('anchor bolts installed directly in footings', () => {
     expect(c.plinths.length).toBe(before.plinths) // no artificial plinth records
     expect(c.anchorageGroups?.length).toBe(before.groups)
     expect(c.foundationBolts).toHaveLength(1)
-    // Bolts cast in a footing belong to no anchorage designation: they are their own line, apart from the identical OP1-D2 anchorage bolts.
-    const bolts = find(c, 'E-House', 'bolt', /3\/4/, '')
+    // Bolts cast in a footing have no anchorage type, so they are identified by their foundation: apart from the identical OP1-D2 anchorage bolts.
+    const bolts = find(c, 'E-House', 'bolt', /3\/4/, 'FB-1')
     expect(bolts.contributions.find((x) => x.foundationId === f.id)).toMatchObject({ qty: 28, anchorage: 'Footing', source: 'calculated' })
     expect(bolts.required).toBe(28)
-    expect(find(c, 'E-House', 'nut', /3\/4/, '').required).toBe(28 * 6)
-    expect(find(c, 'E-House', 'washer', /3\/4/, '').required).toBe(28 * 2)
+    expect(find(c, 'E-House', 'nut', /3\/4/, 'FB-1').required).toBe(28 * 6)
+    expect(find(c, 'E-House', 'washer', /3\/4/, 'FB-1').required).toBe(28 * 2)
     expect(find(c, 'E-House', 'bolt', /3\/4/, 'OP1-D2').required).toBe(36)
     expect(consolidate(tracked(c), c).filter((g) => g.area === 'E-House' && g.category === 'bolt' && /3\/4/.test(g.specification))).toHaveLength(2)
     expect(bolts.lines[0].calc.expression).toMatch(/4 per footing × 7 footings/)
@@ -365,9 +365,10 @@ describe('anchor bolts installed directly in footings', () => {
     c = build(c, K.createFoundation(area, 'BOTH', '', null, 5, { groups: [{ anchorageTypeId: both, count: 1 }], bolts: [fbolt({ qty: 1 })] }))
     expect(c.foundationBolts!.filter((b) => b.foundationId === c.foundations.find((f) => f.number === 'BOLTS')!.id)).toHaveLength(2)
     expect(c.plinths.filter((p) => p.foundationId === c.foundations.find((f) => f.number === 'BOLTS')!.id)).toHaveLength(0)
-    expect(find(c, 'E-House', 'bolt', /^1"/, '').required).toBe(2 * 2) // BOLTS: 2 footings × 2
+    expect(find(c, 'E-House', 'bolt', /^1"/, 'BOLTS').required).toBe(2 * 2) // BOLTS: 2 footings × 2
     expect(find(c, 'E-House', 'bolt', /^1"/, 'OP1-D3').required).toBe(4) // the OP1-D3 anchorage bolt stays apart
-    expect(find(c, 'E-House', 'bolt', /3\/4/, '').required).toBe(2 * 4 + 5 * 1) // footing bolts: BOLTS 8, BOTH 5 footings × 1
+    expect(find(c, 'E-House', 'bolt', /3\/4/, 'BOLTS').required).toBe(2 * 4) // footing bolts of BOLTS
+    expect(find(c, 'E-House', 'bolt', /3\/4/, 'BOTH').required).toBe(5 * 1) // and of BOTH: 5 footings × 1
     expect(find(c, 'E-House', 'bolt', /3\/4/, 'OP1-D2').required).toBe(36 + 5 * 4) // OP1-D2 anchorage bolts: 36, BOTH 5 × 4
     expect(find(c, 'E-House', 'nut').required).toBeGreaterThan(0)
   })
@@ -385,10 +386,10 @@ describe('anchor bolts installed directly in footings', () => {
     const id = c.foundationBolts![0].id
     c = build(c, K.configureFoundation(f.id, { bolts: [{ ...fbolt({ qty: 6 }), id }] }))
     expect(c.foundationBolts!.find((b) => b.foundationId === f.id)).toMatchObject({ id, qty: 6 })
-    expect(find(c, 'E-House', 'bolt', /3\/4/, '').contributions.find((x) => x.foundationId === f.id)!.qty).toBe(12)
+    expect(find(c, 'E-House', 'bolt', /3\/4/, 'FB-2').contributions.find((x) => x.foundationId === f.id)!.qty).toBe(12)
     const plinths = c.plinths.length
     c = build(c, K.configureFoundation(f.id, { quantity: 5 }))
-    expect(find(c, 'E-House', 'bolt', /3\/4/, '').contributions.find((x) => x.foundationId === f.id)!.qty).toBe(30) // follows the footing quantity
+    expect(find(c, 'E-House', 'bolt', /3\/4/, 'FB-2').contributions.find((x) => x.foundationId === f.id)!.qty).toBe(30) // follows the footing quantity
     c = build(c, K.configureFoundation(f.id, { bolts: [] }))
     expect(c.foundationBolts!.some((b) => b.foundationId === f.id)).toBe(false)
     expect(c.plinths.length).toBe(plinths)
@@ -400,7 +401,7 @@ describe('anchor bolts installed directly in footings', () => {
     let t = tracked(c)
     const expected = expectedTotals(c)
     for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
-    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && /3\/4/.test(r.specification) && r.designation === '')!
+    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && /3\/4/.test(r.specification) && r.designation === 'FB-3')!
     expect(row().required).toBe(28)
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-FB', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 28 }] }, TODAY))
     const f = c.foundations.find((x) => x.number === 'FB-3')!
@@ -722,13 +723,15 @@ describe('embed plates created inside a foundation', () => {
   const entry = (o: Record<string, unknown> = {}) => ({ plate: plate(), save: 'foundation' as const, qty: 2, mode: 'per-foundation' as const, ...o })
   const line = (c: ConstructionState, re = /16 × 300 × 300/) => consolidate(tracked(c), c).find((g) => g.area === 'E-House' && g.category === 'embed-plate' && re.test(g.size))!
 
+  const total = (c: ConstructionState) => consolidate(tracked(c), c).filter((g) => g.area === 'E-House' && g.category === 'embed-plate' && /16 × 300 × 300/.test(g.size)).reduce((a, g) => a + g.required, 0)
+
   it('needs no anchorage type: 18 foundations × 2 = 36, named by the foundation and the plate specification', () => {
     let { c } = staging()
     const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
     c = build(c, K.configureFoundation(f.id, { embeds: [entry()] }))
     const g = line(c)
     expect(g.required).toBe(36)
-    expect(materialLabel(g)).toEqual({ title: 'OP1-01-01', sub: '16 × 300 × 300 mm w/ 4 headed studs Ø19 × 150 mm long' })
+    expect(materialLabel(g)).toEqual({ title: 'OP1-01-01 Embed plate', sub: '16 × 300 × 300 mm w/ 4 headed studs Ø19 × 150 mm long' })
     expect(g.contributions).toEqual([expect.objectContaining({ foundation: 'OP1-01-01', anchorage: 'OP1-01-01', qty: 36, source: 'calculated' })])
     expect(c.foundationEmbeds![0]).toMatchObject({ componentId: '', plate: { thickness: 16, width: 300, length: 300, unit: 'mm', studCount: 4 } })
     expect(c.libraryEmbedPlates ?? []).toHaveLength(0) // foundation specific: nothing added to the library
@@ -747,16 +750,15 @@ describe('embed plates created inside a foundation', () => {
     expect(consolidate(tracked(c), c).find((g) => g.category === 'embed-plate')!.required).toBe(15)
   })
 
-  it('identical specifications on different foundations are one requirement, each foundation shown', () => {
+  it('identical specifications on different foundations stay separate requirements, each named by its foundation', () => {
     let { c } = staging()
     const a = c.foundations.find((x) => x.number === 'OP1-01-01')!, b = c.foundations.find((x) => x.number === 'OP1-01-02')!
     c = build(c, K.configureFoundation(a.id, { embeds: [entry()] }))
     c = build(c, K.configureFoundation(b.id, { embeds: [entry({ qty: 3 })] })) // OP1-01-02 has 1 footing
-    const g = line(c)
-    expect(consolidate(tracked(c), c).filter((x) => x.area === 'E-House' && x.category === 'embed-plate' && /16 × 300/.test(x.size))).toHaveLength(1)
-    expect(g.required).toBe(36 + 3)
-    expect(materialLabel(g).title).toBe('OP1-01-01, OP1-01-02')
-    expect(g.contributions.map((x) => [x.foundation, x.qty]).sort()).toEqual([['OP1-01-01', 36], ['OP1-01-02', 3]])
+    const g = consolidate(tracked(c), c).filter((x) => x.area === 'E-House' && x.category === 'embed-plate' && /16 × 300/.test(x.size))
+    expect(g.map((x) => [materialLabel(x).title, x.required])).toEqual([['OP1-01-01 Embed plate', 36], ['OP1-01-02 Embed plate', 3]])
+    expect(g.map((x) => x.contributions.map((y) => [y.foundation, y.qty]))).toEqual([[['OP1-01-01', 36]], [['OP1-01-02', 3]]])
+    expect(total(c)).toBe(36 + 3)
   })
 
   it('saving to the library makes it reusable by other foundations and never saves a specification twice', () => {
@@ -770,16 +772,16 @@ describe('embed plates created inside a foundation', () => {
     const choice = embedChoices(c, c.projects[0].id).find((x) => x.type === null)!
     expect(choice.component.size).toBe('16 × 300 × 300 mm w/ 4 headed studs Ø19 × 150 mm long')
     c = build(c, K.configureFoundation(b.id, { embeds: [{ componentId: choice.component.id, qty: 2, mode: 'total' }] }))
-    expect(line(c).required).toBe(36 + 2)
+    expect(total(c)).toBe(36 + 2)
     // creating the same specification again from a third foundation reuses the library entry
     const d = c.foundations.find((x) => x.number === 'OP1-01-03')!
     c = build(c, K.configureFoundation(d.id, { embeds: [entry({ save: 'library', qty: 1 })] }))
     expect(c.libraryEmbedPlates).toHaveLength(1)
-    expect(line(c).required).toBe(36 + 2 + 7)
+    expect(total(c)).toBe(36 + 2 + 7)
     // editing keeps entries and ids; a foundation's own entry can later be moved to the library
     const mine = c.foundationEmbeds!.find((e) => e.foundationId === a.id)!
     c = build(c, K.configureFoundation(a.id, { embeds: [{ id: mine.id, componentId: mine.componentId, qty: 1, mode: 'per-foundation' }] }))
-    expect(line(c).required).toBe(18 + 2 + 7)
+    expect(total(c)).toBe(18 + 2 + 7)
   })
 
   it('keeps quantities in step: recount agrees, Procurement matches Materials, orders and deliveries are kept', () => {
@@ -838,21 +840,21 @@ describe('footing anchor bolts: quantity method', () => {
 
   const reqD = (c: ConstructionState, cat: string, des: string) => req(c, cat).filter((g) => g.designation === des)
 
-  it('OP1-21-26: 4 extra bolts as a total is 4 additional, not 20, beside the typical 20 (generic footing bolts are a separate line from OP1-D2 bolts)', () => {
+  it('OP1-21-26: 4 extra bolts as a total is 4 additional, not 20, beside the typical 20 (footing bolts are identified by their foundation, apart from OP1-D2 bolts)', () => {
     let { c, f } = moleSieve()
     expect(req(c, 'bolt')[0].required).toBe(20) // typical only
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] }))
     const bolts = req(c, 'bolt')
     expect(bolts).toHaveLength(2) // OP1-D2 anchorage bolts, and the footing bolts, which belong to no designation: nothing lost
-    const typical = reqD(c, 'bolt', 'OP1-D2')[0], extra = reqD(c, 'bolt', '')[0]
+    const typical = reqD(c, 'bolt', 'OP1-D2')[0], extra = reqD(c, 'bolt', 'OP1-21-26')[0]
     expect(typical.required).toBe(20) // the typical bolts are never replaced
     expect(extra.required).toBe(4) // 4 additional, never 20 extra
     expect(extra.contributions.find((x) => x.anchorage === 'Footing')!.qty).toBe(4)
     expect(typical.contributions.find((x) => x.anchorage === 'OP1-D2')!.qty).toBe(20)
     expect(typical.lines[0].calc.expression).toMatch(/4 per anchorage × 5 OP1-D2/)
     expect(extra.lines[0].calc.expression).toMatch(/4 extra on the footings, in total/)
-    expect(reqD(c, 'nut', 'OP1-D2')[0].required + reqD(c, 'nut', '')[0].required).toBe(20 * 6 + 4 * 6) // 144 nuts
-    expect(reqD(c, 'washer', 'OP1-D2')[0].required + reqD(c, 'washer', '')[0].required).toBe(20 * 2 + 4 * 2) // 48 washers
+    expect(reqD(c, 'nut', 'OP1-D2')[0].required + reqD(c, 'nut', 'OP1-21-26')[0].required).toBe(20 * 6 + 4 * 6) // 144 nuts
+    expect(reqD(c, 'washer', 'OP1-D2')[0].required + reqD(c, 'washer', 'OP1-21-26')[0].required).toBe(20 * 2 + 4 * 2) // 48 washers
     expect(c.foundationBolts![0].mode).toBe('total')
   })
 
@@ -861,15 +863,15 @@ describe('footing anchor bolts: quantity method', () => {
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'per-foundation', qty: 4 }), fb({ mode: 'total', qty: 4, diameter: 'M24', length: 900 })] }))
     const of = (re: RegExp, des: string) => reqD(c, 'bolt', des).find((g) => re.test(g.specification))!
     expect(of(/3\/4/, 'OP1-D2').required).toBe(20) // typical
-    expect(of(/3\/4/, '').required).toBe(4 * 5) // 4 × 5 foundations
-    expect(of(/M24/, '').required).toBe(4)
+    expect(of(/3\/4/, 'OP1-21-26').required).toBe(4 * 5) // 4 × 5 foundations
+    expect(of(/M24/, 'OP1-21-26').required).toBe(4)
     c = build(c, K.configureFoundation(f, { quantity: 8 }))
     expect(of(/3\/4/, 'OP1-D2').required).toBe(32) // both follow the quantity
-    expect(of(/3\/4/, '').required).toBe(32)
-    expect(of(/M24/, '').required).toBe(4) // the total does not
+    expect(of(/3\/4/, 'OP1-21-26').required).toBe(32)
+    expect(of(/M24/, 'OP1-21-26').required).toBe(4) // the total does not
     // two configurations of the same specification, one of each method, are both counted
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'per-foundation', qty: 1 }), fb({ mode: 'total', qty: 4 })] }))
-    expect(reqD(c, 'bolt', '').find((g) => /3\/4/.test(g.specification))!.required).toBe(8 + 4) // 1 × 8 foundations + 4 in total, both counted
+    expect(reqD(c, 'bolt', 'OP1-21-26').find((g) => /3\/4/.test(g.specification))!.required).toBe(8 + 4) // 1 × 8 foundations + 4 in total, both counted
     expect(reqD(c, 'bolt', 'OP1-D2')[0].required).toBe(32)
   })
 
@@ -877,11 +879,11 @@ describe('footing anchor bolts: quantity method', () => {
     let { c, f } = moleSieve()
     c = build(c, K.configureFoundation(f, { bolts: [fb()] })) // no mode given
     expect(c.foundationBolts![0].mode).toBe('per-foundation')
-    expect(reqD(c, 'bolt', '')[0].required).toBe(20)
+    expect(reqD(c, 'bolt', 'OP1-21-26')[0].required).toBe(20)
     expect(reqD(c, 'bolt', 'OP1-D2')[0].required).toBe(20)
     // a bolt saved before the method existed (no mode at all) counts per foundation
     const legacy = { ...c, foundationBolts: c.foundationBolts!.map((b) => { const o = { ...b } as Partial<typeof b>; delete o.mode; return o as typeof b }) }
-    expect(consolidate(tracked(legacy), legacy).find((g) => g.category === 'bolt' && g.designation === '')!.required).toBe(20)
+    expect(consolidate(tracked(legacy), legacy).find((g) => g.category === 'bolt' && g.designation === 'OP1-21-26')!.required).toBe(20)
     expect(K.configureFoundation(f, { bolts: [fb({ mode: 'each' })] } as never)(c, {}).error).toMatch(/per foundation or total/)
   })
 
@@ -898,7 +900,7 @@ describe('footing anchor bolts: quantity method', () => {
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] })) // re-saving the same configuration changes nothing that was ordered or received
     t = refreshRequirements(t, c, { log: true, at: NOW })
     expect(row()).toMatchObject({ required: 20, ordered: 20, received: 12, toOrder: 0 })
-    expect(procurementRows(t, c).find((r) => r.category === 'bolt' && r.designation === '')).toMatchObject({ required: 4, ordered: 0 })
+    expect(procurementRows(t, c).find((r) => r.category === 'bolt' && r.designation === 'OP1-21-26')).toMatchObject({ required: 4, ordered: 0 })
     expect(t.orderLines).toHaveLength(1)
     expect(t.deliveries).toHaveLength(1)
   })

@@ -56,14 +56,13 @@ export const createPurchaseOrder = (input: OrderInput, today: ISODate): Reducer 
   const supplier = input.supplierId ? (s.suppliers ?? []).find((x) => x.id === input.supplierId && !x.archived) : undefined
   if (input.supplierId && !supplier) return { error: 'That supplier is not available. Choose another.' }
   const name = supplier?.name ?? clip(input.supplier, 80)
-  if (!name) return { error: 'Choose or enter the supplier.' }
   const r = resolveLines(s, ctx, input.lines, new Set())
   if ('error' in r) return r
   const order: PurchaseOrder = { id: id('po'), number, supplierId: supplier?.id ?? null, supplier: name, date: input.date, expectedDate: input.expectedDate || null, notes: clip(input.notes, 500), createdAt: ctx?.now ?? new Date().toISOString(), createdBy: ctx?.actor ?? '' }
   const lines: OrderLine[] = r.ok.map(({ g, qty }) => ({ ...ref(g), id: id('pol'), orderId: order.id, qty }))
   const total = lines.reduce((a, l) => a + l.qty, 0)
   const areas = [...new Set(lines.map((l) => l.area))]
-  return { state: withHistory({ ...s, orders: [...(s.orders ?? []), order], orderLines: [...(s.orderLines ?? []), ...lines] }, note(ctx, 'order', number || 'No PO number', `${number ? `Purchase order ${number}` : 'Purchase order (no PO number)'} placed with ${name}: ${lines.length} material${lines.length === 1 ? '' : 's'}, ${fmt(total)} items (${areas.join(', ')})`)) }
+  return { state: withHistory({ ...s, orders: [...(s.orders ?? []), order], orderLines: [...(s.orderLines ?? []), ...lines] }, note(ctx, 'order', number || 'No PO number', `${number ? `Purchase order ${number}` : 'Purchase order (no PO number)'} placed${name ? ` with ${name}` : ''}: ${lines.length} material${lines.length === 1 ? '' : 's'}, ${fmt(total)} items (${areas.join(', ')})`)) }
 })
 
 export const addOrderLines = (orderId: string, lines: { key: string; qty: number }[]): Reducer => audited((s, ctx): Result => {
@@ -73,6 +72,19 @@ export const addOrderLines = (orderId: string, lines: { key: string; qty: number
   if ('error' in r) return r
   const add: OrderLine[] = r.ok.map(({ g, qty }) => ({ ...ref(g), id: id('pol'), orderId, qty }))
   return { state: withHistory({ ...s, orderLines: [...(s.orderLines ?? []), ...add] }, note(ctx, 'order', o.number || 'No PO number', `Added to ${poName(o)}: ${add.map((l) => `${fmt(l.qty)} × ${label(l)}`).join('; ')}`)) }
+})
+
+/** Adds, changes or clears who an order is placed with (a listed supplier or free text). The order's lines, deliveries and allocations are untouched. */
+export const setPurchaseOrderSupplier = (orderId: string, supplierId: string | null, supplierName: string): Reducer => audited((s, ctx): Result => {
+  const o = (s.orders ?? []).find((x) => x.id === orderId)
+  if (!o) return { error: 'That purchase order is not available.' }
+  const supplier = supplierId ? (s.suppliers ?? []).find((x) => x.id === supplierId && !x.archived) : undefined
+  if (supplierId && !supplier) return { error: 'That supplier is not available. Choose another.' }
+  const name = supplier?.name ?? clip(supplierName, 80)
+  const id = supplier?.id ?? null
+  if (name === o.supplier && id === (o.supplierId ?? null)) return { state: s }
+  const was = o.supplier || 'Not Assigned', now = name || 'Not Assigned'
+  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, supplier: name, supplierId: id } : x)) }, note(ctx, 'order', o.number || 'No PO number', `Supplier ${o.supplier ? 'changed' : 'added'}${o.number ? ` on ${o.number}` : ''}: ${was} → ${now} (ordered ${o.date})`, [{ field: 'Supplier', from: was, to: now }])) }
 })
 
 /**

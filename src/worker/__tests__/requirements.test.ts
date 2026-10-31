@@ -403,10 +403,10 @@ describe('embed plates created in a foundation, on the server', () => {
     expect(count(db, 'library_embed_plates')).toBe(1)
     expect(db.raw.prepare('SELECT created_by FROM library_embed_plates').get()).toEqual({ created_by: 'admin@example.com' })
     const embed = (await rows()).filter((r) => r.category === 'embed-plate')
-    expect(embed).toHaveLength(1)
-    expect(embed[0].required).toBe(36 + 12)
+    expect(embed).toHaveLength(2) // each foundation's plate is identified by its foundation: OP-1 and f2
+    expect(embed.reduce((a, r) => a + r.required, 0)).toBe(36 + 12)
     expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [f2, { quantity: 20 }])).status).toBe(200)
-    expect((await rows()).find((r) => r.category === 'embed-plate')!.required).toBe(40 + 12)
+    expect((await rows()).filter((r) => r.category === 'embed-plate').reduce((a, r) => a + r.required, 0)).toBe(40 + 12)
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
     const backup = (await as(db, 'admin@example.com', 'GET', '/api/backup')).body
     expect(backup.tables.library_embed_plates).toHaveLength(1)
@@ -442,7 +442,7 @@ describe('footing anchor bolt quantity method on the server', () => {
     expect(db.raw.prepare('SELECT mode FROM foundation_bolts').all()).toEqual([{ mode: 'per-foundation' }])
     const sum = async (cat: string) => (await rows()).filter((r) => r.category === cat).reduce((a, r) => a + r.required, 0) // typical and footing bolts are separate lines
     expect(await sum('bolt')).toBe(144 + 48) // typical 12×3×4, plus 4 × 12
-    expect((await rows()).find((r) => r.category === 'bolt' && r.designation === '')!.required).toBe(48)
+    expect((await rows()).find((r) => r.category === 'bolt' && r.designation === 'OP-1')!.required).toBe(48)
     expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk('total')] }])).status).toBe(200)
     expect(db.raw.prepare('SELECT mode FROM foundation_bolts').all()).toEqual([{ mode: 'total' }])
     expect(await sum('bolt')).toBe(144 + 4)
@@ -536,5 +536,25 @@ describe('migration 0022', () => {
     expect(db.raw.prepare('SELECT po_number, supplier FROM purchase_orders').get()).toEqual({ po_number: 'PO-1', supplier: 'Nucor' })
     for (const t of ['manual_materials', 'purchase_order_lines', 'procurement_delivery_lines', 'material_installations']) expect((db.raw.prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('${t}') WHERE name = 'designation'`).get() as { n: number }).n).toBe(1)
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '22' })
+  })
+})
+
+describe('optional supplier on the server', () => {
+  it('orders without a supplier are saved, and the supplier is added and changed later with permissions and history', async () => {
+    const { db, A } = await setup()
+    void A
+    const m = await get(db, 'materials'); const c = await get(db, 'construction')
+    const bolts = procurementRows(refreshRequirements(m, c, { log: false }), c).find((r) => r.name === 'Anchor bolt')!
+    const order = { number: '', supplier: '', date: '2026-10-20', lines: [{ key: bolts.key, qty: 10 }] }
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'createPurchaseOrder', [order, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [order, TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT po_number, supplier, supplier_id FROM purchase_orders').all()).toEqual([{ po_number: '', supplier: '', supplier_id: null }])
+    const id = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'setPurchaseOrderSupplier', [id, null, 'Nucor'])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderSupplier', [id, null, 'Nucor'])).status).toBe(200)
+    expect(db.raw.prepare('SELECT supplier FROM purchase_orders').get()).toEqual({ supplier: 'Nucor' })
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderSupplier', [id, 'missing', ''])).status).toBe(422)
+    expect(count(db, 'purchase_order_lines')).toBe(1)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
   })
 })
