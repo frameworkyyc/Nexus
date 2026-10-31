@@ -61,15 +61,7 @@ export function primarySections(projectId: string | null, areas: AreaRef[]): Nav
 /** Everything that is not a primary section: the secondary "Tools" group in the sidebar and the phone menu. Nothing was removed. */
 export function toolNodes(projectId: string | null, server: boolean): NavNode[] {
   const project: NavNode[] = projectId ? [
-    {
-      id: 'setup', label: 'Setup', to: paths.setup(projectId), icon: Settings2,
-      children: [
-        { id: 'setup-foundations', label: 'Foundations', to: paths.register(projectId) },
-        { id: 'setup-areas', label: 'Areas', to: paths.areas(projectId) },
-        { id: 'setup-anchorage', label: 'Anchorage types', to: paths.anchorage(projectId) },
-        { id: 'setup-pours', label: 'Concrete pours', to: paths.pours(projectId), prefix: true },
-      ],
-    },
+    { id: 'setup', label: 'Setup', to: paths.setup(projectId), icon: Settings2, prefix: true },
     { id: 'issues', label: 'Issues', to: paths.issues(projectId), icon: Activity },
     { id: 'project-fleet', label: 'Fleet on this project', to: paths.projectFleet(projectId), icon: Truck, prefix: true },
     ...(server ? [] : [

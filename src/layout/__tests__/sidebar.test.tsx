@@ -59,9 +59,15 @@ describe('sidebar contents', () => {
     expect(out).not.toContain('aria-label="Expand Procurement') // direct links have no chevron
   })
 
-  it('opens Setup with its pages when you are in Setup', () => {
-    const setup = html('/projects/reef/setup/areas')
-    for (const page of ['Foundations', 'Areas', 'Anchorage types', 'Concrete pours']) expect(setup, page).toContain(`>${page}<`)
+  it('Setup is one static link to its overview: no dropdown or submenu, highlighted on every Setup screen', () => {
+    for (const path of ['/projects/reef/setup', '/projects/reef/setup/areas', '/projects/reef/setup/pours/p1', '/projects/reef/progress']) {
+      const out = html(path)
+      expect(out).toContain('href="/projects/reef/setup"')
+      expect(out).not.toContain('aria-label="Expand Setup"')
+      expect(out).not.toContain('aria-label="Setup"') // no nested list
+      for (const page of ['href="/projects/reef/setup/foundations"', 'href="/projects/reef/setup/areas"', 'href="/projects/reef/setup/anchorage"', 'href="/projects/reef/setup/pours"']) expect(out, page).not.toContain(page)
+    }
+    expect(html('/projects/reef/setup/areas')).toMatch(/bg-white\/10[^>]*>.{0,700}Setup/)
   })
 
   it('marks exactly one page as current, and highlights its entry', () => {
