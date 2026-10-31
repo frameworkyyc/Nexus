@@ -429,3 +429,39 @@ describe('migration 0020', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '20' })
   })
 })
+
+describe('footing anchor bolt quantity method on the server', () => {
+  it('saves the method, keeps total bolts fixed when the quantity changes, and defaults to per foundation', async () => {
+    const { db } = await setup() // OP-1: 12 foundations × 3 plinths of type A (4 bolts each)
+    const fid = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'OP-1'").get() as { id: string }).id
+    const mk = (mode?: string) => ({ qty: 4, diameter: 'M25', length: 900, lengthUnit: 'mm', thread: 'both-ends', topThread: 100, bottomThread: 80, nutsPerBolt: 2, washersPerBolt: 2, ...(mode ? { mode } : {}) })
+    const rows = async () => { const m = await get(db, 'materials'); const c = await get(db, 'construction'); return procurementRows(refreshRequirements(m, c, { log: false }), c) }
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk('each')] }])).status).toBe(422)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk()] }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT mode FROM foundation_bolts').all()).toEqual([{ mode: 'per-foundation' }])
+    expect((await rows()).find((r) => r.category === 'bolt')!.required).toBe(144 + 48) // typical 12×3×4, plus 4 × 12
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk('total')] }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT mode FROM foundation_bolts').all()).toEqual([{ mode: 'total' }])
+    expect((await rows()).find((r) => r.category === 'bolt')!.required).toBe(144 + 4)
+    expect((await rows()).find((r) => r.category === 'nut')!.required).toBe((144 + 4) * 2)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { quantity: 20 }])).status).toBe(200)
+    expect((await rows()).find((r) => r.category === 'bolt')!.required).toBe(240 + 4) // typical follows, total stays 4
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/backup')).body.tables.foundation_bolts[0].mode).toBe('total')
+  })
+})
+
+describe('migration 0021', () => {
+  it('adds the method with every existing footing bolt defaulting to per foundation', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql', '0013_sole_plate_center_hole.sql', '0014_embed_plate_headed_studs.sql', '0015_procurement.sql', '0016_footing_anchor_bolts.sql', '0017_material_installations.sql', '0018_individual_foundations.sql', '0019_foundation_embed_plates.sql', '0020_custom_embed_plates.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec('PRAGMA foreign_keys = OFF')
+    db.raw.exec("INSERT INTO foundation_bolts (id, foundation_id, qty, diameter, seq) VALUES ('b1', 'f1', 4, 'M25', 0)")
+    applyMigrationFile(db.raw, '0021_footing_bolt_quantity_method.sql')
+    expect(db.raw.prepare('SELECT qty, diameter, mode FROM foundation_bolts').get()).toEqual({ qty: 4, diameter: 'M25', mode: 'per-foundation' })
+    expect(() => db.raw.exec("UPDATE foundation_bolts SET mode = 'each'")).toThrow()
+    db.raw.exec("UPDATE foundation_bolts SET mode = 'total'")
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '21' })
+  })
+})

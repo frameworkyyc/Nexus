@@ -216,6 +216,8 @@ export interface FoundationBolt {
   washersPerBolt: number
   nutSize: string
   washerSize: string
+  /** 'per-foundation' (default): `qty` × the foundation's physical foundations. 'total': `qty` is the total across all of them. */
+  mode?: 'per-foundation' | 'total'
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */

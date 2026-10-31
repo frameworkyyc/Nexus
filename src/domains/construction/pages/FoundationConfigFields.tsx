@@ -16,13 +16,15 @@ export interface GroupDraft { id?: string; typeId: string; count: string; dims: 
 export interface BoltDraft {
   id?: string; qty: string; diameter: string; length: string; lengthUnit: 'mm' | 'in'; thread: 'both-ends' | 'all-thread'; topThread: string; bottomThread: string; spec: string
   nutsPerBolt: string; nutSize: string; washersPerBolt: string; washerSize: string
+  /** How the bolt quantity counts: per foundation (× the number of physical foundations) or a total. */
+  mode: 'per-foundation' | 'total'
 }
-export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '' })
-const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize })
+export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '', mode: 'per-foundation' })
+const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize, mode: b.mode ?? 'per-foundation' })
 const numOrNull = (t: string) => (t.trim() === '' ? null : Number(t))
 const boltInput = (d: BoltDraft): FootingBoltInput => ({
   id: d.id, qty: Number(d.qty), diameter: d.diameter, length: numOrNull(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? numOrNull(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? numOrNull(d.bottomThread) : null,
-  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize,
+  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize, mode: d.mode,
 })
 /** Text-box state for a plate created in the form: size and optional headed studs. */
 export interface PlateDraft { thickness: string; width: string; length: string; unit: 'mm' | 'in'; studCount: string; studDiameter: string; studLength: string }
@@ -128,7 +130,7 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
   const setGroup = (i: number, patch: Partial<GroupDraft>) => onChange({ ...draft, groups: draft.groups.map((g, j) => (j === i ? { ...g, ...patch } : g)) })
   const taken = (i: number) => new Set(draft.groups.filter((_, j) => j !== i).map((g) => g.typeId))
   const total = totalPlinthsOf(draft)
-  const boltsPerFooting = (draft.bolts ?? []).reduce((t, b) => t + (Number.isInteger(Number(b.qty)) && Number(b.qty) > 0 ? Number(b.qty) : 0), 0)
+  const boltsTotal = (draft.bolts ?? []).reduce((t, b) => t + boltCount(b, quantity), 0)
   const norm = (c: string) => c.trim().replace(/\s+/g, ' ').toLowerCase()
   /** Picks the existing type with that code, or adds it to the project's library; the new type is selected in this group. Duplicates are never created. */
   const createType = async (i: number, code: string) => {
@@ -192,11 +194,11 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
 
       <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
         <legend className="t-label mb-1 p-0">Footing anchor bolts</legend>
-        <p className="text-xs text-muted">Bolts installed directly in each footing. No plinth or anchorage type is needed, and quantities are per footing. A foundation can have these, plinths, both or neither.</p>
-        {(draft.bolts ?? []).map((b, i) => <BoltCard key={b.id ?? `bolt-${i}`} index={i} value={b} onChange={(v) => onChange({ ...draft, bolts: draft.bolts.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...draft, bolts: draft.bolts.filter((_, j) => j !== i) })} />)}
+        <p className="text-xs text-muted">Bolts installed directly in the footings. No plinth or anchorage type is needed. Count each per foundation or as a total (for example extra bolts on one footing); they are added to what the anchorage configuration already requires. A foundation can have these, plinths, both or neither.</p>
+        {(draft.bolts ?? []).map((b, i) => <BoltCard key={b.id ?? `bolt-${i}`} index={i} quantity={quantity} value={b} onChange={(v) => onChange({ ...draft, bolts: draft.bolts.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...draft, bolts: draft.bolts.filter((_, j) => j !== i) })} />)}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <Button onClick={() => onChange({ ...draft, bolts: [...(draft.bolts ?? []), blankBolt()] })}><Plus size={14} strokeWidth={1.5} />Add anchor bolts</Button>
-          {(draft.bolts ?? []).length > 0 && <p className="text-xs text-muted" aria-live="polite">Bolts per footing: <span className="font-medium text-ink">{boltsPerFooting}</span> · Total bolts: <span className="font-medium text-ink">{(boltsPerFooting * quantity).toLocaleString('en-CA')}</span> ({quantity.toLocaleString('en-CA')} × {boltsPerFooting})</p>}
+          {(draft.bolts ?? []).length > 0 && <p className="text-xs text-muted" aria-live="polite">Anchor bolts required: <span className="font-medium text-ink">{boltsTotal.toLocaleString('en-CA')}</span></p>}
         </div>
       </fieldset>
 
@@ -219,14 +221,20 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
 }
 
 /** One set of anchor bolts per footing: size, thread layout, and the nuts and washers each bolt takes. */
-function BoltCard({ index, value: b, onChange, onRemove }: { index: number; value: BoltDraft; onChange: (v: BoltDraft) => void; onRemove: () => void }) {
+const boltCount = (b: BoltDraft, quantity: number) => { const n = Number(b.qty); return Number.isInteger(n) && n >= 1 ? (b.mode === 'per-foundation' ? n * quantity : n) : 0 }
+
+function BoltCard({ index, value: b, quantity, onChange, onRemove }: { index: number; value: BoltDraft; quantity: number; onChange: (v: BoltDraft) => void; onRemove: () => void }) {
   const n = index + 1
   const set = (patch: Partial<BoltDraft>) => onChange({ ...b, ...patch })
   const grid = 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4'
   return (
     <div role="group" aria-label={`Anchor bolts ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
+      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[7rem_11rem_1fr]">
+        <Field label="Quantity *"><Input aria-label={`Bolt quantity ${n}`} inputMode="numeric" value={b.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
+        <Field label="Quantity is"><Select aria-label={`Bolt quantity method ${n}`} value={b.mode} onChange={(e) => set({ mode: e.target.value as BoltDraft['mode'] })}><option value="per-foundation">Per foundation</option><option value="total">Total</option></Select></Field>
+        <p role="status" aria-live="polite" className="col-span-2 pb-2 text-[13px] sm:col-span-1">{(() => { const q = Number(b.qty); const ok = Number.isInteger(q) && q >= 1; if (!ok) return <span className="text-muted">Enter a whole number of 1 or more.</span>; const t = boltCount(b, quantity); return <><span className="text-muted">{b.mode === 'per-foundation' ? `${q.toLocaleString('en-CA')} per foundation × ${quantity.toLocaleString('en-CA')} foundation${quantity === 1 ? '' : 's'} = ` : `${q.toLocaleString('en-CA')} in total across all ${quantity.toLocaleString('en-CA')} = `}</span><span className="font-medium">{t.toLocaleString('en-CA')} bolt{t === 1 ? '' : 's'} required</span>{(Number(b.nutsPerBolt) > 0 || Number(b.washersPerBolt) > 0) && <span className="text-muted"> · {(t * (Number(b.nutsPerBolt) || 0)).toLocaleString('en-CA')} nuts · {(t * (Number(b.washersPerBolt) || 0)).toLocaleString('en-CA')} washers</span>}</> })()}</p>
+      </div>
       <div className={grid}>
-        <Field label="Bolts per footing *"><Input aria-label={`Bolts per footing ${n}`} inputMode="numeric" value={b.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
         <Field label="Diameter *"><Input aria-label={`Bolt diameter ${n}`} value={b.diameter} onChange={(e) => set({ diameter: e.target.value })} placeholder={'e.g. M25 or 3/4"'} /></Field>
         <Field label="Total length *"><Input aria-label={`Bolt length ${n}`} inputMode="decimal" value={b.length} onChange={(e) => set({ length: e.target.value })} placeholder="e.g. 900" /></Field>
         <Field label="Length unit"><Select aria-label={`Length unit ${n}`} value={b.lengthUnit} onChange={(e) => set({ lengthUnit: e.target.value as 'mm' | 'in' })}><option value="mm">mm</option><option value="in">inches</option></Select></Field>

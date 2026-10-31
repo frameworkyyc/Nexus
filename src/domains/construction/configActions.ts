@@ -12,7 +12,7 @@ export const MAX_PLINTHS = 100
 /** One kind of plinth as entered on the form. `id` names an existing group (so its plinths and records are kept); absent = a new group. */
 export interface GroupInput { id?: string; anchorageTypeId: string | null; count: number; dims?: Dims | null }
 /** Anchor bolts installed in each footing, as entered on the form (a ComponentInput that is always a bolt). `id` names an existing entry; absent = new. */
-export type FootingBoltInput = Omit<ComponentInput, 'kind'>
+export type FootingBoltInput = Omit<ComponentInput, 'kind'> & { mode?: 'per-foundation' | 'total' }
 export const MAX_FOOTING_BOLTS = 10
 /** An embed plate added directly to a foundation. `id` names an existing entry; absent = new. */
 /** An embed plate entry: a library plate (`componentId`), or a plate created here (`plate`) saved only to this foundation or to the Anchorage Library. */
@@ -54,8 +54,9 @@ export function configProblem(s: ConstructionState, f: Foundation, cfg: Foundati
   if (cfg.bolts !== undefined) {
     if (!Array.isArray(cfg.bolts) || cfg.bolts.length > MAX_FOOTING_BOLTS) return `A foundation can have up to ${MAX_FOOTING_BOLTS} anchor bolt configurations.`
     for (const [i, b] of cfg.bolts.entries()) {
+      if (b.mode !== undefined && b.mode !== 'per-foundation' && b.mode !== 'total') return `Anchor bolts ${i + 1}: choose per foundation or total.`
       const p = componentProblem({ ...b, kind: 'bolt' }, i + 1)
-      if (p) return p.replace(/^Component \d+:/, `Anchor bolts ${i + 1}:`).replace('per anchorage', 'per footing')
+      if (p) return p.replace(/^Component \d+:/, `Anchor bolts ${i + 1}:`).replace('per anchorage', b.mode === 'total' ? 'in total' : 'per footing')
       if (b.id && !(s.foundationBolts ?? []).some((x) => x.id === b.id && x.foundationId === f.id)) return `Anchor bolts ${i + 1} no longer exist. Reload and try again.`
     }
   }
@@ -189,7 +190,7 @@ export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingB
     next.push({
       id, foundationId: f.id, qty: b.qty, spec: text(b.spec, 120), diameter: text(b.diameter, 30), length: b.length as number, lengthUnit: b.lengthUnit === 'in' ? 'in' : 'mm',
       thread: b.thread as 'both-ends' | 'all-thread', topThread: b.thread === 'both-ends' ? (b.topThread as number) : null, bottomThread: b.thread === 'both-ends' ? (b.bottomThread as number) : null,
-      nutsPerBolt: b.nutsPerBolt ?? 0, washersPerBolt: b.washersPerBolt ?? 0, nutSize: text(b.nutSize, 30), washerSize: text(b.washerSize, 30),
+      nutsPerBolt: b.nutsPerBolt ?? 0, washersPerBolt: b.washersPerBolt ?? 0, nutSize: text(b.nutSize, 30), washerSize: text(b.washerSize, 30), mode: b.mode === 'total' ? 'total' : 'per-foundation',
     })
   }
   return { ...s, foundationBolts: [...(s.foundationBolts ?? []).filter((b) => b.foundationId !== f.id), ...next] }

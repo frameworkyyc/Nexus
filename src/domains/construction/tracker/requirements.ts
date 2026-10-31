@@ -126,12 +126,14 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     const f = c.foundations.find((x) => x.id === fb.foundationId)
     const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
     if (!f || !area) continue
-    const footings = f.quantity ?? 1
+    const total = fb.mode === 'total'
+    const footings = total ? 1 : f.quantity ?? 1
+    const sentinel = total ? '#bolt-total' : ''
     for (const it of itemsOf(boltAsComponent(fb))) {
       const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
       const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
-      const part = g.parts.find((p) => p.anchorageTypeId === '' && p.each === it.each)
-      if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: '', code: 'Footing', instances: footings, each: it.each })
+      const part = g.parts.find((p) => p.anchorageTypeId === sentinel && p.each === it.each)
+      if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: sentinel, code: 'Footing', instances: footings, each: it.each })
       g.required += it.each * footings
       groups.set(key, g)
     }
@@ -179,7 +181,7 @@ export function deriveRequirements(c: RefSource): Requirement[] {
   return [...groups.values()].map((g) => {
     g.parts.sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true }))
     g.anchorageCodes = g.parts.map((p) => p.code)
-    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-each' ? `${fmt(p.each)} per foundation × ${fmt(p.instances)} foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-total' ? `${fmt(p.each * p.instances)} in total` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
+    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-each' ? `${fmt(p.each)} per foundation × ${fmt(p.instances)} foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-total' ? `${fmt(p.each * p.instances)} in total` : p.anchorageTypeId === '#bolt-total' ? `${fmt(p.each * p.instances)} extra on the footings, in total` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
     return g
   }).sort((a, b) => a.areaName.localeCompare(b.areaName, 'en') || a.category.localeCompare(b.category) || a.name.localeCompare(b.name) || a.spec.localeCompare(b.spec))
 }
@@ -333,7 +335,7 @@ export function expectedTotals(c: RefSource): Map<string, number> {
     for (const b of (c.foundationBolts ?? []).filter((x) => x.foundationId === f.id)) {
       for (const it of itemsOf(boltAsComponent(b))) {
         const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
-        out.set(key, (out.get(key) ?? 0) + footings * it.each)
+        out.set(key, (out.get(key) ?? 0) + (b.mode === 'total' ? 1 : footings) * it.each)
       }
     }
   }

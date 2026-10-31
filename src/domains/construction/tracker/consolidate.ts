@@ -90,7 +90,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     for (const it of itemsOf(boltAsComponent(fb))) {
       if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === null)
-      const qty = it.each * (f.quantity ?? 1)
+      const qty = it.each * (fb.mode === 'total' ? 1 : f.quantity ?? 1)
       if (existing) existing.qty += qty
       else out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: f.number, anchorageTypeId: null, anchorage: 'Footing', qty })
     }

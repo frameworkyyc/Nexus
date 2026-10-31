@@ -813,3 +813,78 @@ describe('embed plates created inside a foundation', () => {
     expect(c.foundationEmbeds).toHaveLength(2)
   })
 })
+
+describe('footing anchor bolts: quantity method', () => {
+  const fb = (o: Record<string, unknown> = {}) => ({ qty: 4, diameter: '3/4"', length: 460, lengthUnit: 'mm' as const, thread: 'all-thread' as const, nutsPerBolt: 6, washersPerBolt: 2, ...o })
+  /** Mole Sieve OP1-21-26: 5 footings, each with the typical OP1-D2 anchorage (4 bolts, 6 nuts and 2 washers per bolt). */
+  function moleSieve() {
+    let c: ConstructionState = { ...emptyConstruction(), company: { id: '', name: '' } }
+    c = build(c, K.createOrganization({ name: 'Northline' }))
+    c = build(c, K.createProject({ name: 'Terrestrial' }))
+    c = build(c, K.createArea(c.projects[0].id, 'Mole Sieve', []))
+    c = build(c, K.addAnchorageType(c.projects[0].id, 'OP1-D2', 'typical'))
+    const d2 = c.anchorageTypes[0].id
+    c = build(c, K.setAnchorageComponents(d2, [{ kind: 'bolt', qty: 4, diameter: '3/4"', length: 460, lengthUnit: 'mm', thread: 'all-thread', nutsPerBolt: 6, washersPerBolt: 2 }]))
+    c = build(c, K.createFoundation(c.areas[0].id, 'OP1-21-26', '', null, 5, { groups: [{ anchorageTypeId: d2, count: 1 }] }))
+    return { c, f: c.foundations[0].id }
+  }
+  const req = (c: ConstructionState, cat: string) => consolidate(tracked(c), c).filter((g) => g.area === 'Mole Sieve' && g.category === cat)
+
+  it('OP1-21-26: 4 extra bolts as a total is 4 additional, not 20, on top of the typical 20', () => {
+    let { c, f } = moleSieve()
+    expect(req(c, 'bolt')[0].required).toBe(20) // typical only
+    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] }))
+    const bolts = req(c, 'bolt')
+    expect(bolts).toHaveLength(1) // matching specification: one line, nothing lost
+    expect(bolts[0].required).toBe(24) // 20 typical + 4 additional (never replaced, never 20 extra)
+    expect(bolts[0].contributions.reduce((a, x) => a + x.qty, 0)).toBe(24)
+    expect(bolts[0].contributions.find((x) => x.anchorage === 'Footing')!.qty).toBe(4)
+    expect(bolts[0].contributions.find((x) => x.anchorage === 'OP1-D2')!.qty).toBe(20)
+    expect(bolts[0].lines[0].calc.expression).toMatch(/4 per anchorage × 5 OP1-D2/)
+    expect(bolts[0].lines[0].calc.expression).toMatch(/4 extra on the footings, in total/)
+    expect(req(c, 'nut')[0].required).toBe(20 * 6 + 4 * 6) // 144 nuts
+    expect(req(c, 'washer')[0].required).toBe(20 * 2 + 4 * 2) // 48 washers
+    expect(c.foundationBolts![0].mode).toBe('total')
+  })
+
+  it('per foundation multiplies by the physical foundations; total stays fixed when the quantity changes', () => {
+    let { c, f } = moleSieve()
+    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'per-foundation', qty: 4 }), fb({ mode: 'total', qty: 4, diameter: 'M24', length: 900 })] }))
+    expect(req(c, 'bolt').find((g) => /3\/4/.test(g.specification))!.required).toBe(20 + 20) // typical 20 + 4 × 5
+    expect(req(c, 'bolt').find((g) => /M24/.test(g.specification))!.required).toBe(4)
+    c = build(c, K.configureFoundation(f, { quantity: 8 }))
+    expect(req(c, 'bolt').find((g) => /3\/4/.test(g.specification))!.required).toBe(32 + 32) // both follow the quantity
+    expect(req(c, 'bolt').find((g) => /M24/.test(g.specification))!.required).toBe(4) // the total does not
+    // two configurations of the same specification, one of each method, are both counted
+    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'per-foundation', qty: 1 }), fb({ mode: 'total', qty: 4 })] }))
+    expect(req(c, 'bolt')[0].required).toBe(32 + 8 + 4)
+  })
+
+  it('existing configurations default to per foundation, so current calculations are unchanged', () => {
+    let { c, f } = moleSieve()
+    c = build(c, K.configureFoundation(f, { bolts: [fb()] })) // no mode given
+    expect(c.foundationBolts![0].mode).toBe('per-foundation')
+    expect(req(c, 'bolt')[0].required).toBe(20 + 20)
+    // a bolt saved before the method existed (no mode at all) counts per foundation
+    const legacy = { ...c, foundationBolts: c.foundationBolts!.map((b) => { const o = { ...b } as Partial<typeof b>; delete o.mode; return o as typeof b }) }
+    expect(consolidate(tracked(legacy), legacy).find((g) => g.category === 'bolt')!.required).toBe(40)
+    expect(K.configureFoundation(f, { bolts: [fb({ mode: 'each' })] } as never)(c, {}).error).toMatch(/per foundation or total/)
+  })
+
+  it('recount, Procurement and orders: additional bolts are counted beside the typical ones and history is kept', () => {
+    let { c, f } = moleSieve()
+    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] }))
+    let t = tracked(c)
+    const expected = expectedTotals(c)
+    for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
+    expect(procurementRows(t, c).map((r) => [r.key, r.required]).sort()).toEqual(consolidate(t, c).map((r) => [r.key, r.required]).sort())
+    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt')!
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-20', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 20 }] }, TODAY))
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 12 }] }, TODAY))
+    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] })) // the extra bolts were added after the typical order
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    expect(row()).toMatchObject({ required: 24, ordered: 20, received: 12, toOrder: 4 })
+    expect(t.orderLines).toHaveLength(1)
+    expect(t.deliveries).toHaveLength(1)
+  })
+})
