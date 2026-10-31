@@ -302,3 +302,13 @@ Every Area page now has the same five tabs, in this order: **Overview, Materials
 - **Survey** shows layout and the pre- and post-pour survey checks; **QA/QC** shows the pre-pour (CM03) and post-pour (CM04) inspections. Both read the same activity records as before; nothing new is tracked or calculated.
 - Old addresses keep working: `?tab=register` and `?tab=handover` open Overview, `?tab=quality` opens Survey.
 - Project Management is unchanged (its Survey and QA/QC entries still show the combined table).
+
+## 11. Simplified sidebar (implemented on `staging`; supersedes the section lists in 2.1)
+
+There is no Project Management parent and no Project Management page or crumb. Progress is renamed **Project Status**. The sidebar reads, top to bottom:
+- **Project Status** (expandable): Project Overview, then each Area.
+- **Operational pages** (direct links): Materials & Procurement, Construction / Installation, Survey, QA/QC, Civil / Earthworks (tagged Future).
+- **Foundation Overview** (expandable by Area) and **Fleet**.
+- **Tools**: Setup (expandable), Issues, Fleet on this project, Fabrication/Handover (demo), All projects, Company overview, Crew, Safety, Data & backups.
+
+URLs are unchanged (`/projects/:p/manage/...` stays; `/manage` alone still redirects to Materials & Procurement). The project's Materials-by-area page and Material records, which sat in the old Management tab row, are linked from the Materials & Procurement page header. On phones the bottom bar is Status · Materials · Foundation · Fleet, and the menu lists the other operational pages, then the tools.

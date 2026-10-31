@@ -1,7 +1,6 @@
 import { ChevronRight } from 'lucide-react'
-import { Link, Navigate, NavLink, Outlet, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { useProjectContext } from '@/app/projectContext'
-import { ChipTabs } from '@/components/mobile/Cards'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { useIsServer } from '@/lib/dataSource'
@@ -45,44 +44,10 @@ export function FutureDevelopment({ title, description }: { title: string; descr
   )
 }
 
-/* ── Project Management ───────────────────────────────────────────────────── */
-
-const tab = 'relative shrink-0 whitespace-nowrap pb-3 text-[13px] transition-colors'
-const on = 'text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-ink'
-const off = 'text-muted hover:text-ink'
-
-/** The disciplines under Project Management. Materials & Procurement is the only one in active development; the rest keep their existing screens. */
-export function ManageLayout() {
-  const { projectId = '' } = useParams()
-  const items = [
-    { to: paths.manage(projectId), label: 'Materials & Procurement', end: true },
-    { to: paths.materialRecords(projectId), label: 'Material records', end: true },
-    { to: paths.manageSection(projectId, 'construction'), label: 'Construction / Installation', end: false },
-    { to: paths.manageSection(projectId, 'survey'), label: 'Survey', end: false },
-    { to: paths.manageSection(projectId, 'qaqc'), label: 'QA/QC', end: false },
-    { to: paths.manageSection(projectId, 'civil'), label: 'Civil / Earthworks', end: false, future: true },
-  ]
-  return (
-    <>
-      <div className="md:hidden">
-        <ChipTabs label="Project Management">
-          {items.map((i) => (
-            <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => `inline-flex h-11 shrink-0 items-center whitespace-nowrap rounded-full border px-4 text-[15px] font-medium ${isActive ? 'border-ink bg-ink text-white' : 'border-line bg-surface text-ink'}`}>{i.label}{i.future && <span className="ml-1.5 text-xs opacity-70">· future</span>}</NavLink>
-          ))}
-        </ChipTabs>
-      </div>
-      <nav aria-label="Project Management" className="hidden gap-6 border-b border-line md:flex">
-        {items.map((i) => (
-          <NavLink key={i.to} to={i.to} end={i.end} className={({ isActive }) => `${tab} ${isActive ? on : off}`}>{i.label}{i.future && <span className="ml-1.5 rounded-full border border-line px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">Future</span>}</NavLink>
-        ))}
-      </nav>
-      <div className="pt-8"><Outlet /></div>
-    </>
-  )
-}
+/* ── Operational pages ────────────────────────────────────────────────────── */
 
 /**
- * Construction, Survey and QA/QC under Project Management: the existing area screens, unchanged, behind an area selector. Survey and QA/QC
+ * Construction, Survey and QA/QC (operational pages): the existing area screens, unchanged, behind an area selector. Survey and QA/QC
  * are recorded together today (one table), so both entries open that same table until their own workflows are developed.
  */
 export function ManageDiscipline({ kind }: { kind: 'construction' | 'survey' | 'qaqc' }) {

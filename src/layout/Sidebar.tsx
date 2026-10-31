@@ -22,15 +22,15 @@ function FutureTag() {
 }
 
 /** One entry with optional children. Its row opens the page; the chevron opens and closes the pages inside it. */
-function Entry({ node, active, open, onToggle, pathname, search, onNavigate }: { node: NavNode; active: boolean; open: boolean; onToggle: () => void; pathname: string; search: string; onNavigate: () => void }) {
+function Entry({ node, gap = false, active, open, onToggle, pathname, search, onNavigate }: { node: NavNode; gap?: boolean; active: boolean; open: boolean; onToggle: () => void; pathname: string; search: string; onNavigate: () => void }) {
   const Icon = node.icon
   const kids = node.children ?? []
   return (
-    <li>
+    <li className={gap ? 'mt-3' : undefined}>
       <div className="flex items-center">
         <Link to={node.to} onClick={onNavigate} aria-current={isCurrent(node, pathname, search) ? 'page' : undefined} className={`${row(active)} min-w-0 flex-1`}>
           {Icon && <Icon size={16} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />}
-          <span className="truncate">{node.label}</span>
+          <span className="truncate">{node.label}</span>{node.future && <FutureTag />}
         </Link>
         {kids.length > 0 && (
           <button type="button" onClick={onToggle} aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${node.label}`} className="grid h-9 w-8 shrink-0 place-items-center text-sidebar-muted hover:text-sidebar-ink">
@@ -73,22 +73,26 @@ export interface SidebarViewProps {
 /** The persistent left sidebar: the four primary sections (each expandable to its pages), then the secondary Tools group. Pure: the connected Sidebar below feeds it. */
 export function SidebarView({ sections, tools, pathname, search, rail, onToggle, onNavigate, footer, overlay = false }: SidebarViewProps) {
   const here = sectionOf(pathname)
+  // Groups that own a part of the app (Status, Foundation, Fleet) are active anywhere inside it; everything else only on its own pages.
   const isActive = (n: NavNode, section?: string) => (section ? here === section : containsCurrent(n, pathname, search))
+  const inside = (n: NavNode) => !!n.children && ((!!(n as NavSection).section && sectionOf(pathname) === (n as NavSection).section) || containsCurrent(n, pathname, search))
   // A group opens by itself when you are inside it, and stays as you left it otherwise.
-  const [open, setOpen] = useState<Set<string>>(() => new Set([...sections, ...tools].filter((n) => n.children && (('section' in n && isActive(n, (n as NavSection).section)) || containsCurrent(n, pathname, search))).map((n) => n.id)))
+  const shape = [...sections, ...tools].map((n) => `${n.id}:${n.children?.length ?? 0}`).join('|')
+  const [open, setOpen] = useState<Set<string>>(() => new Set([...sections, ...tools].filter(inside).map((n) => n.id)))
   // Moving to another page opens the group it is in and closes the rest, so the sidebar never grows into one long list. Toggles you make stay until you navigate.
   useEffect(() => {
-    const here = new Set([...sections, ...tools].filter((n) => n.children && (('section' in n && sectionOf(pathname) === (n as NavSection).section) || containsCurrent(n, pathname, search))).map((n) => n.id))
+    const here = new Set([...sections, ...tools].filter(inside).map((n) => n.id))
     setOpen((prev) => (prev.size === here.size && [...here].every((id) => prev.has(id)) ? prev : here))
+  // `shape` changes when the project (and so its areas) finishes loading, so a deep link still opens the right group.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, search])
+  }, [pathname, search, shape])
   const toggle = (id: string) => setOpen((prev) => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
 
   if (rail) {
-    const icon = (n: NavNode, active: boolean) => {
+    const icon = (n: NavNode, active: boolean, gap = false) => {
       const Icon = n.icon!
       return (
-        <li key={n.id}>
+        <li key={n.id} className={gap ? 'mt-3' : undefined}>
           <Link to={n.to} title={n.label} aria-label={n.label} aria-current={isCurrent(n, pathname, search) ? 'page' : undefined} className={`grid h-9 w-10 place-items-center rounded-nx transition-colors ${active ? 'bg-white/10 text-sidebar-ink' : 'text-neutral-400 hover:bg-white/5 hover:text-sidebar-ink'}`}><Icon size={17} strokeWidth={1.5} aria-hidden="true" /></Link>
         </li>
       )
@@ -99,7 +103,7 @@ export function SidebarView({ sections, tools, pathname, search, rail, onToggle,
           <button type="button" onClick={onToggle} aria-label="Expand navigation" title="Expand navigation" className="grid h-9 w-9 place-items-center rounded-nx text-sidebar-muted hover:bg-white/5 hover:text-sidebar-ink"><PanelLeftOpen size={18} strokeWidth={1.5} aria-hidden="true" /></button>
         </div>
         <nav aria-label="Primary" className="w-full flex-1 overflow-y-auto px-2 py-4">
-          <ul className="space-y-0.5">{sections.map((s) => icon(s, isActive(s, s.section)))}</ul>
+          <ul className="space-y-0.5">{sections.map((s) => icon(s, isActive(s, s.section), s.id === 'op-materials' || s.id === 'foundation'))}</ul>
           <ul className="mt-4 space-y-0.5 border-t border-sidebar-line pt-4" aria-label="Tools">{tools.map((t) => icon(t, containsCurrent(t, pathname, search)))}</ul>
         </nav>
       </div>
@@ -120,7 +124,7 @@ export function SidebarView({ sections, tools, pathname, search, rail, onToggle,
       <div className="flex-1 overflow-y-auto px-3 py-4">
         <nav aria-label="Primary">
           <ul className="space-y-0.5">
-            {sections.map((s) => <Entry key={s.id} node={s} active={isActive(s, s.section)} open={open.has(s.id)} onToggle={() => toggle(s.id)} pathname={pathname} search={search} onNavigate={onNavigate} />)}
+            {sections.map((s) => <Entry key={s.id} node={s} gap={s.id === 'op-materials' || s.id === 'foundation'} active={isActive(s, s.section)} open={open.has(s.id)} onToggle={() => toggle(s.id)} pathname={pathname} search={search} onNavigate={onNavigate} />)}
           </ul>
         </nav>
         <p className="mb-1 mt-6 px-3 text-micro uppercase tracking-wide text-sidebar-muted">Tools</p>

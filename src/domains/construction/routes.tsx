@@ -18,7 +18,7 @@ import { ProjectLayout } from './pages/ProjectLayout'
 import { projectFleetRoutes } from '../fleet/routes'
 import { DemoOnly } from './pages/DemoOnly'
 import { useConstruction } from './store'
-import { FoundationSelector, FutureDevelopment, LegacyRedirect, ManageDiscipline, ManageLayout, ProjectContextRedirect, RootRedirect, SetupHub } from './pages/Sections'
+import { FoundationSelector, FutureDevelopment, LegacyRedirect, ManageDiscipline, ProjectContextRedirect, RootRedirect, SetupHub } from './pages/Sections'
 import { LEGACY_PROJECT_PATHS } from './navigation'
 import { paths } from './paths'
 
@@ -65,7 +65,7 @@ export const constructionRoutes: RouteObject[] = [
           // ── Project Progress (Stage 2 adds the Materials dashboards; today these are the existing pages) ──
           {
             path: 'progress',
-            handle: text('Project Progress'),
+            handle: text('Project Status'),
             children: [
               { index: true, element: <ProjectHome /> },
               { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
@@ -77,13 +77,11 @@ export const constructionRoutes: RouteObject[] = [
               },
             ],
           },
-          // ── Project Management ──
+          // ── Operational pages (direct links from the sidebar; no Project Management parent page) ──
           {
             path: 'manage',
-            element: <ManageLayout />,
-            handle: { crumb: () => <>Project Management</>, noLink: true } satisfies CrumbHandle,
             children: [
-              { index: true, element: <Navigate to="materials" replace /> },
+              { index: true, element: <Navigate to="materials" replace /> }, // an old /manage bookmark
               { path: 'materials', handle: text('Materials & Procurement'), children: [
                 { index: true, element: IS_PUBLIC_DEMO ? <MaterialsPage /> : <ProcurementPage /> },
                 { path: 'records', element: <MaterialRecordsPage />, handle: text('Material records') },

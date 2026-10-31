@@ -29,6 +29,8 @@ type Tab = 'requirements' | 'orders'
  * requirements (so required quantities follow the foundations and the Anchorage Library) and records purchase orders and deliveries against
  * an area's total of each specification, not against every foundation.
  */
+const HEAD_LINK = 'inline-flex h-9 items-center rounded-nx border border-line bg-surface px-4 text-[13px] font-medium transition-colors hover:border-ink phone:h-11 phone:text-[15px]'
+
 export function ProcurementPage() {
   const { projectId = '' } = useParams()
   const [params, setParams] = useSearchParams()
@@ -72,7 +74,7 @@ export function ProcurementPage() {
   }
   return (
     <>
-      <PageHeader title="Procurement" description="Order and receive the materials each area requires. Requirements come from Materials and follow the foundations and the Anchorage Library; orders and deliveries are recorded once per area and specification." />
+      <PageHeader title="Procurement" description="Order and receive the materials each area requires. Requirements come from Materials and follow the foundations and the Anchorage Library; orders and deliveries are recorded once per area and specification." actions={<><Link to={paths.materials(projectId)} className={HEAD_LINK}>Materials by area</Link><Link to={paths.materialRecords(projectId)} className={HEAD_LINK}>Material records</Link></>} />
       <AccessBar />
       <dl className="mb-6 grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
         {(['pending', 'ordered', 'partial', 'received'] as ProcStatus[]).map((s) => <Stat key={s} label={PROC_LABEL[s]} value={counts(s)} sub={s === 'pending' ? 'Required, not yet ordered' : s === 'ordered' ? 'Ordered, nothing arrived' : s === 'partial' ? 'Some has arrived' : 'Received and confirmed'} />)}

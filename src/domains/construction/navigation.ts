@@ -30,20 +30,22 @@ export function redirectFor(pathname: string, search = ''): string | null {
 /** The legacy route patterns, relative to a project, for the route table. */
 export const LEGACY_PROJECT_PATHS = ['register', 'materials', 'materials/records', 'procurement', 'pours', 'pours/:pourId', 'anchorage', 'areas', 'areas/:areaId', 'areas/:areaId/foundations/:foundationId']
 
-export type SectionId = 'progress' | 'manage' | 'foundation' | 'fleet'
+export type SectionId = 'progress' | 'foundation' | 'fleet'
 
-/** Which primary section a URL belongs to. Setup, Issues, Crew, Safety, Data and the other secondary pages belong to none (they live in More). */
+/** Which part of the app a URL belongs to (used to open the right sidebar group). Setup, Issues, Crew, Safety, Data and the other tools belong to none. */
 export function sectionOf(pathname: string): SectionId | null {
   if (/^\/fleet(\/|$)/.test(pathname) || /^\/projects\/[^/]+\/fleet(\/|$)/.test(pathname)) return 'fleet'
-  const m = /^\/projects\/[^/]+\/(progress|manage|foundation)(\/|$)/.exec(pathname)
+  const m = /^\/projects\/[^/]+\/(progress|foundation)(\/|$)/.exec(pathname)
   return (m?.[1] as SectionId | undefined) ?? null
 }
 
-/** Switching project keeps you in the same section (the deeper ids belong to the old project); anywhere else it opens Project Progress. */
+/** Switching project keeps you on the same kind of page (the deeper ids belong to the old project); anywhere else it opens Project Status. */
 export function swapProject(pathname: string, projectId: string): string {
-  const m = /^\/projects\/[^/]+\/(progress|manage|foundation)(\/|$)/.exec(pathname)
+  const m = /^\/projects\/[^/]+\/(progress|foundation|manage\/(materials|construction|survey|qaqc|civil))(\/|$)/.exec(pathname)
   if (!m) return paths.progress(projectId)
-  return m[1] === 'manage' ? paths.manage(projectId) : m[1] === 'foundation' ? paths.foundations(projectId) : paths.progress(projectId)
+  if (m[1] === 'progress') return paths.progress(projectId)
+  if (m[1] === 'foundation') return paths.foundations(projectId)
+  return m[2] === 'materials' ? paths.manage(projectId) : paths.manageSection(projectId, m[2] as 'construction' | 'survey' | 'qaqc' | 'civil')
 }
 
 /** The project to show: the one in the URL, else the last one used, else the only/first one. */

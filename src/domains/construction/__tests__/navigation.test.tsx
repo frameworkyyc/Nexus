@@ -72,6 +72,7 @@ describe('route table', () => {
   it('keeps Fleet, Crew, Safety and Data in their own modules', () => {
     expect(sectionOf('/fleet')).toBe('fleet')
     expect(sectionOf('/crew')).toBeNull()
+    expect(sectionOf('/projects/reef/manage/materials')).toBeNull() // operational pages are plain links, not a section
   })
 })
 
@@ -90,8 +91,10 @@ describe('navigation helpers', () => {
     expect(resolveProject([], 'a', 'a')).toBeNull()
   })
 
-  it('keeps the section when the project changes, and opens Progress from anywhere else', () => {
-    expect(swapProject('/projects/a/manage/construction', 'b')).toBe('/projects/b/manage/materials')
+  it('keeps the kind of page when the project changes, and opens Progress from anywhere else', () => {
+    expect(swapProject('/projects/a/manage/construction', 'b')).toBe('/projects/b/manage/construction')
+    expect(swapProject('/projects/a/manage/materials/records', 'b')).toBe('/projects/b/manage/materials')
+    expect(swapProject('/projects/a/manage/qaqc', 'b')).toBe('/projects/b/manage/qaqc')
     expect(swapProject('/projects/a/foundation/f1', 'b')).toBe('/projects/b/foundation')
     expect(swapProject('/projects/a/progress/area1', 'b')).toBe('/projects/b/progress')
     expect(swapProject('/fleet', 'b')).toBe('/projects/b/progress')

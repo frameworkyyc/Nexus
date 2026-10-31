@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { DEMO_DESCRIPTION, DEMO_LABEL } from '@/app/demoConfig'
 import { moreItems } from '@/app/moreItems'
+import { operationalNodes } from '@/app/navTree'
 import { useProjectContext } from '@/app/projectContext'
 import { useTenant } from '@/app/tenant'
 import { BottomSheet } from '@/components/ui/BottomSheet'
@@ -17,6 +18,8 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
   const { mode, environment } = useBackend()
   const { projectId } = useProjectContext()
   const items = moreItems(projectId, mode === 'server')
+  // Materials is in the bottom bar; the other operational pages are here.
+  const operational = projectId ? operationalNodes(projectId).filter((n) => n.id !== 'op-materials') : []
   const reset = () => {
     if (!window.confirm('Reset the demo? All sample data returns to its original state and your changes are lost.')) return
     resetWholeDemo()
@@ -30,6 +33,17 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
           <p className="mt-1 text-[14px] leading-relaxed text-muted">{DEMO_DESCRIPTION}</p>
           <button type="button" onClick={reset} className="mt-3 inline-flex h-12 w-full items-center justify-center gap-2 rounded-nx border border-line text-[16px] font-medium hover:border-ink"><RotateCcw size={16} strokeWidth={1.5} />Reset Demo</button>
         </section>
+      )}
+      {operational.length > 0 && (
+        <>
+          <p className="t-label px-4 pb-1 pt-4">Operational pages</p>
+          <ul>
+            {operational.map(({ id, label, icon: Icon, to, future }) => Icon && (
+              <li key={id}><Link to={to} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}{future && <span className="rounded-full border border-line px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">Future</span>}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
+            ))}
+          </ul>
+          <p className="t-label px-4 pb-1 pt-5">Tools & setup</p>
+        </>
       )}
       <ul>
         {items.map(({ id, label, icon: Icon, to }) => (

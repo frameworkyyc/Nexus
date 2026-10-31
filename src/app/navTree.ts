@@ -1,4 +1,4 @@
-import { Activity, BarChart3, Briefcase, Building2, ClipboardList, Database, FileText, FolderKanban, HardHat, LayoutGrid, Settings2, ShieldCheck, Truck, type LucideIcon } from 'lucide-react'
+import { Activity, BarChart3, Briefcase, Building2, ClipboardCheck, Database, FileText, FolderKanban, Hammer, HardHat, LayoutGrid, Ruler, Settings2, ShieldCheck, Shovel, ShoppingCart, Truck, type LucideIcon } from 'lucide-react'
 import { IS_PUBLIC_DEMO } from './bundle'
 import { paths } from '@/domains/construction/paths'
 import type { SectionId } from '@/domains/construction/navigation'
@@ -17,34 +17,40 @@ export interface NavNode {
   future?: boolean
   children?: NavNode[]
 }
-export interface NavSection extends NavNode { section: SectionId }
+/** A primary entry. `section` is set for the groups that own a whole part of the app (Status, Foundation, Fleet); the operational pages are plain links. */
+export interface NavSection extends NavNode { section?: SectionId }
 
 interface AreaRef { id: string; name: string }
 
-/** The four primary sections. Each expands to the pages inside it, so any page is one click away. Without a project the project sections open the project list. */
+/** The operational pages: each discipline is one click from the sidebar, with no parent menu. Without a project they open the project list. */
+export function operationalNodes(projectId: string | null): NavSection[] {
+  const p = projectId
+  const to = (section: 'materials' | 'construction' | 'survey' | 'qaqc' | 'civil') => (p ? (section === 'materials' ? paths.manage(p) : paths.manageSection(p, section)) : '/projects')
+  return [
+    { id: 'op-materials', label: 'Materials & Procurement', icon: ShoppingCart, to: to('materials'), prefix: true },
+    { id: 'op-construction', label: 'Construction / Installation', icon: Hammer, to: to('construction'), prefix: true },
+    { id: 'op-survey', label: 'Survey', icon: Ruler, to: to('survey'), prefix: true },
+    { id: 'op-qaqc', label: 'QA/QC', icon: ClipboardCheck, to: to('qaqc'), prefix: true },
+    { id: 'op-civil', label: 'Civil / Earthworks', icon: Shovel, to: to('civil'), prefix: true, future: true },
+  ]
+}
+
+/**
+ * The primary entries, top to bottom: Project Status (expands to the project overview and each Area), the operational pages, Foundation Overview
+ * and Fleet. Without a project the project entries open the project list.
+ */
 export function primarySections(projectId: string | null, areas: AreaRef[]): NavSection[] {
   const p = projectId
   const to = (f: (id: string) => string, fallback = '/projects') => (p ? f(p) : fallback)
   return [
     {
-      section: 'progress', id: 'progress', label: 'Project Progress', icon: BarChart3, to: to(paths.progress),
+      section: 'progress', id: 'status', label: 'Project Status', icon: BarChart3, to: to(paths.progress),
       children: p ? [
-        { id: 'progress-overview', label: 'Project overview', to: paths.progress(p) },
-        { id: 'progress-materials', label: 'Materials', to: paths.materials(p) },
-        ...areas.map((a) => ({ id: `progress-${a.id}`, label: a.name, to: paths.area(p, a.id), prefix: true })),
+        { id: 'status-overview', label: 'Project Overview', to: paths.progress(p) },
+        ...areas.map((a) => ({ id: `status-${a.id}`, label: a.name, to: paths.area(p, a.id), prefix: true })),
       ] : undefined,
     },
-    {
-      section: 'manage', id: 'manage', label: 'Project Management', icon: ClipboardList, to: to(paths.manage),
-      children: p ? [
-        { id: 'manage-materials', label: 'Materials & Procurement', to: paths.manage(p) },
-        { id: 'manage-records', label: 'Material records', to: paths.materialRecords(p) },
-        { id: 'manage-construction', label: 'Construction / Installation', to: paths.manageSection(p, 'construction'), prefix: true },
-        { id: 'manage-survey', label: 'Survey', to: paths.manageSection(p, 'survey'), prefix: true },
-        { id: 'manage-qaqc', label: 'QA/QC', to: paths.manageSection(p, 'qaqc'), prefix: true },
-        { id: 'manage-civil', label: 'Civil / Earthworks', to: paths.manageSection(p, 'civil'), future: true },
-      ] : undefined,
-    },
+    ...operationalNodes(projectId),
     {
       section: 'foundation', id: 'foundation', label: 'Foundation Overview', icon: Building2, to: to(paths.foundations),
       children: p ? [

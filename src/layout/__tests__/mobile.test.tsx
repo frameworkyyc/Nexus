@@ -13,17 +13,18 @@ const html = readFileSync('index.html', 'utf8')
 
 describe('phone navigation', () => {
   it('has the four primary sections, in order, with short labels', () => {
-    expect(PRIMARY_NAV.map((d) => d.short)).toEqual(['Progress', 'Manage', 'Foundation', 'Fleet'])
-    expect(PRIMARY_NAV.map((d) => d.label)).toEqual(['Project Progress', 'Project Management', 'Foundation Overview', 'Fleet'])
+    expect(PRIMARY_NAV.map((d) => d.short)).toEqual(['Status', 'Materials', 'Foundation', 'Fleet'])
+    expect(PRIMARY_NAV.map((d) => d.label)).toEqual(['Project Status', 'Materials & Procurement', 'Foundation Overview', 'Fleet'])
     expect(PRIMARY_NAV.map((d) => d.to('reef'))).toEqual(['/projects/reef/progress', '/projects/reef/manage/materials', '/projects/reef/foundation', '/fleet'])
   })
 
   it('highlights the section a URL belongs to', () => {
     const at = (p: string) => activePrimary(p)
-    expect(at('/projects/reef/progress')).toBe('progress')
-    expect(at('/projects/reef/progress/mole-sieve')).toBe('progress')
-    expect(at('/projects/reef/manage/materials')).toBe('manage')
-    expect(at('/projects/reef/manage/construction')).toBe('manage')
+    expect(at('/projects/reef/progress')).toBe('status')
+    expect(at('/projects/reef/progress/mole-sieve')).toBe('status')
+    expect(at('/projects/reef/manage/materials')).toBe('materials')
+    expect(at('/projects/reef/manage/materials/records')).toBe('materials')
+    expect(at('/projects/reef/manage/construction')).toBeNull() // the other operational pages are in the menu
     expect(at('/projects/reef/foundation/f-21-01')).toBe('foundation')
     expect(at('/fleet')).toBe('fleet')
     expect(at('/fleet/veh-T6010')).toBe('fleet')
@@ -40,7 +41,8 @@ describe('phone navigation', () => {
     expect((out.match(/<a /g) ?? []).length).toBe(4)
     expect(out).toMatch(/href="\/fleet"[^>]*aria-current="page"|aria-current="page"[^>]*href="\/fleet"/)
     expect((out.match(/aria-current="page"/g) ?? []).length).toBe(1)
-    expect(out).toContain('href="/projects/reef/progress"') // links use the project in context
+    expect(out).toContain('href="/projects/reef/progress"')
+    expect(out).toContain('href="/projects/reef/manage/materials"') // links use the project in context
     expect(out).toContain('pb-safe') // clears the iPhone home indicator
     expect(out).toContain('fixed inset-x-0 bottom-0')
   })
