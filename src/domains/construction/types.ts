@@ -178,6 +178,9 @@ export interface AnchorageComponent {
   studLength?: number | null
 }
 
+/** An embed plate added directly to a foundation, from the Anchorage Library's embed plates. `per-foundation` multiplies `qty` by the number of physical foundations; `total` is the total across all of them. */
+export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total' }
+
 /** One physical foundation (or a set sharing a label) within a foundation designation, such as A-1 within OP1-01-01. Optional. It inherits the designation's footing,
  * anchorage configuration and quantity, and adds only its identifier and its own embed plates, chosen from the Anchorage Library. */
 export interface FoundationUnit {
@@ -445,6 +448,7 @@ export interface ConstructionState {
   anchorageGroups?: AnchorageGroup[]
   foundationBolts?: FoundationBolt[]
   foundationUnits?: FoundationUnit[]
+  foundationEmbeds?: FoundationEmbed[]
   /** Components and specifications of each anchorage type. Optional so older data still loads. */
   anchorageComponents?: AnchorageComponent[]
   pours?: Pour[]

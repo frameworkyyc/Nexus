@@ -8,7 +8,7 @@ import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, Requirement
  * anchorage, and a foundation design stands for `quantity` physical foundations, so a design with 3 plinths of type A and a quantity of 12
  * has 36 anchorages of type A. Totals are grouped by area and specification: the same item on many foundations is one requirement.
  */
-export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits'>>
+export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits' | 'foundationEmbeds'>>
 
 export interface Requirement {
   key: string
@@ -88,26 +88,32 @@ export function anchorageInstances(c: RefSource) {
   return out
 }
 
+/** True when this foundation lists the embed plate directly, which then replaces what its anchorage types supply of the same plate (never both). */
+export const embedReplaced = (c: RefSource, foundationId: string, componentId: string) => (c.foundationEmbeds ?? []).some((e) => e.foundationId === foundationId && e.componentId === componentId)
+/** Instances of an anchorage component on one foundation row: embed plates skip footings with their own plates and plates the foundation lists directly. */
+export const instancesOf = (c: RefSource, row: { foundationId: string; instances: number; embedInstances: number }, comp: AnchorageComponent) =>
+  comp.kind !== 'embed-plate' ? row.instances : embedReplaced(c, row.foundationId, comp.id) ? 0 : row.embedInstances
+
 export function deriveRequirements(c: RefSource): Requirement[] {
   const comps = c.anchorageComponents ?? []
   if (comps.length === 0) return []
   const typeOf = new Map(c.anchorageTypes.map((t) => [t.id, t]))
   const areaOf = new Map(c.areas.map((a) => [a.id, a]))
   const groups = new Map<string, Requirement>()
-  const typeInstances = new Map<string, { all: number; embed: number }>() // `${areaId}|${typeId}` → instances
-  for (const i of anchorageInstances(c)) { const k = `${i.areaId}|${i.typeId}`; const o = typeInstances.get(k) ?? { all: 0, embed: 0 }; typeInstances.set(k, { all: o.all + i.instances, embed: o.embed + i.embedInstances }) }
-  for (const [ak, counts] of typeInstances) {
+  const typeInstances = new Map<string, ReturnType<typeof anchorageInstances>>() // `${areaId}|${typeId}` → that type's rows in the area
+  for (const i of anchorageInstances(c)) { const k = `${i.areaId}|${i.typeId}`; typeInstances.set(k, [...(typeInstances.get(k) ?? []), i]) }
+  for (const [ak, rowsOfType] of typeInstances) {
     const [areaId, typeId] = ak.split('|')
     const area = areaOf.get(areaId)
     const type = typeOf.get(typeId)
     if (!area || !type) continue
     for (const comp of comps.filter((x) => x.anchorageTypeId === typeId)) {
-      const instances = comp.kind === 'embed-plate' ? counts.embed : counts.all
+      const instances = rowsOfType.reduce((a, r) => a + instancesOf(c, r, comp), 0)
       if (instances === 0) continue
       for (const it of itemsOf(comp)) {
         const key = `anchorage|${areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
         const g = groups.get(key) ?? { key, id: requirementId(key), areaId, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
-        const part = g.parts.find((p) => p.anchorageTypeId === typeId)
+        const part = g.parts.find((p) => p.anchorageTypeId === typeId && p.instances === instances)
         if (part) { part.each += it.each } else g.parts.push({ anchorageTypeId: typeId, code: type.code, instances, each: it.each })
         g.required += it.each * instances
         groups.set(key, g)
@@ -151,10 +157,29 @@ export function deriveRequirements(c: RefSource): Requirement[] {
       }
     }
   }
+  // Embed plates added directly to a foundation: per foundation (× its footings) or a total. Same requirement key as the library's identical plate.
+  for (const fe of c.foundationEmbeds ?? []) {
+    const f = c.foundations.find((x) => x.id === fe.foundationId)
+    const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
+    const comp = compById.get(fe.componentId)
+    if (!f || !area || !comp || comp.kind !== 'embed-plate') continue
+    const code = typeOf.get(comp.anchorageTypeId)?.code ?? ''
+    const each = fe.mode === 'per-foundation'
+    for (const it of itemsOf({ ...comp, qty: fe.qty })) {
+      const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+      const id = each ? '#embed-each' : '#embed-total'
+      const n = each ? (f.quantity ?? 1) : 1
+      const part = g.parts.find((p) => p.anchorageTypeId === id && p.each === it.each && p.code === code)
+      if (part) part.instances += n; else g.parts.push({ anchorageTypeId: id, code, instances: n, each: it.each })
+      g.required += it.each * n
+      groups.set(key, g)
+    }
+  }
   return [...groups.values()].map((g) => {
     g.parts.sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true }))
     g.anchorageCodes = g.parts.map((p) => p.code)
-    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
+    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-each' ? `${fmt(p.each)} per foundation × ${fmt(p.instances)} foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-total' ? `${fmt(p.each * p.instances)} in total` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
     return g
   }).sort((a, b) => a.areaName.localeCompare(b.areaName, 'en') || a.category.localeCompare(b.category) || a.name.localeCompare(b.name) || a.spec.localeCompare(b.spec))
 }
@@ -279,11 +304,19 @@ export function expectedTotals(c: RefSource): Map<string, number> {
     for (const p of c.plinths) {
       if (p.foundationId !== f.id || !p.anchorageTypeId) continue
       for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === p.anchorageTypeId)) {
-        const n = comp.kind === 'embed-plate' ? Math.max(0, footings - overridden) : footings
+        const n = comp.kind === 'embed-plate' ? ((c.foundationEmbeds ?? []).some((e) => e.foundationId === f.id && e.componentId === comp.id) ? 0 : Math.max(0, footings - overridden)) : footings
         for (const it of itemsOf(comp)) {
           const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
           out.set(key, (out.get(key) ?? 0) + n * it.each)
         }
+      }
+    }
+    for (const e of (c.foundationEmbeds ?? []).filter((x) => x.foundationId === f.id)) {
+      const comp = (c.anchorageComponents ?? []).find((x) => x.id === e.componentId && x.kind === 'embed-plate')
+      if (!comp) continue
+      for (const it of itemsOf({ ...comp, qty: e.qty })) {
+        const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+        out.set(key, (out.get(key) ?? 0) + it.each * (e.mode === 'total' ? 1 : footings))
       }
     }
     for (const u of (c.foundationUnits ?? []).filter((x) => x.foundationId === f.id)) {

@@ -3,9 +3,11 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import type { AnchorageGroup, AnchorageType, Dims, Foundation, FoundationBolt, LengthUnit, Plinth } from '../types'
-import type { FoundationConfig, FootingBoltInput, GroupInput } from '../configActions'
+import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, Foundation, FoundationBolt, FoundationEmbed, LengthUnit, Plinth } from '../types'
+import type { FoundationConfig, FoundationEmbedInput, FootingBoltInput, GroupInput } from '../configActions'
+import { itemsOf } from '../tracker/requirements'
 
 /** Text-box state for a set of dimensions. */
 export interface DimsDraft { length: string; width: string; height: string; unit: LengthUnit }
@@ -22,7 +24,14 @@ const boltInput = (d: BoltDraft): FootingBoltInput => ({
   id: d.id, qty: Number(d.qty), diameter: d.diameter, length: numOrNull(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? numOrNull(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? numOrNull(d.bottomThread) : null,
   spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize,
 })
-export interface ConfigDraft { footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[]; bolts: BoltDraft[] }
+/** Text-box state for one embed plate configuration on a foundation. */
+export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total' }
+const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode })
+const embedInput = (d: EmbedDraft): FoundationEmbedInput => ({ id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode })
+/** A library embed plate the form can offer: the component and the anchorage type that defines it. */
+export interface EmbedOption { component: AnchorageComponent; type: AnchorageType }
+export const embedOptionLabel = (o: EmbedOption) => { const it = itemsOf({ ...o.component, qty: 1 })[0]; return `${o.type.code} · ${[it.name !== 'Embed plate' ? it.name : '', it.size, it.spec].filter(Boolean).join(' · ') || 'Embed plate'}` }
+export interface ConfigDraft { footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
 
 const num = (v: number | null) => (v === null ? '' : String(v))
 export const dimsDraft = (d: Dims | null | undefined, unit: LengthUnit = 'mm'): DimsDraft => ({ length: num(d?.length ?? null), width: num(d?.width ?? null), height: num(d?.height ?? null), unit: d?.unit ?? unit })
@@ -35,12 +44,12 @@ export function dimsFrom(d: DimsDraft, label: string): { dims: Dims | null } | {
 }
 
 /** A draft from what is stored. Plinths that predate groups are shown as one group per anchorage assignment. */
-export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: AnchorageGroup[], bolts: FoundationBolt[] = []): ConfigDraft {
+export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: AnchorageGroup[], bolts: FoundationBolt[] = [], embeds: FoundationEmbed[] = []): ConfigDraft {
   const mine = plinths.filter((p) => p.foundationId === f.id)
   const list: GroupDraft[] = groups.length
     ? groups.map((g) => ({ id: g.id, typeId: g.anchorageTypeId ?? '', count: String(g.count), dims: dimsDraft(g.dims) }))
     : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ typeId: t, count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null) }))
-  return { footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, bolts: bolts.filter((b) => b.foundationId === f.id).map(boltDraft) }
+  return { footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, bolts: bolts.filter((b) => b.foundationId === f.id).map(boltDraft), embeds: embeds.filter((e) => e.foundationId === f.id).map(embedDraft) }
 }
 
 /** Draft → the command's configuration, or what is wrong with it. */
@@ -55,7 +64,7 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
     if ('error' in dims) return dims
     groups.push({ id: g.id, anchorageTypeId: g.typeId || null, count, dims: dims.dims })
   }
-  return { config: { footing: foot.dims, plinthBase: d.plinthBase, groups, bolts: (d.bolts ?? []).map(boltInput) } }
+  return { config: { footing: foot.dims, plinthBase: d.plinthBase, groups, bolts: (d.bolts ?? []).map(boltInput), embeds: (d.embeds ?? []).map(embedInput) } }
 }
 
 export const totalPlinthsOf = (d: ConfigDraft) => d.groups.reduce((t, g) => t + (Number.isInteger(Number(g.count)) && Number(g.count) > 0 ? Number(g.count) : 0), 0)
@@ -89,12 +98,15 @@ export function DimsRow({ label, value, onChange, idPrefix }: { label: string; v
  * Footing dimensions and anchorage groups for a foundation design. Dimensions are optional; each group says how many plinths use an
  * anchorage type from the project's library (or none yet) and may carry default plinth dimensions.
  */
-export function FoundationConfigFields({ draft, onChange, types, quantity, preview, onCreateType }: {
+export function FoundationConfigFields({ draft, onChange, types, quantity, preview, onCreateType, embedOptions = [], anchorageHref }: {
   draft: ConfigDraft
   onChange: (d: ConfigDraft) => void
   types: AnchorageType[]
   quantity: number
   preview: FoundationConcrete | string | null
+  /** The Anchorage Library's embed plates, to choose from. */
+  embedOptions?: EmbedOption[]
+  anchorageHref?: string
   /** Adds a type to the project's Anchorage Library and resolves to its id (or why not). Absent = the user may not create types. */
   onCreateType?: (code: string) => Promise<{ id: string } | { error: string }>
 }) {
@@ -174,6 +186,17 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
         </div>
       </fieldset>
 
+      <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
+        <legend className="t-label mb-1 p-0">Embed plates</legend>
+        <p className="text-xs text-muted">Embed plates from the Anchorage Library, added directly to this foundation: no anchorage group or plinth is needed. Count each per foundation or as a total.</p>
+        {(draft.embeds ?? []).map((e, i) => <EmbedCard key={e.id ?? `embed-${i}`} index={i} value={e} quantity={quantity} options={embedOptions} supplied={suppliedByTypes(draft, embedOptions, e.componentId)} onChange={(v) => onChange({ ...draft, embeds: draft.embeds.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...draft, embeds: draft.embeds.filter((_, j) => j !== i) })} />)}
+        {embedOptions.length === 0 && <p role="status" className="border-l-2 border-warn pl-3 text-xs">No embed plates are defined yet. Add one to an anchorage type in the Anchorage Library (Configure → Embed plate), then choose it here.{anchorageHref && <> <Link to={anchorageHref} className="underline underline-offset-4">Anchorage types</Link></>}</p>}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Button disabled={embedOptions.length === 0} onClick={() => onChange({ ...draft, embeds: [...(draft.embeds ?? []), { componentId: embedOptions.find((o) => !(draft.embeds ?? []).some((x) => x.componentId === o.component.id))?.component.id ?? embedOptions[0].component.id, qty: '1', mode: 'per-foundation' }] })}><Plus size={14} strokeWidth={1.5} />Add embed plates</Button>
+          {(draft.embeds ?? []).length > 0 && <p className="text-xs text-muted" aria-live="polite">Embed plates required: <span className="font-medium text-ink">{embedTotal(draft.embeds, quantity).toLocaleString('en-CA')}</span></p>}
+        </div>
+      </fieldset>
+
       <div aria-live="polite" className="rounded-nx bg-hover px-4 py-3 text-xs">
         <p className="t-label mb-1">Concrete</p>
         {preview === null ? <p className="text-muted">Enter dimensions to calculate concrete.</p> : typeof preview === 'string' ? <p className="text-muted">{preview}</p> : <ConcreteSummary c={preview} compact />}
@@ -208,6 +231,36 @@ function BoltCard({ index, value: b, onChange, onRemove }: { index: number; valu
         <Field label="Washer size"><Input aria-label={`Washer size ${n}`} value={b.washerSize} onChange={(e) => set({ washerSize: e.target.value })} placeholder={b.diameter || 'Same as the bolt'} /></Field>
       </div>
       <div className="flex justify-end"><Button variant="ghost" aria-label={`Remove anchor bolts ${n}`} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button></div>
+    </div>
+  )
+}
+
+const embedCount = (e: EmbedDraft, quantity: number) => { const n = Number(e.qty); return Number.isInteger(n) && n >= 1 ? (e.mode === 'per-foundation' ? n * quantity : n) : 0 }
+const embedTotal = (embeds: EmbedDraft[], quantity: number) => embeds.reduce((t, e) => t + embedCount(e, quantity), 0)
+/** The anchorage type, among those chosen on this form, that already supplies this embed plate (so a direct entry replaces it). */
+const suppliedByTypes = (draft: ConfigDraft, options: EmbedOption[], componentId: string) => {
+  const o = options.find((x) => x.component.id === componentId)
+  return o && draft.groups.some((g) => g.typeId === o.type.id) ? o.type.code : ''
+}
+
+/** One embed plate configuration: which library plate, how many, and whether that is per foundation or a total. The total is shown as you type. */
+function EmbedCard({ index, value: e, quantity, options, supplied, onChange, onRemove }: { index: number; value: EmbedDraft; quantity: number; options: EmbedOption[]; supplied: string; onChange: (v: EmbedDraft) => void; onRemove: () => void }) {
+  const n = index + 1
+  const q = Number(e.qty)
+  const valid = Number.isInteger(q) && q >= 1
+  const known = options.some((o) => o.component.id === e.componentId)
+  return (
+    <div role="group" aria-label={`Embed plates ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
+      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_7rem_11rem]">
+        <div className="col-span-2 sm:col-span-1"><Field label="Embed plate type *"><Select aria-label={`Embed plate type ${n}`} value={e.componentId} onChange={(ev) => onChange({ ...e, componentId: ev.target.value })}>{!known && <option value={e.componentId}>Removed embed plate</option>}{options.map((o) => <option key={o.component.id} value={o.component.id}>{embedOptionLabel(o)}</option>)}</Select></Field></div>
+        <Field label="Quantity *"><Input aria-label={`Embed plate quantity ${n}`} inputMode="numeric" value={e.qty} onChange={(ev) => onChange({ ...e, qty: ev.target.value })} /></Field>
+        <Field label="Quantity is"><Select aria-label={`Quantity method ${n}`} value={e.mode} onChange={(ev) => onChange({ ...e, mode: ev.target.value as EmbedDraft['mode'] })}><option value="per-foundation">Per foundation</option><option value="total">Total</option></Select></Field>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p role="status" aria-live="polite" className="text-[13px]">{!valid ? <span className="text-muted">Enter a whole number of 1 or more.</span> : e.mode === 'per-foundation' ? <><span className="text-muted">{q.toLocaleString('en-CA')} per foundation × {quantity.toLocaleString('en-CA')} foundation{quantity === 1 ? '' : 's'} = </span><span className="font-medium">{(q * quantity).toLocaleString('en-CA')} plates required</span></> : <><span className="text-muted">{q.toLocaleString('en-CA')} in total across all {quantity.toLocaleString('en-CA')} = </span><span className="font-medium">{q.toLocaleString('en-CA')} plate{q === 1 ? '' : 's'} required</span></>}</p>
+        <Button variant="ghost" aria-label={`Remove embed plates ${n}`} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button>
+      </div>
+      {supplied && <p role="note" className="border-l-2 border-warn pl-3 text-xs">{supplied} already supplies this plate on this foundation. This entry replaces it, so nothing is counted twice.</p>}
     </div>
   )
 }

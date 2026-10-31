@@ -7,7 +7,8 @@ import { useAccess } from '@/lib/access'
 import { foundationConcrete } from '../concrete'
 import { foundationQuantity } from '../foundationQuantity'
 import { addAnchorageType, addFoundations, archiveArea, archiveFoundation, configureFoundation, createArea, createFoundation, editArea, editFoundation, renameFoundation } from '../commands'
-import type { FoundationConfig } from '../configActions'
+import { embedChoices, type FoundationConfig } from '../configActions'
+import { paths } from '../paths'
 import { configFromDraft, draftFromFoundation, FoundationBasics, FoundationConfigFields, type ConfigDraft } from './FoundationConfigFields'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
 import type { ConstructionState, Foundation } from '../types'
@@ -39,7 +40,7 @@ function previewOf(draft: ConfigDraft, run: (cfg: FoundationConfig) => { state?:
   const cfg = configFromDraft(draft)
   if ('error' in cfg) return cfg.error
   if (!cfg.config.footing && (cfg.config.groups ?? []).every((g) => !g.dims)) return null
-  const r = run({ ...cfg.config, bolts: undefined }) // bolts do not affect concrete; an unfinished bolt entry must not hide the calculation
+  const r = run({ ...cfg.config, bolts: undefined, embeds: undefined }) // bolts do not affect concrete; an unfinished bolt entry must not hide the calculation
   if (r.error !== undefined || !r.state) return r.error ?? null
   const f = pick(r.state)
   return f ? foundationConcrete(f, r.state.plinths, (r.state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)) : null
@@ -71,7 +72,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
   const [number, setNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [description, setDescription] = useState('')
-  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], bolts: [] })
+  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], bolts: [], embeds: [] })
   const [bulk, setBulk] = useState('')
   const types = state.anchorageTypes.filter((t) => t.projectId === projectId)
   const [problem, setProblem] = useState('')
@@ -98,7 +99,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
         {mode === 'one' ? (
           <>
             <FoundationBasics autoFocus required number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
-            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={(code) => createAnchorageType(projectId, code)} />
+            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} embedOptions={embedChoices(state, projectId).map((x) => ({ component: x.component, type: x.type }))} anchorageHref={paths.anchorage(projectId)} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={(code) => createAnchorageType(projectId, code)} />
             {problem && <p role="alert" className="border-l-2 border-bad pl-3">{problem}</p>}
           </>
         ) : (
@@ -225,8 +226,8 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [description, setDescription] = useState(f?.description ?? '')
   const [notes, setNotes] = useState(f?.notes ?? '')
   const [quantity, setQuantity] = useState(String(f ? foundationQuantity(f) : 1))
-  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? []) : null))
-  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [])
+  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? []) : null))
+  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? [])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   if (!f || !draft) return null
@@ -258,7 +259,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default Foundations view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
         <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
-        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
+        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} embedOptions={embedChoices(state, project).map((x) => ({ component: x.component, type: x.type }))} anchorageHref={paths.anchorage(project ?? '')} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
         <div className="border-t border-line pt-5"><Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field></div>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap gap-2">

@@ -1,7 +1,7 @@
 import { blankActivitiesFor } from './blankActivities'
 import { dimsProblem, hasAnyDim } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, FoundationBolt, FoundationUnit, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, Plinth } from './types'
 
 const fail = (error: string) => ({ error }) as const
 const ok = (state: ConstructionState) => ({ state }) as const
@@ -13,7 +13,10 @@ export interface GroupInput { id?: string; anchorageTypeId: string | null; count
 /** Anchor bolts installed in each footing, as entered on the form (a ComponentInput that is always a bolt). `id` names an existing entry; absent = new. */
 export type FootingBoltInput = Omit<ComponentInput, 'kind'>
 export const MAX_FOOTING_BOLTS = 10
-export interface FoundationConfig { footing?: Dims | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[] }
+/** An embed plate added directly to a foundation. `id` names an existing entry; absent = new. */
+export interface FoundationEmbedInput { id?: string; componentId: string; qty: number; mode: 'per-foundation' | 'total' }
+export const MAX_FOUNDATION_EMBEDS = 10
+export interface FoundationConfig { footing?: Dims | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[]; /** Absent = unchanged; a list replaces the foundation's embed plates (empty = none). */ embeds?: FoundationEmbedInput[] }
 
 export const groupsOf = (s: ConstructionState, foundationId: string): AnchorageGroup[] => (s.anchorageGroups ?? []).filter((g) => g.foundationId === foundationId)
 
@@ -38,6 +41,22 @@ export function configProblem(s: ConstructionState, f: Foundation, cfg: Foundati
       const p = componentProblem({ ...b, kind: 'bolt' }, i + 1)
       if (p) return p.replace(/^Component \d+:/, `Anchor bolts ${i + 1}:`).replace('per anchorage', 'per footing')
       if (b.id && !(s.foundationBolts ?? []).some((x) => x.id === b.id && x.foundationId === f.id)) return `Anchor bolts ${i + 1} no longer exist. Reload and try again.`
+    }
+  }
+  if (cfg.embeds !== undefined) {
+    if (!Array.isArray(cfg.embeds) || cfg.embeds.length > MAX_FOUNDATION_EMBEDS) return `A foundation can have up to ${MAX_FOUNDATION_EMBEDS} embed plate configurations.`
+    const choices = new Set(embedChoices(s, projectOfFoundation(s, f)).map((x) => x.component.id))
+    const seen = new Set<string>()
+    for (const [i, e] of cfg.embeds.entries()) {
+      const at = `Embed plates ${i + 1}`
+      const existing = (s.foundationEmbeds ?? []).some((x) => x.foundationId === f.id && x.componentId === e?.componentId)
+      if (!e || (!choices.has(e.componentId) && !existing)) return `${at}: choose an embed plate from the Anchorage Library.`
+      if (e.mode !== 'per-foundation' && e.mode !== 'total') return `${at}: choose per foundation or total.`
+      if (!Number.isInteger(e.qty) || e.qty < 1 || e.qty > 1_000_000) return `${at}: enter a whole number of 1 or more.`
+      const key = `${e.componentId}|${e.mode}`
+      if (seen.has(key)) return `${at}: that embed plate is already listed with the same quantity method. Combine them.`
+      seen.add(key)
+      if (e.id && !(s.foundationEmbeds ?? []).some((x) => x.id === e.id && x.foundationId === f.id)) return `${at} no longer exists. Reload and try again.`
     }
   }
   if (!cfg.groups) return null
@@ -153,6 +172,19 @@ export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingB
   return { ...s, foundationBolts: [...(s.foundationBolts ?? []).filter((b) => b.foundationId !== f.id), ...next] }
 }
 
+/** Sets a foundation's embed plates to exactly `inputs`, keeping the id of any entry edited in place. */
+export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: FoundationEmbedInput[]): ConstructionState {
+  const mine = (s.foundationEmbeds ?? []).filter((e) => e.foundationId === f.id)
+  const used = new Set((s.foundationEmbeds ?? []).map((e) => e.id))
+  const next: FoundationEmbed[] = []
+  for (const [i, e] of inputs.entries()) {
+    let id = e.id ?? ''
+    if (!id) { let n = mine.length + i + 1; id = `${f.id}-em${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-em${++n}` }
+    next.push({ id, foundationId: f.id, componentId: e.componentId, qty: e.qty, mode: e.mode })
+  }
+  return { ...s, foundationEmbeds: [...(s.foundationEmbeds ?? []).filter((e) => e.foundationId !== f.id), ...next] }
+}
+
 /** Quantity can only fall to the highest physical foundation that has no pour records. */
 export function quantityBelowPours(s: ConstructionState, foundationId: string, quantity: number): string | null {
   const top = Math.max(0, ...(s.pourItems ?? []).filter((i) => i.foundationId === foundationId).map((i) => i.unit))
@@ -190,6 +222,7 @@ export const configureFoundation = (id: string, cfg: FoundationConfig & { descri
     if (typeof r === 'string') return fail(r)
     next = r
   }
+  if (cfg.embeds) next = applyEmbeds(next, next.foundations.find((x) => x.id === id)!, cfg.embeds)
   if (cfg.bolts) next = applyBolts(next, next.foundations.find((x) => x.id === id)!, cfg.bolts)
   return ok(next)
 }
@@ -276,6 +309,8 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
     if (components.some((c) => c.id === m.id && c.kind === 'embed-plate')) continue
     const n = (s.foundationUnits ?? []).filter((u) => u.embeds.some((e) => e.componentId === m.id)).length
     if (n > 0) return fail(`This ${m.kind === 'embed-plate' ? 'embed plate' : 'component'} is used by ${n} individual foundation${n === 1 ? '' : 's'}. Remove it from them first.`)
+    const d = (s.foundationEmbeds ?? []).filter((e) => e.componentId === m.id).length
+    if (d > 0) return fail(`This embed plate is used by ${d} foundation${d === 1 ? '' : 's'} (added directly on the foundation). Remove it from them first.`)
   }
   const used = new Set((s.anchorageComponents ?? []).map((c) => c.id))
   const next: AnchorageComponent[] = []

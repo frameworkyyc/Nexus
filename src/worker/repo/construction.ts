@@ -1,7 +1,7 @@
 import type { Row, RowSet } from '../db'
 import { blankActivitiesFor } from '@/domains/construction/blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS } from '@/domains/construction/config'
-import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, Area, ConstructionState, Dims, Foundation, FoundationBolt, FoundationUnit, LengthUnit, Plinth, Pour, PourItem, Project } from '@/domains/construction/types'
+import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, Area, ConstructionState, Dims, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, LengthUnit, Plinth, Pour, PourItem, Project } from '@/domains/construction/types'
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 
@@ -28,6 +28,7 @@ export function constructionToRows(state: ConstructionState): RowSet {
     areas: state.areas.map((a): Row => ({ id: a.id, project_id: a.projectId, name: a.name, sequence: a.sequence, identifier: a.identifier ?? '', description: a.description ?? '', archived: a.archived ? 1 : 0 })),
     anchorage_types: state.anchorageTypes.map((t, seq): Row => ({ id: t.id, project_id: t.projectId ?? '', code: t.code, description: t.description, archived: t.archived ? 1 : 0, seq })),
     anchorage_components: (state.anchorageComponents ?? []).map((c, seq): Row => ({ id: c.id, anchorage_type_id: c.anchorageTypeId, kind: c.kind, qty: c.qty, label: c.label, spec: c.spec, size: c.size, diameter: c.diameter, length: c.length, length_unit: c.lengthUnit, thread: c.thread, top_thread: c.topThread, bottom_thread: c.bottomThread, nuts_per_bolt: c.nutsPerBolt, washers_per_bolt: c.washersPerBolt, nut_size: c.nutSize, washer_size: c.washerSize, seq, center_hole: c.centerHole ?? null, stud_count: c.studCount ?? null, stud_diameter: c.studDiameter ?? null, stud_length: c.studLength ?? null })),
+    foundation_embeds: (state.foundationEmbeds ?? []).map((e, seq): Row => ({ id: e.id, foundation_id: e.foundationId, component_id: e.componentId, qty: e.qty, mode: e.mode, seq })),
     foundation_units: (state.foundationUnits ?? []).map((u, seq): Row => ({ id: u.id, foundation_id: u.foundationId, label: u.label, notes: u.notes, seq })),
     foundation_unit_embeds: (state.foundationUnits ?? []).flatMap((u) => u.embeds.map((e, seq): Row => ({ id: e.id, unit_id: u.id, component_id: e.componentId, qty: e.qty, seq }))),
     foundation_bolts: (state.foundationBolts ?? []).map((b, seq): Row => ({ id: b.id, foundation_id: b.foundationId, qty: b.qty, spec: b.spec, diameter: b.diameter, length: b.length, length_unit: b.lengthUnit, thread: b.thread, top_thread: b.topThread, bottom_thread: b.bottomThread, nuts_per_bolt: b.nutsPerBolt, washers_per_bolt: b.washersPerBolt, nut_size: b.nutSize, washer_size: b.washerSize, seq })),
@@ -49,6 +50,7 @@ export function constructionFromRows(rows: RowSet): ConstructionState {
   const foundations = (rows.foundations ?? []).map((r): Foundation => ({ id: String(r.id), areaId: String(r.area_id), number: String(r.number), description: String(r.description), notes: String(r.notes), docIds: [], ...(Number(r.archived) === 1 ? { archived: true } : {}), quantity: Number(r.quantity ?? 1), plinthsPerFoundation: r.plinths_per_foundation === null || r.plinths_per_foundation === undefined ? null : Number(r.plinths_per_foundation), footing: dimsFrom(r, 'footing_'), plinthBase: String(r.plinth_base ?? 'above-footing') === 'from-footing-base' ? 'from-footing-base' : 'above-footing' }))
   const plinths = (rows.plinths ?? []).map((r): Plinth => ({ id: String(r.id), foundationId: String(r.foundation_id), index: Number(r.idx), anchorageTypeId: s(r.anchorage_type_id), notes: String(r.notes), groupId: s(r.group_id), dims: dimsFrom(r) }))
   const foundationBolts = (rows.foundation_bolts ?? []).map((r): FoundationBolt => ({ id: String(r.id), foundationId: String(r.foundation_id), qty: Number(r.qty), spec: String(r.spec), diameter: String(r.diameter), length: r.length === null ? null : Number(r.length), lengthUnit: String(r.length_unit) === 'in' ? 'in' : 'mm', thread: s(r.thread) as FoundationBolt['thread'], topThread: r.top_thread === null ? null : Number(r.top_thread), bottomThread: r.bottom_thread === null ? null : Number(r.bottom_thread), nutsPerBolt: Number(r.nuts_per_bolt), washersPerBolt: Number(r.washers_per_bolt), nutSize: String(r.nut_size), washerSize: String(r.washer_size) }))
+  const foundationEmbeds = (rows.foundation_embeds ?? []).map((r): FoundationEmbed => ({ id: String(r.id), foundationId: String(r.foundation_id), componentId: String(r.component_id), qty: Number(r.qty), mode: String(r.mode) === 'total' ? 'total' : 'per-foundation' }))
   const embedsOf = new Map<string, FoundationUnit['embeds']>()
   for (const r of rows.foundation_unit_embeds ?? []) embedsOf.set(String(r.unit_id), [...(embedsOf.get(String(r.unit_id)) ?? []), { id: String(r.id), componentId: String(r.component_id), qty: Number(r.qty) }])
   const foundationUnits = (rows.foundation_units ?? []).map((r): FoundationUnit => ({ id: String(r.id), foundationId: String(r.foundation_id), label: String(r.label), notes: String(r.notes), embeds: embedsOf.get(String(r.id)) ?? [] }))
@@ -65,7 +67,7 @@ export function constructionFromRows(rows: RowSet): ConstructionState {
     projects: (rows.projects ?? []).map((r): Project => ({ id: String(r.id), companyId: String(r.company_id), name: String(r.name), jobNumber: String(r.job_number), client: String(r.client), location: String(r.location), scope: String(r.scope), status: String(r.status) as Project['status'], statusNote: String(r.status_note), tracking: 'detailed', reportedProgress: null, description: String(r.description ?? ''), startDate: s(r.start_date), endDate: s(r.end_date) })),
     projectIssues: [],
     areas,
-    foundations, plinths, anchorageGroups, foundationBolts, foundationUnits, anchorageComponents, pours, pourItems,
+    foundations, plinths, anchorageGroups, foundationBolts, foundationUnits, foundationEmbeds, anchorageComponents, pours, pourItems,
     boltSpecs: [], anchorageTypes, bulkMaterials: [], suppliers: [], purchaseOrders: [], deliveries: [], allocations: [], plinthReady: [], fabrication: [],
     activities, documents: [], deficiencies: [],
     // Handover is not saved yet: each area carries an untouched, empty checklist so screens that read it keep working. Nothing here is persisted or shown as progress.

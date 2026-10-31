@@ -639,3 +639,73 @@ describe('individual foundations within a designation', () => {
     expect(c.foundationUnits!.find((u) => u.label === 'B')!.embeds[0].qty).toBe(2)
   })
 })
+
+describe('embed plates added directly to a foundation', () => {
+  const comp = (c: ConstructionState) => c.anchorageComponents!.find((x) => x.kind === 'embed-plate')!
+  const embedLine = (c: ConstructionState) => consolidate(tracked(c), c).find((g) => g.area === 'E-House' && g.category === 'embed-plate')!
+  const cfg = (c: ConstructionState, embeds: { componentId?: string; qty: number; mode: 'per-foundation' | 'total'; id?: string }[]) => ({ embeds: embeds.map((e) => ({ componentId: comp(c).id, ...e })) })
+
+  it('per foundation multiplies by the physical foundations; total does not: 18 × 2 = 36, 2 in total = 2', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')! // 18 physical foundations, no embed plates of its own
+    expect(embedLine(c).required).toBe(2) // OP1-01-05's two, from its anchorage type
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 2, mode: 'per-foundation' }])))
+    expect(embedLine(c).required).toBe(2 + 36)
+    expect(embedLine(c).contributions.find((x) => x.foundationId === f.id)!.qty).toBe(36)
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 2, mode: 'total' }])))
+    expect(embedLine(c).required).toBe(2 + 2)
+    expect(embedLine(c).lines[0].calc.expression).toMatch(/2 in total/)
+    // both on one foundation, each with its own method
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 2, mode: 'per-foundation' }, { qty: 2, mode: 'total' }])))
+    expect(embedLine(c).required).toBe(2 + 36 + 2)
+    expect(consolidate(tracked(c), c).filter((g) => g.category === 'embed-plate' && g.area === 'E-House')).toHaveLength(1) // one consolidated line
+    expect(embedLine(c).lines[0].calc.expression).toMatch(/2 per foundation × 18 foundations/)
+    expect(c.foundations.find((x) => x.id === f.id)).toMatchObject({ quantity: 18 })
+    expect(c.plinths.filter((p) => p.foundationId === f.id)).toHaveLength(1) // no plinth or group created
+  })
+
+  it('does not count a plate twice when the foundation\'s anchorage type already supplies it', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-05')! // 2 footings of OP1-D4: 1 plate per anchorage = 2
+    expect(embedLine(c).required).toBe(2)
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 3, mode: 'per-foundation' }])))
+    expect(embedLine(c).required).toBe(6) // replaces the type's 2, never 2 + 6
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 5, mode: 'total' }])))
+    expect(embedLine(c).required).toBe(5)
+    c = build(c, K.configureFoundation(f.id, { embeds: [] }))
+    expect(embedLine(c).required).toBe(2) // back to the anchorage type's own
+  })
+
+  it('recalculates with the foundation quantity; Materials, Procurement and the recount agree; orders are kept', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 2, mode: 'per-foundation' }])))
+    let t = tracked(c)
+    const expected = expectedTotals(c)
+    for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
+    expect(procurementRows(t, c).map((r) => [r.key, r.required]).sort()).toEqual(consolidate(t, c).map((r) => [r.key, r.required]).sort())
+    const row = () => procurementRows(t, c).find((r) => r.category === 'embed-plate')!
+    expect(row().required).toBe(38)
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-EM', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 38 }] }, TODAY))
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 20 }] }, TODAY))
+    c = build(c, K.configureFoundation(f.id, { quantity: 20 }))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    expect(row()).toMatchObject({ required: 42, ordered: 38, received: 20, toOrder: 4 })
+    expect(t.orderLines).toHaveLength(1)
+    expect(t.deliveries).toHaveLength(1)
+  })
+
+  it('is validated against the library and cannot be removed from it while in use', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
+    const err = (embeds: unknown[]) => K.configureFoundation(f.id, { embeds } as never)(c, {}).error
+    expect(err([{ componentId: 'nope', qty: 1, mode: 'total' }])).toMatch(/Anchorage Library/)
+    expect(err([{ componentId: comp(c).id, qty: 0, mode: 'total' }])).toMatch(/whole number/)
+    expect(err([{ componentId: comp(c).id, qty: 1, mode: 'each' }])).toMatch(/per foundation or total/)
+    expect(err([{ componentId: comp(c).id, qty: 1, mode: 'total' }, { componentId: comp(c).id, qty: 2, mode: 'total' }])).toMatch(/Combine/)
+    expect(err(Array.from({ length: 11 }, () => ({ componentId: comp(c).id, qty: 1, mode: 'total' })))).toMatch(/up to 10/)
+    c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 2, mode: 'per-foundation' }])))
+    const d4 = c.anchorageTypes.find((t) => t.code === 'OP1-D4')!
+    expect(K.setAnchorageComponents(d4.id, [])(c, {}).error).toMatch(/used by 1 foundation/)
+  })
+})
