@@ -5,6 +5,7 @@ import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { useTenant } from '@/app/tenant'
 import { PRIMARY_NAV, activePrimary } from '@/app/primaryNav'
 import type { CrumbHandle } from './TopBar'
+import { ProjectSwitcher } from './ProjectSwitcher'
 
 /**
  * Compact phone header: a back arrow on detail screens (otherwise the Nexus mark), the screen title with its context (the project, or
@@ -24,7 +25,8 @@ export function MobileHeader({ onMenu }: { onMenu: () => void }) {
   const last = crumbs[crumbs.length - 1]
   const Title = (last?.handle as CrumbHandle | undefined)?.crumb
   const Context = crumbs.length >= 3 && pathname.startsWith('/projects/') ? (crumbs[1].handle as CrumbHandle).crumb : undefined
-  const back = crumbs.length >= 2 ? crumbs[crumbs.length - 2].pathname : null
+  const linkable = crumbs.filter((m) => !(m.handle as CrumbHandle).noLink)
+  const back = linkable.length >= 2 && linkable[linkable.length - 1] === last ? linkable[linkable.length - 2].pathname : crumbs.length >= 2 ? '/projects' : null
   const focusSearch = () => {
     const el = document.querySelector<HTMLInputElement>('[data-search]')
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
@@ -50,6 +52,7 @@ export function MobileHeader({ onMenu }: { onMenu: () => void }) {
             </div>
           </>
         )}
+        <ProjectSwitcher phone />
         {IS_PUBLIC_DEMO && <button type="button" onClick={onMenu} aria-label="Demo Environment: open menu to reset the demo" className="mr-1 inline-flex h-8 min-h-0 items-center gap-1.5 rounded-full border border-line px-2.5 text-[12px] font-medium text-muted"><span className="h-1.5 w-1.5 rounded-full bg-[var(--nx-info)]" aria-hidden="true" />Demo</button>}
         {hasSearch && <button type="button" onClick={focusSearch} aria-label="Search" className="grid h-11 w-11 shrink-0 place-items-center text-ink"><Search size={21} strokeWidth={1.75} /></button>}
         <button type="button" onClick={onMenu} aria-label="Menu" className="grid h-11 w-11 shrink-0 place-items-center text-ink"><Menu size={23} strokeWidth={1.75} /></button>

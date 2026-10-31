@@ -1,6 +1,5 @@
-import { ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Field'
@@ -123,21 +122,6 @@ export function ProcurementPage() {
       {dialog?.kind === 'correct' && (state.deliveries ?? []).some((d) => d.id === dialog.delivery) && <CorrectDeliveryModal delivery={(state.deliveries ?? []).find((d) => d.id === dialog.delivery)!} state={state} today={today} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'receive' && <ReceiveModal rows={rows} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
       {dlg && <RowModal row={dlg as ProcRow} state={state} foundationName={foundationName} onClose={() => setDialog(null)} onOrder={() => setDialog({ kind: 'order', keys: [dlg.key] })} onReceive={() => setDialog({ kind: 'receive', keys: [dlg.key] })} />}
-    </>
-  )
-}
-
-/** The sidebar's Procurement: straight to the project's procurement when there is one project, otherwise a choice. */
-export function ProcurementIndex() {
-  const { state } = useConstruction()
-  const projects = state.projects
-  if (projects.length === 1) return <Navigate to={paths.procurement(projects[0].id)} replace />
-  return (
-    <>
-      <PageHeader title="Procurement" description="Choose a project to order and receive its materials." />
-      {projects.length === 0 ? <EmptyState title="No projects yet" description="Procurement is organised by project and area. Create a project first." /> : (
-        <ul className="divide-y divide-line border-y border-line">{projects.map((p) => <li key={p.id}><Link to={paths.procurement(p.id)} className="flex items-center justify-between py-3 text-[15px]"><span>{p.name}</span><ChevronRight size={14} strokeWidth={1.5} className="text-muted" /></Link></li>)}</ul>
-      )}
     </>
   )
 }

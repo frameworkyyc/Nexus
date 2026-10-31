@@ -1,7 +1,7 @@
 # Nexus — Navigation & Materials Redesign (Revised, Materials-first scope)
 
 Status: **proposal for review. No code has been changed.** Branch `staging`.
-This revision replaces the earlier all-disciplines proposal. Facts come from the code and a read-only query of `nexus-staging`; anything not checked is marked **(not checked)**.
+This revision replaces the earlier all-disciplines proposal. **Approved with one modification (section 5): Materials progress is quantity-based, shown separately for Ordered, Delivered, Allocated and Installed.** Facts come from the code and a read-only query of `nexus-staging`; anything not checked is marked **(not checked)**.
 
 ## 0. Scope of this phase
 
@@ -95,11 +95,12 @@ Legend: `[ ]` button/filter, `▸` link to underlying records. All quantities li
 Project: E-House Expansion ▾     [Project Progress] Project Management  Foundation Overview  Fleet  More ▾
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
 Project Progress                                   Read-only · as of today
-Materials (whole project)    Required 214   Ordered 160   Delivered 118   Outstanding 96   ▸ Materials detail
-                              ██████████░░░░░░░░ 55% delivered in full
+Materials (whole project)   Required 214 pcs · Outstanding to deliver 96     ▸ Materials detail
+   Ordered     ████████████░░░░ 75%      Delivered ██████████░░░░░░ 55%
+   Allocated   ████████░░░░░░░░ 48%      Installed ████░░░░░░░░░░░░ 20%
 Areas
 ┌ E-House ─────────────┐ ┌ Mole Sieve ───────────┐ ┌ Propane BOG ─────────┐
-│ Materials   62% ████ │ │ Materials   48% ███   │ │ Materials   40% ██   │
+│ Materials  see below │ │ Materials  see below  │ │ Materials  see below │
 │ Construction 41%     │ │ Construction 30%      │ │ Construction 12%     │
 │ Survey       25%     │ │ Survey       10%      │ │ Survey       —       │
 │ QA/QC        18%     │ │ QA/QC        —        │ │ QA/QC        —       │
@@ -108,15 +109,17 @@ Areas
 └──────────────────────┘ └───────────────────────┘ └──────────────────────┘
 Needs attention (existing issues panel)
 ```
-No combined project or area percentage is introduced. Each category keeps its own figure (Materials from the unified model; Construction, Survey and QA/QC exactly as the existing indicators calculate them, with their existing "Not tracked" wording when records cannot support a figure).
+No combined project or area percentage is introduced. Each category keeps its own figure. Materials shows its four quantity-based percentages (section 5) on the area card, replacing the single "delivered in full" figure. Construction, Survey and QA/QC are exactly as the existing indicators calculate them, with their existing "Not tracked" wording when records cannot support a figure.
 
 ### 3.2 Project Progress → Area dashboard
 ```
 E-House                                                       ◂ All areas
 ┌ Materials ───────────────┐ ┌ Construction / Installation ┐ ┌ Survey ──────┐
-│ 62% delivered in full     │ │ 41% (existing)              │ │ 25% (existing)│
-│ Req 54 · Ord 48 · Del 34  │ │ ▸ open                      │ │ ▸ open        │
-│ Outstanding 20 ▸          │ └─────────────────────────────┘ └───────────────┘
+│ Ordered    88% ████████░  │ │ 41% (existing)              │ │ 25% (existing)│
+│ Delivered  62% ██████░░░  │ │ ▸ open                      │ │ ▸ open        │
+│ Allocated  55% █████░░░░  │ └─────────────────────────────┘ └───────────────┘
+│ Installed  22% ██░░░░░░░  │
+│ Outstanding to deliver ▸  │
 └───────────────────────────┘ ┌ QA/QC ──────────────────────┐ ┌ Civil / Earthworks ┐
                               │ 18% (existing) ▸ open       │ │ Future development │
                               └─────────────────────────────┘ └────────────────────┘
@@ -127,21 +130,21 @@ E-House                                                       ◂ All areas
 E-House · Materials                         Area: [All ▾]   Category: [All ▾]
 Required 54   Ordered 48   Delivered 34   Allocated 30   Installed 12   Outstanding (not yet delivered) 20
 
-By material category                     Req   Ord   Del   Out   Progress
-Anchor bolts                              12    12     9     3    ███████░░ 75%
-Nuts                                      12    10     6     6    █████░░░░ 50%
-Washers                                   12    10     6     6    █████░░░░ 50%
-Sole plates                                6     6     6     0    █████████ 100%
-Plywood templates                          6     4     2     4    ███░░░░░░ 33%
-Embed plates                               6     6     5     1    ████████░ 83%
+By material category        Required   Ordered      Delivered     Allocated     Installed    Outstanding
+Anchor bolts (pcs)             100     100 100%      95  95%      80  80%       0   0%        5
+Nuts (pcs)                     200     120  60%      60  30%      60  30%       0   0%      140
+Washers (pcs)                  200     120  60%      60  30%      60  30%       0   0%      140
+Sole plates (pcs)               12      12 100%      12 100%      12 100%      12 100%        0
+Plywood templates (pcs)         12       8  67%       4  33%       4  33%       0   0%        8
+Embed plates (pcs)              12      12 100%      10  83%       8  67%       4  33%        2
+(each percentage = quantity ÷ required quantity, capped at 100% per requirement; outstanding = required − delivered)
 
-By area (when "All areas")               Req   Ord   Del   Out   Progress
-E-House … Mole Sieve … Propane BOG …
+By area (when "All areas")  same columns per area: E-House … Mole Sieve … Propane BOG …
 
 Requirement list (read-only)  → each row: material · spec · required · ordered · delivered · allocated · installed · outstanding · stage badge
    Row ▸ opens "Foundations needing this material" → each foundation links to Foundation Overview → Materials
 ```
-Counts are material requirement lines and each line also shows its quantity in pieces. Percentages keep today's definition (a requirement counts when its full required quantity has been delivered). I will not mix units in one total; see decisions.
+Totals are in pieces and each percentage is quantity-based (section 5). Aggregates are only formed within a material category, never across categories with different units.
 
 ### 3.4 Project Management → Materials & Procurement
 One workspace. Tabs replace the six current entry points; every existing function stays reachable.
@@ -150,7 +153,8 @@ Project Management   [Materials & Procurement] Construction  Survey  QA/QC  Civi
 ────────────────────────────────────────────────────────────────────────────────
 Materials & Procurement                         ⟲ synced   you: Editor
 Summary strip (clickable filters):
- [To order 12] [Ordered, not delivered 28] [Partly delivered 9] [Delivered 34] [Allocated 30] [Installed 12]
+ Ordered 88% · Delivered 62% · Allocated 55% · Installed 22%   (quantity-based, of required)
+ [To order 12] [Ordered, not delivered 28] [Partly delivered 9] [Delivered 34] [Allocated 30] [Installed 12]  ← requirement counts, clickable filters
  Unlinked deliveries notice (existing) if any
 
 Filters:  Area [All ▾]  Foundation [All ▾]  Category [All ▾]  Status [Any ▾]  Search […]   ⊞ List|Blocks
@@ -180,7 +184,8 @@ Edit controls are shown only to roles with the permission, and the server alread
 ```
 Foundation Overview        Area [E-House ▾]   Foundation [OP1-01-01 ▾]     (also reached from any ▸ link)
 OP1-01-01 · E-House · 6 footings (shown as one designation) · footing 4.0×4.0×1.0 m · anchorage types: A, B · Concrete 96 m³
-Materials readiness:  4 of 6 requirements delivered · 3 allocated · 1 installed       Overall materials ████░░ 50%
+Material readiness (this foundation's own requirements, quantity-based):
+   Ordered 100% · Delivered 62% · Allocated here 62% · Installed 17%      Outstanding to deliver: 20 pcs
 
 Materials                    Required  Ordered*  Delivered*  Allocated here  Installed*  Outstanding   Stage
 Anchor bolts 3/4"×460          24        24        12            12             0            12       Partially delivered
@@ -217,13 +222,27 @@ A bulk delivery is never shown as "this foundation has it": ordered/delivered/in
 
 ---
 
-## 5. Materials calculations (unchanged rules)
-All three Materials interfaces call the same Phase 1 `materialsModel` / `procurementRows`:
-- Required, ordered, delivered, allocated, installed and outstanding come from one calculation; cancelled orders count only what was delivered; unlinked deliveries count; allocations and installations never double count.
-- Percentages keep their current definition (fully delivered requirements ÷ requirements).
-- No new project-level or area-level combined progress and no category weights.
+## 5. Materials progress calculations (approved modification)
 
-New derived views needed (display only, no new stored data): totals by material category and by area, "outstanding to order" (required − ordered) and "outstanding to deliver" (required − delivered), and foundations-needing-this-requirement lists. They will be built into the same model with oracle tests.
+Materials progress is **quantity-based and shown as four separate percentages**: Ordered, Delivered, Allocated and Installed. There is no single "delivered in full" figure and no blended Materials number.
+
+**Definitions** (for any set of requirements: a foundation, an area, a material category, or the project):
+- For each requirement *r* with required quantity `req(r) > 0`, `stage%(r) = min(stageQty(r) ÷ req(r), 1)` for stage = ordered, delivered, allocated, installed.
+- For a set, `stage% = Σ min(stageQty(r), req(r)) ÷ Σ req(r)`. The cap is applied **per requirement before summing**, so a surplus on one requirement (e.g. 110 delivered against 100 required) can never hide a shortfall on another. Example: 95 of 100 anchor bolts delivered displays **95%**, not 0%.
+- Requirements with `req = 0` are excluded. A set with no requirements shows "No requirements", never 0% or 100%.
+- Outstanding to deliver = `max(req − delivered, 0)` per requirement, summed; "outstanding to order" = `max(req − ordered, 0)`. Over-delivery is shown as a separate "surplus" note, not as negative outstanding.
+- Percentages are only aggregated inside one material category (all pieces) and then across categories as piece totals. Categories with a different unit are not summed; I will check the stored unit of each category before building the aggregate, and show per-category figures only if units differ.
+
+**Source quantities (unchanged underlying procurement calculation):** `required`, `ordered`, `delivered` (received), `allocated` and `installed` are exactly what `procurementRows` / `materialsModel` already produce, so cancelled orders still count only what was delivered, unlinked deliveries still count, and allocations and installations never double-count. This change adds display-level percentages on top; it does not alter any stored or calculated quantity.
+
+**Project-level availability vs foundation-specific allocation:**
+- *Ordered, Delivered and Installed* are project-level for a requirement that several foundations share (the order and delivery are recorded once per area and specification). On a Foundation Overview they are labelled "project-level".
+- *Allocated here* is foundation-specific: the quantity assigned to that foundation. A foundation's Allocated % is its allocation ÷ its own requirement, and is never inferred from a project delivery.
+- A foundation's Delivered % is therefore shown as availability of the shared requirement ("project delivered X of Y") and is not claimed as "this foundation has received it".
+
+The existing requirement-level stage badge (Pending … Installed) stays as it is for single rows. The old "fully delivered requirements ÷ requirements" count remains available only as a requirement count in the summary strip (e.g. "Delivered 34 requirements"), not as the progress percentage.
+
+New derived views (display only, no new stored data): totals by material category and by area, outstanding-to-order and outstanding-to-deliver, and foundations-needing-this-requirement lists. These will be added to the same model with oracle tests, including the capping rule, shared requirements and the 95-of-100 case, in Stage 2.
 
 ---
 
@@ -233,7 +252,7 @@ Everything is committed to `staging` only, after tests pass, and nothing structu
 | Stage | Scope | Data change |
 |---|---|---|
 | **1. Navigation & layout** | Project context and selector, four-section frame, More menu, phone bottom bar, redirects, existing pages mounted unchanged under new routes, Future-development placeholder component, route-parity test | none |
-| **2. Project Progress → Materials** | Project overview, Area dashboard, Materials detail (category, area, requirement, foundation drill-down), model additions | none |
+| **2. Project Progress → Materials** | Project overview, Area dashboard, Materials detail (category, area, requirement, foundation drill-down), quantity-based stage percentages in the model | none |
 | **3. Project Management → Materials & Procurement** | Single workspace: summary strip, filters, Requirements, Orders, Deliveries, Allocate & install, Records & history, detail drawer | none |
 | **4. Foundation Overview → Materials** | Selector and materials section, project-level vs foundation-level labelling | none |
 | **5. End-to-end test & refinement** | Scenario tests across areas and categories, agreement checks across the three views, permission tests (viewer/editor/admin), Playwright at desktop, iPad and phone widths, existing staging data preserved | none |
@@ -254,8 +273,22 @@ Each stage ends with: full test suite, typecheck, lint, build, and a summary of 
 1. **Navigation:** approve the four-section frame, the More menu, and dropping the 7 placeholder sidebar items.
 2. **URLs:** keep the `/projects/:p/…` prefix (fewer redirects) rather than introducing `/p/…`. *Recommended: keep.*
 3. **Progress figures:** show each category separately with no combined project/area percentage in this phase.
-4. **Materials percentage:** keep "fully delivered requirements ÷ requirements" and show piece quantities beside it, rather than changing the definition.
+4. ~~Materials percentage~~ **Decided:** quantity-based Ordered, Delivered, Allocated and Installed percentages against required quantity, capped at 100% per requirement (section 5).
 5. **Workspace tabs:** approve Requirements · Orders · Deliveries · Allocate & install · Records & history.
 6. **Foundation Overview:** designation-level only for now (individual footings deferred); approve the Materials chain layout in 3.5.
 7. **Construction / Survey / QA/QC under Project Management:** embed the existing Area screens with an area selector (no workflow changes).
 8. **Civil / Earthworks:** labelled "Future development" tile and page.
+
+---
+
+## 9. Stage 1 status (navigation and layout): implemented on `staging`
+
+Done: four-section frame (desktop/iPad header, phone bottom bar), project selector that keeps the section, More menu (Setup, Issues, Fleet on this project, Fabrication/Handover in the demo only, All projects, Company overview, Crew, Safety, Data & backups), redirects for every moved path, Project Management with the existing Construction/Survey/QA/QC screens behind an area selector, Civil / Earthworks "Future development", Foundation Overview selector, Setup hub. The seven placeholder sidebar items are gone.
+
+Transitional (replaced in later stages, no behavior changed in Stage 1):
+- Project Progress shows today's project and area pages; the Materials dashboards and quantity-based percentages arrive in Stage 2.
+- Manage → Materials & Procurement is today's Procurement page (the public demo bundle shows its Materials page, as before). "Material records" is a temporary extra tab until Stage 3 folds it into Records & history.
+- Foundation Overview opens today's foundation page; the Materials table comes in Stage 4.
+- Survey and QA/QC open the same existing table (they are recorded together today).
+
+Notes: `/` opens the last-used project's Progress (the company overview is at `/overview`). A project's own Fleet view is kept at `/projects/:p/fleet` (reachable from More) because it has project-specific tasks that `/fleet` does not.

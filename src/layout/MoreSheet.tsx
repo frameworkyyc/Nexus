@@ -1,23 +1,22 @@
-import { ChevronRight, Lock, RotateCcw } from 'lucide-react'
+import { ChevronRight, RotateCcw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { DEMO_DESCRIPTION, DEMO_LABEL } from '@/app/demoConfig'
-import { MODULES } from '@/app/modules'
+import { moreItems } from '@/app/moreItems'
+import { useProjectContext } from '@/app/projectContext'
 import { useTenant } from '@/app/tenant'
 import { BottomSheet } from '@/components/ui/BottomSheet'
 import { useBackend } from '@/lib/dataSource'
 import { resetWholeDemo } from './DemoBadge'
 
-const PRIMARY_IDS = new Set(['dashboard', 'projects', 'fleet'])
-
 const row = 'flex min-h-[52px] items-center justify-between gap-3 border-b border-line px-4 text-[16px]'
 
-/** Phone menu: secondary navigation, the demo controls and where the data lives. Primary destinations are in the bottom bar. */
+/** Phone menu: everything that is not one of the four sections in the bottom bar, the demo controls and where the data lives. Primary destinations are in the bottom bar. */
 export function MoreSheet({ onClose }: { onClose: () => void }) {
   const tenant = useTenant()
   const { mode, environment } = useBackend()
-  const secondary = MODULES.filter((m) => m.path && !PRIMARY_IDS.has(m.id))
-  const planned = MODULES.filter((m) => !m.path)
+  const { projectId } = useProjectContext()
+  const items = moreItems(projectId, mode === 'server')
   const reset = () => {
     if (!window.confirm('Reset the demo? All sample data returns to its original state and your changes are lost.')) return
     resetWholeDemo()
@@ -33,14 +32,8 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
         </section>
       )}
       <ul>
-        {secondary.map(({ id, label, icon: Icon, path }) => (
-          <li key={id}><Link to={path!} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
-        ))}
-      </ul>
-      <p className="t-label px-4 pb-1 pt-5">Planned modules</p>
-      <ul>
-        {planned.map(({ id, label, icon: Icon }) => (
-          <li key={id} className={`${row} text-muted`}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}</span><span className="flex items-center gap-1.5 text-[13px]"><Lock size={13} strokeWidth={1.5} />Coming soon</span></li>
+        {items.map(({ id, label, icon: Icon, to }) => (
+          <li key={id}><Link to={to} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
         ))}
       </ul>
       <div className="px-4 py-5 text-[14px] text-muted">

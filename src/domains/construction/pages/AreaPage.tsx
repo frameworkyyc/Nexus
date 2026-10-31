@@ -135,7 +135,7 @@ function FoundationTiles({ projectId, foundations }: { projectId: string; founda
   )
 }
 
-function Construction({ projectId, areaId }: { projectId: string; areaId: string }) {
+export function Construction({ projectId, areaId }: { projectId: string; areaId: string }) {
   const { idx, today } = useConstruction()
   const foundations = foundationsOf(idx, areaId)
   const acts = foundations.flatMap((f) => foundationActivities(idx, f))
@@ -213,7 +213,7 @@ const QUALITY_COLUMNS: { key: string; label: string }[] = [
   { key: 'preInspection', label: 'Pre-pour inspection' }, { key: 'postInspection', label: 'Post-pour inspection' },
 ]
 
-function Quality({ projectId, areaId }: { projectId: string; areaId: string }) {
+export function Quality({ projectId, areaId }: { projectId: string; areaId: string }) {
   const { idx } = useConstruction()
   const rows = foundationsOf(idx, areaId)
   return (
