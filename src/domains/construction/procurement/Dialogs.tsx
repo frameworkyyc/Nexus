@@ -5,7 +5,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
-import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, setPurchaseOrderName, setPurchaseOrderNumber, setPurchaseOrderSupplier } from '../tracker/commands'
+import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, editPurchaseOrder } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
 import { orderProgress, orderTitle, PROC_LABEL, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
@@ -247,41 +247,60 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
   )
 }
 
-/** Adds, corrects or clears an order's PO number and supplier. The order's materials, deliveries and allocations are not touched. */
+/**
+ * Edits an order: name, PO number, supplier and the quantity of each material on it, saved together. A quantity can go up or down but not below
+ * what has already been delivered against it; the server checks that and the allocations too, so what is shown here is only guidance.
+ */
 export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOrder; state: TrackerState; onClose: () => void }) {
   const suppliers = (state.suppliers ?? []).filter((s) => !s.archived)
-  const [name, setName] = useState(order.name ?? '')
+  const progress = orderProgress(state, order.id)
+  const [orderName, setOrderName] = useState(order.name ?? '')
   const [number, setNumber] = useState(order.number)
   const listed = order.supplierId && suppliers.some((s) => s.id === order.supplierId)
   const [supplierId, setSupplierId] = useState(listed ? order.supplierId! : order.supplier ? '__other' : '')
   const [other, setOther] = useState(listed ? '' : order.supplier)
+  const [qty, setQty] = useState<Record<string, string>>(() => Object.fromEntries(progress.lines.map(({ line }) => [line.id, String(line.qty)])))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const total = progress.lines.reduce((a, { line }) => a + (Number.isFinite(toQty(qty[line.id])) ? toQty(qty[line.id]) : 0), 0)
   const save = async () => {
     setSaving(true); setError('')
-    let e: string | null | undefined = null
-    if (name.trim() !== (order.name ?? '')) e = await trackerStore.run(setPurchaseOrderName(order.id, name))
-    if (!e && number.trim() !== order.number) e = await trackerStore.run(setPurchaseOrderNumber(order.id, number))
-    if (!e) e = await trackerStore.run(setPurchaseOrderSupplier(order.id, supplierId && supplierId !== '__other' ? supplierId : null, supplierId === '__other' ? other : ''))
+    const e = await trackerStore.run(editPurchaseOrder(order.id, {
+      name: orderName, number, supplierId: supplierId && supplierId !== '__other' ? supplierId : null, supplier: supplierId === '__other' ? other : '',
+      quantities: progress.lines.map(({ line }) => ({ lineId: line.id, qty: toQty(qty[line.id]) })),
+    }))
     setSaving(false)
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title="Edit order" onClose={onClose}>
-      <div className="space-y-4 p-6 text-[13px]">
-        <p className="text-muted">Ordered {formatDate(order.date)}. Changing these does not change the order&apos;s materials, deliveries or allocations.</p>
-        <Field label="Order name"><Input aria-label="Order name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={orderTitle(state, { ...order, name: '' })} autoFocus /></Field>
-        <Field label="PO number"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Leave empty if not yet assigned" /></Field>
-        <Field label="Supplier">
-          <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-            <option value="">Not assigned</option>
-            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            <option value="__other">Another supplier…</option>
-          </Select>
-        </Field>
-        {supplierId === '__other' && <Field label="Supplier name"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
-        {error && <p role="alert" className="text-danger">{error}</p>}
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={saving}>Save</Button></div>
+    <Modal title="Edit order" onClose={onClose} wide>
+      <div className="space-y-5 p-6 text-[13px]">
+        <p className="text-muted">Ordered {formatDate(order.date)}. Changing these does not change what has been delivered or allocated.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="col-span-2 sm:col-span-3"><Field label="Order name"><Input aria-label="Order name" value={orderName} maxLength={80} onChange={(e) => setOrderName(e.target.value)} placeholder={orderTitle(state, { ...order, name: '' })} autoFocus /></Field></div>
+          <Field label="PO number (optional)"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Leave empty if not yet assigned" /></Field>
+          <Field label="Supplier">
+            <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+              <option value="">Not assigned</option>
+              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <option value="__other">Another supplier…</option>
+            </Select>
+          </Field>
+          {supplierId === '__other' && <Field label="Supplier name"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
+        </div>
+        <section aria-label="Materials on this order">
+          <h3 className="t-label mb-2">Materials · {fmt(total)} items</h3>
+          <ul className="divide-y divide-line border-y border-line">
+            {progress.lines.map(({ line, received }) => (
+              <li key={line.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                <span className="min-w-0 flex-1"><span className="block">{name(line)}</span><span className="block text-xs text-muted">{line.area}{received > 0 ? ` · ${fmt(received)} delivered, so at least ${fmt(received)}` : ''}</span></span>
+                <Input aria-label={`Quantity of ${displayName(line)} ${specText(line)}`} className="!w-24 text-right" inputMode="numeric" min={Math.max(1, received)} value={qty[line.id]} onChange={(e) => setQty({ ...qty, [line.id]: e.target.value })} />
+              </li>
+            ))}
+          </ul>
+        </section>
+        {error && <p role="alert" className="border-l-2 border-danger pl-3 text-danger">{error}</p>}
+        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => void save()} disabled={saving}>Save changes</Button></div>
       </div>
     </Modal>
   )

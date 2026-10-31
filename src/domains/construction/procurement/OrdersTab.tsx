@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
-import { cancelPurchaseOrder, voidDelivery } from '../tracker/commands'
+import { cancelPurchaseOrder, deletePurchaseOrder, voidDelivery } from '../tracker/commands'
 import { specText } from '../tracker/consolidate'
 import { orderProgress, orderTitle } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
@@ -96,6 +96,7 @@ export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMa
                             {perms.order && !o.cancelled && <Button className="!h-8" onClick={() => onEdit(o.id)}>Edit order</Button>}
                             {perms.order && !o.cancelled && <Button className="!h-8" onClick={() => onAddMaterials(o.id)}>Add materials</Button>}
                             {perms.receive && !o.cancelled && p.due > 0 && <Button variant="primary" className="!h-8" onClick={() => onReceive(o.id)}>Record delivery</Button>}
+                            {perms.void && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(`Delete ${title}?\n\nPO ${o.number || 'Not Assigned'} · ${o.supplier || 'Supplier Not Assigned'} · ${formatDate(o.date)}\n${p.lines.length} material${p.lines.length === 1 ? '' : 's'}, ${fmt(p.ordered)} items.\n\nIts quantities are removed from what is ordered, so they show as still to order again. A record of the deleted order stays in the history.`)) void act(() => trackerStore.run(deletePurchaseOrder(o.id))) }}>Delete order</Button>}
                             {perms.void && !o.cancelled && p.deliveries.length === 0 && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(`Cancel ${title}? It stays on record.`)) void act(() => trackerStore.run(cancelPurchaseOrder(o.id))) }}>Cancel order</Button>}
                           </div>
                         </div>

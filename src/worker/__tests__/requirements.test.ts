@@ -590,3 +590,63 @@ describe('migration 0023', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '23' })
   })
 })
+
+describe('editing and deleting orders on the server', () => {
+  async function placed() {
+    const { db } = await setup()
+    const get2 = async () => ({ m: await get(db, 'materials'), c: await get(db, 'construction') })
+    const { m, c } = await get2()
+    const rows = () => get2().then(({ m: mm, c: cc }) => procurementRows(refreshRequirements(mm, cc, { log: false }), cc))
+    const bolts = procurementRows(refreshRequirements(m, c, { log: false }), c).find((r) => r.name === 'Anchor bolt')!
+    const nuts = procurementRows(refreshRequirements(m, c, { log: false }), c).find((r) => r.name === 'Nut')!
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ name: 'Bolts and nuts', number: 'PO-E1', supplier: 'Nucor', date: '2026-10-20', lines: [{ key: bolts.key, qty: 100 }, { key: nuts.key, qty: 50 }] }, TODAY])).status).toBe(200)
+    const id = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    const lines = db.raw.prepare('SELECT id, qty, name FROM purchase_order_lines ORDER BY seq').all() as { id: string; qty: number; name: string }[]
+    return { db, id, lines, bolts, nuts, rows }
+  }
+
+  it('edits details and quantities with permissions; Procurement follows; history records each change', async () => {
+    const { db, id, lines, rows } = await placed()
+    const edit = { name: 'Anchor hardware', number: 'PO-E2', supplier: '', supplierId: null, quantities: [{ lineId: lines[0].id, qty: 80 }, { lineId: lines[1].id, qty: 60 }] }
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'editPurchaseOrder', [id, edit])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'editPurchaseOrder', [id, { quantities: [{ lineId: lines[0].id, qty: 0 }] }])).status).toBe(422)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'editPurchaseOrder', [id, edit])).status).toBe(200)
+    expect(db.raw.prepare('SELECT name, po_number, supplier FROM purchase_orders').get()).toEqual({ name: 'Anchor hardware', po_number: 'PO-E2', supplier: '' })
+    expect(db.raw.prepare('SELECT qty FROM purchase_order_lines ORDER BY seq').all()).toEqual([{ qty: 80 }, { qty: 60 }])
+    expect(count(db, 'purchase_orders')).toBe(1)
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 80 })
+    const hist = db.raw.prepare("SELECT summary FROM material_audit WHERE summary LIKE 'Order details changed%' OR summary LIKE 'Quantities changed%' ORDER BY seq").all() as { summary: string }[]
+    expect(hist).toHaveLength(2)
+    expect(hist[1].summary).toMatch(/100 → 80.*50 → 60/)
+    // delivery floor
+    const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ orderId: id, date: '2026-10-21', lines: [{ key: bolts.key, qty: 30 }] }, TODAY])).status).toBe(200)
+    const low = await cmd(db, 'editor@example.com', 'materials', 'editPurchaseOrder', [id, { quantities: [{ lineId: lines[0].id, qty: 20 }] }])
+    expect(low.status).toBe(422)
+    expect(JSON.stringify(low.body)).toMatch(/already been delivered/)
+    expect(db.raw.prepare('SELECT qty FROM purchase_order_lines ORDER BY seq').all()).toEqual([{ qty: 80 }, { qty: 60 }])
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('deletes an order only for those allowed, removes its rows, keeps the history, and refuses when deliveries exist', async () => {
+    const { db, id, bolts, rows } = await placed()
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(403) // deleting needs the same permission as voiding
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ orderId: id, date: '2026-10-21', lines: [{ key: bolts.key, qty: 10 }] }, TODAY])).status).toBe(200)
+    const refused = await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id])
+    expect(refused.status).toBe(422)
+    expect(JSON.stringify(refused.body)).toMatch(/Deliveries have been recorded/)
+    expect(count(db, 'purchase_orders')).toBe(1)
+    const dl = (db.raw.prepare('SELECT id FROM procurement_deliveries').get() as { id: string }).id
+    expect((await cmd(db, 'admin@example.com', 'materials', 'voidDelivery', [dl])).status).toBe(200)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(200)
+    expect(count(db, 'purchase_orders')).toBe(0)
+    expect(count(db, 'purchase_order_lines')).toBe(0)
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 0, status: 'pending' })
+    const del = db.raw.prepare("SELECT actor, summary FROM material_audit WHERE summary LIKE 'Order deleted:%'").get() as { actor: string; summary: string }
+    expect(del.actor).toBe('admin@example.com')
+    expect(del.summary).toMatch(/Bolts and nuts · PO PO-E1 · Nucor.*2 materials, 150 items/)
+    expect(db.raw.prepare("SELECT COUNT(*) AS n FROM material_audit WHERE summary LIKE 'Purchase order PO-E1 placed%'").get()).toEqual({ n: 1 })
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+})

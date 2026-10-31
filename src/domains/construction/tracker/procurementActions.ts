@@ -1,7 +1,7 @@
 import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
 import { consolidate, type ConsolidationSource } from './consolidate'
-import { keyAliases, procurementRows } from './procurement'
+import { keyAliases, orderTitle, procurementRows } from './procurement'
 import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 import type { Result, Reducer } from './actions'
 
@@ -109,6 +109,102 @@ export const setPurchaseOrderNumber = (orderId: string, numberText: string): Red
   if (number && (s.orders ?? []).some((x) => x.id !== orderId && !x.cancelled && x.number.toLowerCase() === number.toLowerCase())) return { error: `Purchase order ${number} already exists. Use a different number.` }
   const was = o.number || 'Not Assigned', now = number || 'Not Assigned'
   return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, number } : x)) }, note(ctx, 'order', number || 'No PO number', `PO number ${o.number ? 'changed' : 'added'}: ${was} → ${now} (${o.supplier}, ordered ${o.date})`, [{ field: 'PO number', from: was, to: now }])) }
+})
+
+export interface OrderEdit {
+  name?: string
+  number?: string
+  supplierId?: string | null
+  supplier?: string
+  /** New quantity for existing order lines, by line id. Lines not listed keep theirs. */
+  quantities?: { lineId: string; qty: number }[]
+}
+
+/** Quantities of a requirement as they would stand in `next`: used to refuse a change that leaves less ordered than has been allocated. */
+function allocationConflict(next: TrackerState, c: ConsolidationSource | undefined, keys: string[]): string | null {
+  if (!c) return null
+  const rows = procurementRows(next, c)
+  for (const key of keys) {
+    const row = rows.find((r) => r.key === key)
+    if (row && row.allocated > row.ordered) return `${label(row)}: ${fmt(row.allocated)} has been allocated to foundations, more than the ${fmt(row.ordered)} that would remain ordered. Reduce the allocation first.`
+  }
+  return null
+}
+
+/**
+ * Edits an order in one step: its name, PO number and supplier, and the quantity of each material on it. A quantity can go up or down, but never
+ * below what has been delivered against that line, and never to less than has been allocated; nothing else about the order changes. Every
+ * change is appended to the history, and Materials and Procurement recalculate from the new quantities.
+ */
+export const editPurchaseOrder = (orderId: string, edit: OrderEdit): Reducer => audited((s, ctx): Result => {
+  const o = (s.orders ?? []).find((x) => x.id === orderId)
+  if (!o || o.cancelled) return { error: 'That purchase order is not available.' }
+  const e = edit ?? {}
+  let next: TrackerState = s
+  const notes: AuditEntry[] = []
+  // details
+  const name = e.name === undefined ? (o.name ?? '') : clip(e.name, 80)
+  const number = e.number === undefined ? o.number : clip(e.number, 40)
+  if (number !== o.number && number && (s.orders ?? []).some((x) => x.id !== orderId && !x.cancelled && x.number.toLowerCase() === number.toLowerCase())) return { error: `Purchase order ${number} already exists. Use a different number.` }
+  let supplier = o.supplier, supplierId = o.supplierId ?? null
+  if (e.supplierId !== undefined || e.supplier !== undefined) {
+    const listed = e.supplierId ? (s.suppliers ?? []).find((x) => x.id === e.supplierId && !x.archived) : undefined
+    if (e.supplierId && !listed) return { error: 'That supplier is not available. Choose another.' }
+    supplier = listed?.name ?? clip(e.supplier, 80); supplierId = listed?.id ?? null
+  }
+  const changes: AuditEntry['changes'] = []
+  const show = (t: string) => t || 'Not Assigned'
+  if (name !== (o.name ?? '')) changes.push({ field: 'Order name', from: o.name || 'Default name', to: name || 'Default name' })
+  if (number !== o.number) changes.push({ field: 'PO number', from: show(o.number), to: show(number) })
+  if (supplier !== o.supplier || supplierId !== (o.supplierId ?? null)) changes.push({ field: 'Supplier', from: show(o.supplier), to: show(supplier) })
+  const title = orderTitle(s, o)
+  if (changes.length > 0) {
+    next = { ...next, orders: (next.orders ?? []).map((x) => { if (x.id !== orderId) return x; const { name: _n, ...rest } = x; void _n; return { ...rest, ...(name ? { name } : {}), number, supplier, supplierId } }) }
+    notes.push(note(ctx, 'order', number || name || 'Order', `Order details changed on ${title}: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join('; ')}`, changes))
+  }
+  // quantities
+  const lines = (s.orderLines ?? []).filter((l) => l.orderId === orderId)
+  const wanted = new Map<string, number>()
+  for (const q of e.quantities ?? []) {
+    const line = lines.find((l) => l.id === q?.lineId)
+    if (!line) return { error: 'One of the materials is no longer on this order. Reload and try again.' }
+    if (wanted.has(line.id)) return { error: `${label(line)} is listed twice.` }
+    if (!whole(q.qty)) return { error: `${label(line)}: enter a whole number of 1 or more.` }
+    const delivered = (s.deliveryLines ?? []).filter((d) => d.orderLineId === line.id).reduce((a, d) => a + d.qty, 0)
+    if (q.qty < delivered) return { error: `${label(line)}: ${fmt(delivered)} has already been delivered against this order, so it cannot be reduced below that.` }
+    if (q.qty !== line.qty) wanted.set(line.id, q.qty)
+  }
+  if (wanted.size > 0) {
+    const qtyChanges: AuditEntry['changes'] = lines.filter((l) => wanted.has(l.id)).map((l) => ({ field: label(l), from: String(l.qty), to: String(wanted.get(l.id)) }))
+    next = { ...next, orderLines: (next.orderLines ?? []).map((l) => (wanted.has(l.id) ? { ...l, qty: wanted.get(l.id)! } : l)) }
+    const conflict = allocationConflict(next, source(ctx), lines.filter((l) => wanted.has(l.id)).map((l) => alias(next, source(ctx))(l.key)))
+    if (conflict) return { error: conflict }
+    const total = (next.orderLines ?? []).filter((l) => l.orderId === orderId).reduce((a, l) => a + l.qty, 0)
+    notes.push(note(ctx, 'order', number || name || 'Order', `Quantities changed on ${orderTitle(next, (next.orders ?? []).find((x) => x.id === orderId)!)}: ${qtyChanges.map((x) => `${x.field} ${x.from} → ${x.to}`).join('; ')} (order now ${fmt(total)} items)`, qtyChanges))
+  }
+  if (notes.length === 0) return { state: s }
+  return { state: notes.reduce((st, n) => withHistory(st, n), next) }
+})
+
+/**
+ * Deletes an order that nothing has been delivered against. The order and its lines leave the active calculations (so what is outstanding to order
+ * and the Materials progress follow at once) and a full account of what was deleted is kept in the history. Refused, with the reason, when deliveries
+ * were recorded against it or when removing it would leave less ordered than has been allocated.
+ */
+export const deletePurchaseOrder = (orderId: string): Reducer => audited((s, ctx): Result => {
+  const o = (s.orders ?? []).find((x) => x.id === orderId)
+  if (!o) return { error: 'That purchase order no longer exists.' }
+  const title = orderTitle(s, o)
+  if ((s.deliveries ?? []).some((d) => d.orderId === orderId)) return { error: `Deliveries have been recorded against ${title}, so it cannot be deleted. Void those deliveries first (they stay in the history) or leave the order in place.` }
+  const lines = (s.orderLines ?? []).filter((l) => l.orderId === orderId)
+  const next: TrackerState = { ...s, orders: (s.orders ?? []).filter((x) => x.id !== orderId), orderLines: (s.orderLines ?? []).filter((l) => l.orderId !== orderId) }
+  const k = alias(s, source(ctx))
+  const conflict = o.cancelled ? null : allocationConflict(next, source(ctx), lines.map((l) => k(l.key)))
+  if (conflict) return { error: `${title} cannot be deleted. ${conflict}` }
+  const total = lines.reduce((a, l) => a + l.qty, 0)
+  const changes: AuditEntry['changes'] = lines.map((l) => ({ field: label(l), from: String(l.qty), to: 'deleted' }))
+  const summary = `Order deleted: ${title}${o.number ? ` · PO ${o.number}` : ''}${o.supplier ? ` · ${o.supplier}` : ''} · ordered ${o.date}${o.cancelled ? ' · was cancelled' : ''} — ${lines.length} material${lines.length === 1 ? '' : 's'}, ${fmt(total)} items: ${lines.map((l) => `${fmt(l.qty)} × ${label(l)}`).join('; ')}`
+  return { state: withHistory(next, note(ctx, 'order', o.number || o.name || 'Order', summary, changes)) }
 })
 
 /** Cancels an order that nothing has arrived against. The order and its lines stay on record. */
