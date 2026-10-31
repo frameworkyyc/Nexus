@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { handleApi, type Env } from '../api'
 import { resetAuthCache } from '../auth'
@@ -439,13 +440,15 @@ describe('footing anchor bolt quantity method on the server', () => {
     expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk('each')] }])).status).toBe(422)
     expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk()] }])).status).toBe(200)
     expect(db.raw.prepare('SELECT mode FROM foundation_bolts').all()).toEqual([{ mode: 'per-foundation' }])
-    expect((await rows()).find((r) => r.category === 'bolt')!.required).toBe(144 + 48) // typical 12×3×4, plus 4 × 12
+    const sum = async (cat: string) => (await rows()).filter((r) => r.category === cat).reduce((a, r) => a + r.required, 0) // typical and footing bolts are separate lines
+    expect(await sum('bolt')).toBe(144 + 48) // typical 12×3×4, plus 4 × 12
+    expect((await rows()).find((r) => r.category === 'bolt' && r.designation === '')!.required).toBe(48)
     expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk('total')] }])).status).toBe(200)
     expect(db.raw.prepare('SELECT mode FROM foundation_bolts').all()).toEqual([{ mode: 'total' }])
-    expect((await rows()).find((r) => r.category === 'bolt')!.required).toBe(144 + 4)
-    expect((await rows()).find((r) => r.category === 'nut')!.required).toBe((144 + 4) * 2)
+    expect(await sum('bolt')).toBe(144 + 4)
+    expect(await sum('nut')).toBe((144 + 4) * 2)
     expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { quantity: 20 }])).status).toBe(200)
-    expect((await rows()).find((r) => r.category === 'bolt')!.required).toBe(240 + 4) // typical follows, total stays 4
+    expect(await sum('bolt')).toBe(240 + 4) // typical follows, total stays 4
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
     expect((await as(db, 'admin@example.com', 'GET', '/api/backup')).body.tables.foundation_bolts[0].mode).toBe('total')
   })
@@ -463,5 +466,75 @@ describe('migration 0021', () => {
     expect(() => db.raw.exec("UPDATE foundation_bolts SET mode = 'each'")).toThrow()
     db.raw.exec("UPDATE foundation_bolts SET mode = 'total'")
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '21' })
+  })
+})
+
+describe('procurement improvements on the server', () => {
+  const ordersSetup = async () => {
+    const { db, A } = await setup()
+    const c = await get(db, 'construction')
+    const rows = async () => { const m = await get(db, 'materials'); const cc = await get(db, 'construction'); return procurementRows(refreshRequirements(m, cc, { log: false }), cc) }
+    return { db, A, c, rows }
+  }
+
+  it('orders without a PO number, then adds, corrects and clears it in place, with permissions and history; nothing else changes', async () => {
+    const { db, rows } = await ordersSetup()
+    const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
+    const order = { number: '', supplier: 'Nucor', date: '2026-10-20', lines: [{ key: bolts.key, qty: 100 }] }
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [order, TODAY])).status).toBe(200)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ ...order, lines: [{ key: (await rows()).find((r) => r.name === 'Nut')!.key, qty: 5 }] }, TODAY])).status).toBe(200) // a second, also unnumbered
+    expect(db.raw.prepare('SELECT po_number FROM purchase_orders ORDER BY seq').all()).toEqual([{ po_number: '' }, { po_number: '' }])
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 100, status: 'ordered' })
+    const poId = (db.raw.prepare('SELECT id FROM purchase_orders ORDER BY seq').get() as { id: string }).id
+    const linesBefore = db.raw.prepare('SELECT * FROM purchase_order_lines ORDER BY id').all()
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'setPurchaseOrderNumber', [poId, 'PO-5'])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderNumber', [poId, 'PO-5'])).status).toBe(200)
+    expect(db.raw.prepare('SELECT po_number FROM purchase_orders WHERE id = ?').get(poId)).toEqual({ po_number: 'PO-5' })
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderNumber', [poId, 'PO-6'])).status).toBe(200) // correct it
+    expect(count(db, 'purchase_orders')).toBe(2) // edited in place
+    expect(db.raw.prepare('SELECT * FROM purchase_order_lines ORDER BY id').all()).toEqual(linesBefore)
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 100, status: 'ordered' })
+    const other = (db.raw.prepare('SELECT id FROM purchase_orders ORDER BY seq DESC').get() as { id: string }).id
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderNumber', [other, 'po-6'])).status).toBe(422) // already used
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderNumber', [poId, ''])).status).toBe(200)
+    expect(db.raw.prepare('SELECT po_number FROM purchase_orders WHERE id = ?').get(poId)).toEqual({ po_number: '' })
+    const hist = db.raw.prepare("SELECT summary FROM material_audit WHERE summary LIKE 'PO number%' ORDER BY seq").all() as { summary: string }[]
+    expect(hist.map((h) => h.summary.replace(/ \(.*/, ''))).toEqual(['PO number added: Not Assigned → PO-5', 'PO number changed: PO-5 → PO-6', 'PO number changed: PO-6 → Not Assigned'])
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('stores the anchorage designation on requirements and records, and keeps materials of different designations apart through a backup', async () => {
+    const { db, A, rows } = await ordersSetup()
+    const B = (await cmd(db, 'admin@example.com', 'construction', 'addAnchorageType', [(await get(db, 'construction')).projects[0].id, 'B', 'Type B'])).body.state.anchorageTypes.find((t: { code: string }) => t.code === 'B').id
+    await cmd(db, 'admin@example.com', 'construction', 'setAnchorageComponents', [B, [{ kind: 'template', qty: 1, spec: '19 mm plywood' }]])
+    await cmd(db, 'admin@example.com', 'construction', 'setAnchorageComponents', [A, [bolt, { kind: 'template', qty: 1, spec: '19 mm plywood' }]])
+    const c = await get(db, 'construction')
+    await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [c.areas[0].id, 'OP-B', '', null, 7, { groups: [{ anchorageTypeId: B, count: 1 }] }])
+    const tpl = (await rows()).filter((r) => r.name === 'Plywood template' && r.required > 0)
+    expect(tpl.map((r) => [r.designation, r.required])).toEqual([['A', 36], ['B', 7]])
+    // an order and a delivery against one designation carry that designation
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ number: '', supplier: 'Lumber', date: '2026-10-20', lines: [{ key: tpl[1].key, qty: 7 }] }, TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT designation, qty FROM purchase_order_lines').all()).toEqual([{ designation: 'B', qty: 7 }])
+    expect(db.raw.prepare("SELECT designation FROM manual_materials WHERE origin = 'anchorage' AND name = 'Plywood template' ORDER BY designation").all()).toEqual([{ designation: 'A' }, { designation: 'B' }])
+    const after = (await rows()).filter((r) => r.name === 'Plywood template' && r.required > 0)
+    expect(after.map((r) => [r.designation, r.ordered])).toEqual([['A', 0], ['B', 7]])
+    expect((await as(db, 'admin@example.com', 'GET', '/api/backup')).body.tables.purchase_order_lines[0].designation).toBe('B')
+  })
+})
+
+describe('migration 0022', () => {
+  it('adds the designation columns without changing any existing procurement record', () => {
+    const db = createTestDb({ migrate: false })
+    const files = readdirSync(new URL('../../../migrations', import.meta.url)).filter((f) => f < '0022').sort()
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec('PRAGMA foreign_keys = OFF')
+    db.raw.exec("INSERT INTO purchase_orders (id, po_number, supplier, order_date, notes, cancelled, created_at, created_by, seq) VALUES ('po1', 'PO-1', 'Nucor', '2026-10-20', '', 0, '2026-10-20T00:00:00Z', 'x', 0)")
+    db.raw.exec("INSERT INTO purchase_order_lines (id, order_id, group_key, area_id, area, category, name, specification, size, unit, qty, seq) VALUES ('l1', 'po1', 'k|bolt|anchor bolt|||ea', 'a1', 'E-House', 'bolt', 'Anchor bolt', 'M25', '', 'ea', 44, 0)")
+    const before = db.raw.prepare('SELECT * FROM purchase_order_lines').get()
+    applyMigrationFile(db.raw, '0022_procurement_designations.sql')
+    expect(db.raw.prepare('SELECT * FROM purchase_order_lines').get()).toEqual({ ...(before as object), designation: '' })
+    expect(db.raw.prepare('SELECT po_number, supplier FROM purchase_orders').get()).toEqual({ po_number: 'PO-1', supplier: 'Nucor' })
+    for (const t of ['manual_materials', 'purchase_order_lines', 'procurement_delivery_lines', 'material_installations']) expect((db.raw.prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('${t}') WHERE name = 'designation'`).get() as { n: number }).n).toBe(1)
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '22' })
   })
 })

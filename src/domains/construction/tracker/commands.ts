@@ -16,6 +16,7 @@ export const editMaterial = tagged.editMaterial
 export const bulkEditMaterials = tagged.bulkEditMaterials
 export const archiveMaterials = tagged.archiveMaterials
 export const createPurchaseOrder = tagged.createPurchaseOrder
+export const setPurchaseOrderNumber = tagged.setPurchaseOrderNumber
 export const addOrderLines = tagged.addOrderLines
 export const cancelPurchaseOrder = tagged.cancelPurchaseOrder
 export const recordDelivery = tagged.recordDelivery

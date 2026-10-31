@@ -5,17 +5,19 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
-import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations } from '../tracker/commands'
-import { specText } from '../tracker/consolidate'
+import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, setPurchaseOrderNumber } from '../tracker/commands'
+import { displayName, specText } from '../tracker/consolidate'
 import { orderProgress, PROC_LABEL, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
 import type { GroupRef, PurchaseOrder, TrackerState } from '../tracker/types'
 import { CATEGORY_LABEL } from '../tracker/selectors'
 
 export const fmt = (n: number) => n.toLocaleString('en-CA')
+/** An order's number, or "Not Assigned" when it has none (the number is optional and can be added later). */
+export const poLabel = (o: { number: string }) => o.number || 'Not Assigned'
 export const when = (at: string) => (at ? new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '')
 export const who = (by: string) => by || 'user not recorded'
-const name = (r: { name: string; specification: string; size: string }) => `${r.name}${specText(r) ? ` · ${specText(r)}` : ''}`
+const name = (r: { name: string; designation?: string; specification: string; size: string }) => `${displayName(r)}${specText(r) ? ` · ${specText(r)}` : ''}`
 
 /** One row of "material, quantity" in an order or delivery form. */
 function LineList({ rows, lines, set, hint, label }: { rows: Map<string, { area: string; name: string; specification: string; size: string; unit: string }>; lines: { key: string; qty: string }[]; set: (l: { key: string; qty: string }[]) => void; hint: (key: string) => string; label: string }) {
@@ -76,11 +78,11 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title={order ? `Add materials to ${order.number}` : 'New purchase order'} onClose={onClose} wide>
+    <Modal title={order ? `Add materials to ${poLabel(order)}` : 'New purchase order'} onClose={onClose} wide>
       <div className="space-y-5 p-6 text-[13px]">
         {!order && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field label="PO number *"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 1706734-00" /></Field>
+            <Field label="PO number (optional)"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Add later if not yet known" /></Field>
             <Field label="Supplier *">
               <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
                 <option value="">Choose a supplier…</option>
@@ -135,7 +137,7 @@ export function ReceiveModal({ rows, initialKeys, state, today, onClose, order }
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title={order ? `Receive delivery · ${order.number}` : 'Receive delivery'} onClose={onClose} wide>
+    <Modal title={order ? `Receive delivery · ${poLabel(order)}` : 'Receive delivery'} onClose={onClose} wide>
       <div className="space-y-5 p-6 text-[13px]">
         <p className="text-muted">Enter what was physically received and checked. It is recorded once for the area’s material, not against each foundation. Partial deliveries are fine: record the rest when it arrives.</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -180,7 +182,7 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
   }
   const Q = ({ k, v, sub }: { k: string; v: number; sub?: string }) => <div><dt className="t-label">{k}</dt><dd className="mt-1 text-lg font-medium tabular-nums">{fmt(v)}</dd>{sub && <p className="text-xs text-muted">{sub}</p>}</div>
   return (
-    <Modal title={row.name} onClose={onClose} wide>
+    <Modal title={displayName(row)} onClose={onClose} wide>
       <div className="space-y-6 p-6 text-[13px]">
         <div>
           <p className="text-muted">{row.area} · {CATEGORY_LABEL[row.category]}{specText(row) ? ` · ${specText(row)}` : ''}</p>
@@ -199,7 +201,7 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
           <h3 className="t-label mb-2">Orders</h3>
           {row.orderLines.length === 0 && row.orderedOnLines === 0 ? <p className="text-muted">Not ordered yet.</p> : (
             <ul className="divide-y divide-line border-y border-line">
-              {row.orderLines.map((l) => { const o = orders.get(l.orderId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{o?.number} · {o?.supplier} · {formatDate(o?.date)}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
+              {row.orderLines.map((l) => { const o = orders.get(l.orderId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{o ? poLabel(o) : ''} · {o?.supplier} · {formatDate(o?.date)}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
               {row.orderedOnLines > 0 && <li className="flex flex-wrap justify-between gap-2 py-2 text-muted"><span>Ordered on individual material lines (earlier records)</span><span className="tabular-nums">{fmt(row.orderedOnLines)} {row.unit}</span></li>}
             </ul>
           )}
@@ -238,6 +240,29 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
             </>
           )}
         </section>
+      </div>
+    </Modal>
+  )
+}
+
+/** Adds, corrects or clears a purchase order's PO number. The order, its lines, deliveries and allocations are not touched. */
+export function PoNumberModal({ order, onClose }: { order: PurchaseOrder; onClose: () => void }) {
+  const [number, setNumber] = useState(order.number)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    setSaving(true); setError('')
+    const e = await trackerStore.run(setPurchaseOrderNumber(order.id, number))
+    setSaving(false)
+    if (e) setError(e); else onClose()
+  }
+  return (
+    <Modal title={order.number ? 'Edit PO number' : 'Add PO number'} onClose={onClose}>
+      <div className="space-y-4 p-6 text-[13px]">
+        <p className="text-muted">{order.supplier} · ordered {formatDate(order.date)}. Changing the number does not change the order&apos;s materials, deliveries or allocations.</p>
+        <Field label="PO number"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Leave empty if not yet assigned" autoFocus /></Field>
+        {error && <p role="alert" className="text-danger">{error}</p>}
+        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={() => void save()} disabled={saving}>Save</Button></div>
       </div>
     </Modal>
   )

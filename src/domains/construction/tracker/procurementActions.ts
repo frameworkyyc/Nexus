@@ -1,7 +1,7 @@
 import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
-import type { ConsolidationSource } from './consolidate'
-import { procurementRows } from './procurement'
+import { consolidate, type ConsolidationSource } from './consolidate'
+import { keyAliases, procurementRows } from './procurement'
 import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 import type { Result, Reducer } from './actions'
 
@@ -16,8 +16,11 @@ const validDate = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-
 const whole = (n: unknown, min = 1, max = 1_000_000): n is number => typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max
 const clip = (t: unknown, max: number) => String(t ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
 const fmt = (n: number) => n.toLocaleString('en-CA')
-const ref = (g: GroupRef): GroupRef => ({ key: g.key, areaId: g.areaId, area: g.area, category: g.category, name: g.name, specification: g.specification, size: g.size, unit: g.unit })
-const label = (g: GroupRef) => `${g.area} · ${g.name}${g.specification ? ` ${g.specification}` : ''}${g.size ? ` ${g.size}` : ''}`
+const ref = (g: GroupRef): GroupRef => ({ key: g.key, areaId: g.areaId, area: g.area, category: g.category, name: g.name, specification: g.specification, size: g.size, unit: g.unit, ...(g.designation ? { designation: g.designation } : {}) })
+/** An order's name in messages: its PO number, or that it has none. */
+const poName = (o: { number: string }) => (o.number ? `purchase order ${o.number}` : 'a purchase order with no PO number')
+const alias = (s: TrackerState, c: ConsolidationSource | undefined) => { const a = c ? keyAliases(consolidate(s, c)) : new Map<string, string>(); return (k: string) => a.get(k) ?? k }
+const label = (g: GroupRef) => `${g.area} · ${g.designation ? `${g.designation} ` : ''}${g.name}${g.specification ? ` ${g.specification}` : ''}${g.size ? ` ${g.size}` : ''}`
 
 const source = (ctx?: Ctx) => ctx?.construction as ConsolidationSource | undefined
 const note = (ctx: Ctx | undefined, action: AuditEntry['action'], labelText: string, summary: string, changes: AuditEntry['changes'] = []): AuditEntry =>
@@ -46,8 +49,7 @@ function resolveLines(s: TrackerState, ctx: Ctx | undefined, lines: { key: strin
 
 export const createPurchaseOrder = (input: OrderInput, today: ISODate): Reducer => audited((s, ctx): Result => {
   const number = clip(input?.number, 40)
-  if (!number) return { error: 'Enter the purchase order number.' }
-  if ((s.orders ?? []).some((o) => !o.cancelled && o.number.toLowerCase() === number.toLowerCase())) return { error: `Purchase order ${number} already exists. Add to that order instead, or use a different number.` }
+  if (number && (s.orders ?? []).some((o) => !o.cancelled && o.number.toLowerCase() === number.toLowerCase())) return { error: `Purchase order ${number} already exists. Add to that order instead, or use a different number.` }
   if (!validDate(input.date)) return { error: 'Enter a valid order date.' }
   if (input.date > today) return { error: 'An order cannot be dated in the future.' }
   if (input.expectedDate && !validDate(input.expectedDate)) return { error: 'Enter a valid expected delivery date.' }
@@ -61,7 +63,7 @@ export const createPurchaseOrder = (input: OrderInput, today: ISODate): Reducer 
   const lines: OrderLine[] = r.ok.map(({ g, qty }) => ({ ...ref(g), id: id('pol'), orderId: order.id, qty }))
   const total = lines.reduce((a, l) => a + l.qty, 0)
   const areas = [...new Set(lines.map((l) => l.area))]
-  return { state: withHistory({ ...s, orders: [...(s.orders ?? []), order], orderLines: [...(s.orderLines ?? []), ...lines] }, note(ctx, 'order', number, `Purchase order ${number} placed with ${name}: ${lines.length} material${lines.length === 1 ? '' : 's'}, ${fmt(total)} items (${areas.join(', ')})`)) }
+  return { state: withHistory({ ...s, orders: [...(s.orders ?? []), order], orderLines: [...(s.orderLines ?? []), ...lines] }, note(ctx, 'order', number || 'No PO number', `${number ? `Purchase order ${number}` : 'Purchase order (no PO number)'} placed with ${name}: ${lines.length} material${lines.length === 1 ? '' : 's'}, ${fmt(total)} items (${areas.join(', ')})`)) }
 })
 
 export const addOrderLines = (orderId: string, lines: { key: string; qty: number }[]): Reducer => audited((s, ctx): Result => {
@@ -70,15 +72,29 @@ export const addOrderLines = (orderId: string, lines: { key: string; qty: number
   const r = resolveLines(s, ctx, lines, new Set((s.orderLines ?? []).filter((l) => l.orderId === orderId).map((l) => l.key)))
   if ('error' in r) return r
   const add: OrderLine[] = r.ok.map(({ g, qty }) => ({ ...ref(g), id: id('pol'), orderId, qty }))
-  return { state: withHistory({ ...s, orderLines: [...(s.orderLines ?? []), ...add] }, note(ctx, 'order', o.number, `Added to purchase order ${o.number}: ${add.map((l) => `${fmt(l.qty)} × ${label(l)}`).join('; ')}`)) }
+  return { state: withHistory({ ...s, orderLines: [...(s.orderLines ?? []), ...add] }, note(ctx, 'order', o.number || 'No PO number', `Added to ${poName(o)}: ${add.map((l) => `${fmt(l.qty)} × ${label(l)}`).join('; ')}`)) }
+})
+
+/**
+ * Adds, corrects or clears a purchase order's number after the fact. Nothing else about the order changes: its lines, deliveries, allocations and
+ * status are untouched, and the previous number stays in the history.
+ */
+export const setPurchaseOrderNumber = (orderId: string, numberText: string): Reducer => audited((s, ctx): Result => {
+  const o = (s.orders ?? []).find((x) => x.id === orderId)
+  if (!o) return { error: 'That purchase order is not available.' }
+  const number = clip(numberText, 40)
+  if (number === o.number) return { state: s }
+  if (number && (s.orders ?? []).some((x) => x.id !== orderId && !x.cancelled && x.number.toLowerCase() === number.toLowerCase())) return { error: `Purchase order ${number} already exists. Use a different number.` }
+  const was = o.number || 'Not Assigned', now = number || 'Not Assigned'
+  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, number } : x)) }, note(ctx, 'order', number || 'No PO number', `PO number ${o.number ? 'changed' : 'added'}: ${was} → ${now} (${o.supplier}, ordered ${o.date})`, [{ field: 'PO number', from: was, to: now }])) }
 })
 
 /** Cancels an order that nothing has arrived against. The order and its lines stay on record. */
 export const cancelPurchaseOrder = (orderId: string): Reducer => audited((s, ctx): Result => {
   const o = (s.orders ?? []).find((x) => x.id === orderId)
   if (!o || o.cancelled) return { error: 'That purchase order is not available.' }
-  if ((s.deliveries ?? []).some((d) => d.orderId === orderId)) return { error: `Deliveries have been recorded against ${o.number}, so it cannot be cancelled.` }
-  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, cancelled: true } : x)) }, note(ctx, 'order', o.number, `Purchase order ${o.number} cancelled`)) }
+  if ((s.deliveries ?? []).some((d) => d.orderId === orderId)) return { error: `Deliveries have been recorded against ${o.number || 'this order'}, so it cannot be cancelled.` }
+  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, cancelled: true } : x)) }, note(ctx, 'order', o.number || 'No PO number', `${o.number ? `Purchase order ${o.number}` : 'Purchase order with no PO number'} cancelled`)) }
 })
 
 export interface InstallationInput { key: string; qty: number; date: ISODate; note?: string }
@@ -123,11 +139,12 @@ export const recordDelivery = (input: DeliveryInput, today: ISODate): Reducer =>
   if (input.orderId && (!order || order.cancelled)) return { error: 'That purchase order is not available.' }
   const known = new Map(procurementRows(s, c).map((g) => [g.key, g]))
   const orderLines = (s.orderLines ?? []).filter((l) => l.orderId === input.orderId)
+  const k = alias(s, c)
   const seen = new Set<string>()
   const delivery: Delivery = { id: id('dl'), orderId: order?.id ?? null, date: input.date, reference: clip(input.reference, 60), note: clip(input.note, 500), by: ctx?.actor ?? '', at: ctx?.now ?? new Date().toISOString() }
   const lines: DeliveryLine[] = []
   for (const l of input.lines) {
-    const ol = order ? orderLines.find((x) => x.key === l?.key) : undefined
+    const ol = order ? orderLines.find((x) => k(x.key) === l?.key) : undefined
     const g = known.get(l?.key)
     if (order && !ol) return { error: 'One of those materials is not on the purchase order.' }
     if (!g) return { error: 'One of the materials is no longer listed. Reload and try again.' }
@@ -139,7 +156,7 @@ export const recordDelivery = (input: DeliveryInput, today: ISODate): Reducer =>
   const total = lines.reduce((a, l) => a + l.qty, 0)
   const areas = [...new Set(lines.map((l) => l.area))]
   return { state: withHistory({ ...s, deliveries: [...(s.deliveries ?? []), delivery], deliveryLines: [...(s.deliveryLines ?? []), ...lines] },
-    note(ctx, 'delivery', order?.number ?? (delivery.reference || 'Delivery'), `Received ${fmt(total)} items in ${lines.length} line${lines.length === 1 ? '' : 's'} (${areas.join(', ')})${order ? ` against ${order.number}` : ''} on ${input.date}${delivery.reference ? ` (${delivery.reference})` : ''}`)) }
+    note(ctx, 'delivery', order?.number || delivery.reference || 'Delivery', `Received ${fmt(total)} items in ${lines.length} line${lines.length === 1 ? '' : 's'} (${areas.join(', ')})${order ? ` against ${order.number || 'an order with no PO number'}` : ''} on ${input.date}${delivery.reference ? ` (${delivery.reference})` : ''}`)) }
 })
 
 /** Voids a delivery recorded in error. Refused if the material it brought has already been allocated. */
@@ -182,7 +199,8 @@ export const setAllocations = (key: string, items: { foundationId: string; qty: 
   }
   const total = [...wanted.values()].reduce((a, b) => a + b, 0)
   if (total + row.allocatedOnLines > row.received) return { error: `Only ${fmt(Math.max(0, row.received - row.allocatedOnLines))} of ${label(row)} has been received to allocate.` }
-  const mine = (s.allocations ?? []).filter((a) => a.key === key)
+  const k = alias(s, c)
+  const mine = (s.allocations ?? []).filter((a) => k(a.key) === key)
   const at = ctx?.now ?? new Date().toISOString(), by = ctx?.actor ?? ''
   const nextRows: Allocation[] = []
   const changes: AuditEntry['changes'] = []
@@ -190,13 +208,13 @@ export const setAllocations = (key: string, items: { foundationId: string; qty: 
     const old = mine.find((a) => a.foundationId === f)
     const name = c.foundations.find((x) => x.id === f)?.number ?? f
     if (q === 0) { if (old) changes.push({ field: name, from: String(old.qty), to: '0' }); continue }
-    if (old && old.qty === q) { nextRows.push(old); continue }
+    if (old && old.qty === q) { nextRows.push({ ...old, key }); continue }
     changes.push({ field: name, from: String(old?.qty ?? 0), to: String(q) })
     nextRows.push({ id: old?.id ?? id('al'), key, foundationId: f, qty: q, by, at })
   }
   // Foundations the request does not mention keep what they had.
-  for (const old of mine) if (!wanted.has(old.foundationId)) nextRows.push(old)
+  for (const old of mine) if (!wanted.has(old.foundationId)) nextRows.push({ ...old, key })
   if (changes.length === 0) return { state: s }
-  return { state: withHistory({ ...s, allocations: [...(s.allocations ?? []).filter((a) => a.key !== key), ...nextRows] }, note(ctx, 'allocation', row.name, `Allocation of ${label(row)} updated: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join(', ')}`, changes)) }
+  return { state: withHistory({ ...s, allocations: [...(s.allocations ?? []).filter((a) => k(a.key) !== key), ...nextRows] }, note(ctx, 'allocation', row.name, `Allocation of ${label(row)} updated: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join(', ')}`, changes)) }
 })
 

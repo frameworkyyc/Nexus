@@ -45,6 +45,7 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
   importTracker: 'materials.import',
   archiveMaterials: 'materials.archive',
   createPurchaseOrder: 'materials.edit',
+  setPurchaseOrderNumber: 'materials.edit',
   addOrderLines: 'materials.edit',
   cancelPurchaseOrder: 'materials.void-receipt',
   recordDelivery: 'materials.receive',

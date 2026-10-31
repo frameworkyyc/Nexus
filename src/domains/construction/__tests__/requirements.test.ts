@@ -104,16 +104,16 @@ describe('requirements calculated from the anchorage library', () => {
     expect(find(t, 'Nut').category).toBe('nut')
   })
 
-  it('groups matching specifications across foundations and anchorage types into one requirement', () => {
+  it('keeps each anchorage designation as its own requirement, even when the specification is identical', () => {
     let { s, A1, B1 } = world()
     s = apply(s, K.setAnchorageComponents(B1, [bolt({ qty: 2, length: 600 }), { kind: 'embed-plate', qty: 1, size: '200 x 200 x 10 mm' }]))
     s = apply(s, K.createFoundation(s.areas[0].id, 'OP-2', '', null, 5, { groups: [{ anchorageTypeId: B1, count: 2 }] })) // 10 anchorages of type B
     const t = at(emptyTracker(), s)
     const nuts = t.manual.filter((l) => l.component === 'Nut')
-    expect(nuts).toHaveLength(1) // both types use M25 nuts: one requirement
-    expect(nuts[0].requiredQty).toBe(288 + 40) // 36 × 8 + 10 × 4
-    expect(nuts[0].calc.expression).toBe('8 per anchorage × 36 A + 4 per anchorage × 10 B = 328')
-    expect(t.manual.filter((l) => l.component === 'Anchor bolt')).toHaveLength(2) // different lengths stay separate
+    expect(nuts).toHaveLength(2) // both types use M25 nuts, but each designation is its own requirement
+    expect(nuts.map((n) => [n.designation, n.requiredQty]).sort()).toEqual([['A', 288], ['B', 40]]) // 36 × 8, 10 × 4
+    expect(nuts.find((n) => n.designation === 'A')!.calc.expression).toBe('8 per anchorage × 36 A')
+    expect(t.manual.filter((l) => l.component === 'Anchor bolt')).toHaveLength(2) // different lengths and designations stay separate
     expect(find(t, 'Embed plate').requiredQty).toBe(10)
     void A1
   })

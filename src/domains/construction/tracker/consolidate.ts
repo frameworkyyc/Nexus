@@ -1,7 +1,7 @@
 import type { ConstructionState } from '../types'
 import { areaIdFor, CATEGORY_LABEL, CATEGORY_ORDER, allLines } from './selectors'
 import { componentMap, embedComponent } from '../plates'
-import { anchorageInstances, boltAsComponent, instancesOf, itemsOf, type RefSource } from './requirements'
+import { anchorageInstances, boltAsComponent, instancesOf, itemsOf, reqKey, type RefSource } from './requirements'
 import type { ComponentCategory, GroupRef, TrackerLine, TrackerState } from './types'
 
 /**
@@ -25,6 +25,7 @@ export interface Contribution {
 }
 
 export interface Consolidated extends GroupRef {
+  designation: string
   /** The material lines (calculated, entered or imported) that make up this requirement. */
   lines: TrackerLine[]
   required: number
@@ -37,9 +38,19 @@ const norm = (t: string | null | undefined) => (t ?? '').trim().toLowerCase().re
 export const CATEGORY_TITLE: Record<ComponentCategory, string> = { ...CATEGORY_LABEL }
 
 /** The key that makes two materials "the same": same area, category, name, specification, size and unit. */
-export function groupKey(areaKey: string, l: Pick<TrackerLine, 'category' | 'component' | 'specification' | 'size' | 'unit'>): string {
-  return [areaKey, l.category, norm(l.component), norm(l.specification), norm(l.size), norm(l.unit) || 'ea'].join('|')
+export function groupKey(areaKey: string, l: Pick<TrackerLine, 'category' | 'component' | 'specification' | 'size' | 'unit'>, designation = ''): string {
+  return [areaKey, l.category, norm(l.component), norm(l.specification), norm(l.size), norm(l.unit) || 'ea', ...(designation ? [norm(designation)] : [])].join('|')
 }
+
+/**
+ * The anchorage designation a material line belongs to. Anchorage-specific components (bolts, nuts, washers, sole plates, templates, embed plates of an
+ * anchorage type) stay separate per designation even when physically identical; a generic material has none and consolidates by specification.
+ */
+export const designationOf = (l: Pick<TrackerLine, 'origin' | 'designation' | 'category' | 'anchorageType'>): string =>
+  l.origin === 'anchorage' ? (l.designation ?? '') : l.category !== 'other' ? (l.anchorageType ?? '').trim() : ''
+
+/** "OP1-D2 Anchor bolt": the material's name with its designation in front. */
+export const displayName = (g: { name: string; designation?: string }) => (g.designation ? `${g.designation} ${g.name}` : g.name)
 
 /** Where each calculated line's total comes from, foundation by foundation. */
 function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contribution[] {
@@ -51,7 +62,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
       const instances = instancesOf(c, i, comp)
       if (instances === 0) continue
       for (const it of itemsOf(comp)) {
-        if (`anchorage|${i.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
+        if (reqKey(i.areaId, it, typeOf.get(i.typeId)?.code ?? '') !== l.deriveKey) continue
         const existing = out.find((x) => x.foundationId === i.foundationId && x.anchorageTypeId === i.typeId && !x.individual)
         const qty = it.each * instances
         if (existing) existing.qty += qty
@@ -67,7 +78,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
       const comp = compById.get(e.componentId)
       if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
-        if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
+        if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code ?? '') !== l.deriveKey) continue
         out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: `${f.number} · ${u.label}`, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? f.number, qty: it.each, individual: true })
       }
     }
@@ -77,7 +88,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     const comp = embedComponent(fe, compById)
     if (!f || f.archived || !comp || comp.kind !== 'embed-plate') continue
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
-      if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
+      if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code ?? '') !== l.deriveKey) continue
       const qty = it.each * (fe.mode === 'total' ? 1 : (f.quantity ?? 1))
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === comp.anchorageTypeId && !x.individual)
       if (existing) existing.qty += qty
@@ -88,7 +99,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     const f = foundationOf.get(fb.foundationId)
     if (!f || f.archived) continue
     for (const it of itemsOf(boltAsComponent(fb))) {
-      if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
+      if (reqKey(f.areaId, it, '') !== l.deriveKey) continue
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === null)
       const qty = it.each * (fb.mode === 'total' ? 1 : f.quantity ?? 1)
       if (existing) existing.qty += qty
@@ -108,8 +119,9 @@ export function consolidate(s: TrackerState, c: ConsolidationSource): Consolidat
     if (l.archived) continue
     const areaId = l.areaId ?? areaIdFor(c.areas, l.area)
     const areaKey = areaId ?? `t:${norm(l.area)}`
-    const key = groupKey(areaKey, l)
-    const g = groups.get(key) ?? { key, areaId: areaId ?? null, area: areaId ? c.areas.find((a) => a.id === areaId)?.name ?? l.area : l.area, category: l.category, name: l.component, specification: l.specification ?? '', size: l.size ?? '', unit: l.unit || 'ea', lines: [], required: 0, contributions: [], removed: true }
+    const designation = designationOf(l)
+    const key = groupKey(areaKey, l, designation)
+    const g = groups.get(key) ?? { key, designation, areaId: areaId ?? null, area: areaId ? c.areas.find((a) => a.id === areaId)?.name ?? l.area : l.area, category: l.category, name: l.component, specification: l.specification ?? '', size: l.size ?? '', unit: l.unit || 'ea', lines: [], required: 0, contributions: [], removed: true }
     g.lines.push(l)
     g.required += l.requiredQty
     if (!l.requirementRemoved) g.removed = false
@@ -180,6 +192,7 @@ export function entryNotes(g: Consolidated, c: Pick<ConstructionState, 'foundati
  * all are named), with the specification underneath. A material entered without an anchorage type is shown by its name.
  */
 export function materialLabel(g: Consolidated): { title: string; sub: string } {
+  if (g.designation) return { title: displayName(g), sub: specText(g) || g.unit }
   const codes = [...new Set(g.contributions.map((c) => c.anchorage).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
   const sub = specText(g) || (codes.length ? g.name : g.unit)
   return { title: codes.length ? codes.join(', ') : g.name, sub }

@@ -52,10 +52,10 @@ describe('consolidated materials', () => {
     const t = tracked(c)
     const g = consolidate(t, c)
     const bolts = g.filter((x) => x.area === 'E-House' && x.category === 'bolt')
-    // 12×3 + 4×2 = 44 anchorages of A (×4 bolts) and 4×1 of B (×2 bolts): one line of 44*4 + 4*2 = 184 bolts.
-    expect(bolts).toHaveLength(1)
-    expect(bolts[0].required).toBe(184)
-    expect(g.find((x) => x.area === 'E-House' && x.category === 'nut')!.required).toBe(368)
+    // 12×3 + 4×2 = 44 anchorages of A (×4 bolts) and 4×1 of B (×2 bolts). The bolts are physically identical, but each anchorage designation
+    // is its own requirement: 176 for A and 8 for B, never one line of 184.
+    expect(bolts.map((b) => [b.designation, b.required])).toEqual([['A', 176], ['B', 8]])
+    expect(g.filter((x) => x.area === 'E-House' && x.category === 'nut').map((n) => [n.designation, n.required])).toEqual([['A', 352], ['B', 16]])
     expect(g.find((x) => x.area === 'Pipe Rack' && x.category === 'bolt')!.required).toBe(20)
     // The tree is Area → Category → Specification.
     const tree = areaTree(g)
@@ -69,8 +69,10 @@ describe('consolidated materials', () => {
     const by = (f: string, code: string) => bolts.contributions.find((x) => x.foundationId === f && x.anchorage === code)?.qty
     expect(by(f1, 'A')).toBe(12 * 3 * 4)
     expect(by(f2, 'A')).toBe(4 * 2 * 4)
-    expect(by(f2, 'B')).toBe(4 * 1 * 2)
+    expect(by(f2, 'B')).toBeUndefined() // B is a separate requirement
     expect(bolts.contributions.reduce((a, x) => a + x.qty, 0)).toBe(bolts.required)
+    const b = consolidate(tracked(c), c).find((x) => x.area === 'E-House' && x.category === 'bolt' && x.designation === 'B')!
+    expect(b.contributions.find((x) => x.foundationId === f2)?.qty).toBe(4 * 1 * 2)
   })
 
   it('updates when foundation quantities or anchorage configurations change', () => {
@@ -78,20 +80,21 @@ describe('consolidated materials', () => {
     let t = tracked(c)
     c = build(c, K.configureFoundation(f1, { quantity: 20 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
-    expect(consolidate(t, c).find((x) => x.area === 'E-House' && x.category === 'bolt')!.required).toBe((20 * 3 + 8) * 4 + 8)
+    expect(consolidate(t, c).find((x) => x.area === 'E-House' && x.category === 'bolt')!.required).toBe((20 * 3 + 8) * 4)
     c = build(c, K.setAnchorageComponents(A1, [{ kind: 'bolt', qty: 6, diameter: 'M25', length: 900, lengthUnit: 'mm', thread: 'both-ends', topThread: 100, bottomThread: 80, nutsPerBolt: 2, washersPerBolt: 2 }]))
     t = refreshRequirements(t, c, { log: true, at: NOW })
-    expect(consolidate(t, c).find((x) => x.area === 'E-House' && x.category === 'bolt')!.required).toBe((20 * 3 + 8) * 6 + 8)
+    expect(consolidate(t, c).find((x) => x.area === 'E-House' && x.category === 'bolt')!.required).toBe((20 * 3 + 8) * 6)
   })
 
   it('combines a manually entered identical material with the calculated one without duplicating records', () => {
-    const { c, eh, f1 } = world()
+    const { c, eh, f1, A1 } = world()
     let t = tracked(c)
     const calc = consolidate(t, c).find((x) => x.area === 'E-House' && x.category === 'bolt')!
-    t = run(t, c, A.addMaterials([{ areaId: eh, foundationId: f1, category: 'bolt', name: 'Anchor bolt', specification: calc.specification, size: '', unit: 'ea', requiredQty: 10, basis: 'fixed' } as never]))
-    const g = consolidate(t, c).filter((x) => x.area === 'E-House' && x.category === 'bolt')
+    // An entered bolt for anchorage type A joins A's calculated requirement; one with no anchorage type is generic and stays on its own line.
+    t = run(t, c, A.addMaterials([{ areaId: eh, foundationId: f1, anchorageTypeId: A1, category: 'bolt', name: 'Anchor bolt', specification: calc.specification, size: '', unit: 'ea', requiredQty: 10, basis: 'fixed' } as never]))
+    const g = consolidate(t, c).filter((x) => x.area === 'E-House' && x.category === 'bolt' && x.designation === 'A')
     expect(g).toHaveLength(1)
-    expect(g[0].required).toBe(194)
+    expect(g[0].required).toBe(186)
     expect(new Set(g[0].contributions.map((x) => x.source))).toEqual(new Set(['calculated', 'entered']))
   })
 })
@@ -114,20 +117,20 @@ describe('procurement', () => {
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-1001', supplier: 'Nucor', date: TODAY, lines: [{ key: bolts.key, qty: bolts.required }, { key: nuts.key, qty: nuts.required }] }, TODAY))
     expect(t.orders).toHaveLength(1)
     expect(t.orderLines).toHaveLength(2)
-    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ ordered: 184, received: 0, outstanding: 184, status: 'ordered' })
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ ordered: 176, received: 0, outstanding: 176, status: 'ordered' })
     const po = t.orders![0]
     // One delivery of part of the bolts and all the nuts.
     t = run(t, c, A.recordDelivery({ orderId: po.id, date: TODAY, reference: 'DN-7', lines: [{ key: bolts.key, qty: 100 }, { key: nuts.key, qty: nuts.required }] }, TODAY), 'sam@example.com')
     expect(t.deliveries![0]).toMatchObject({ by: 'sam@example.com', at: NOW, reference: 'DN-7' })
-    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 100, outstanding: 84, status: 'partial' })
-    expect(rowOf(t, c, 'E-House', 'Nut')).toMatchObject({ received: 368, outstanding: 0, status: 'received' })
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 100, outstanding: 76, status: 'partial' })
+    expect(rowOf(t, c, 'E-House', 'Nut')).toMatchObject({ received: 352, outstanding: 0, status: 'received' })
     // A second shipment finishes the bolts.
-    t = run(t, c, A.recordDelivery({ orderId: po.id, date: TODAY, lines: [{ key: bolts.key, qty: 84 }] }, TODAY))
-    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 184, status: 'received' })
+    t = run(t, c, A.recordDelivery({ orderId: po.id, date: TODAY, lines: [{ key: bolts.key, qty: 76 }] }, TODAY))
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 176, status: 'received' })
     // Nothing was recorded against individual foundations: no per-line receipts and no allocations.
     expect(t.manual.every((l) => l.receipts.length === 0)).toBe(true)
     expect(t.allocations).toHaveLength(0)
-    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ allocated: 0, unallocated: 184 })
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ allocated: 0, unallocated: 176 })
     expect(t.history.filter((h) => h.action === 'order' || h.action === 'delivery')).toHaveLength(3)
   })
 
@@ -136,7 +139,7 @@ describe('procurement', () => {
     let t = tracked(c)
     const b = rowOf(t, c, 'E-House', 'Anchor bolt')
     const order = (o: Partial<Parameters<typeof A.createPurchaseOrder>[0]> = {}) => A.createPurchaseOrder({ number: 'PO-1', supplier: 'Nucor', date: TODAY, lines: [{ key: b.key, qty: 10 }], ...o }, TODAY)
-    expect(fails(t, c, order({ number: '' }))).toMatch(/number/)
+    expect(fails(t, c, order({ number: '' }))).toBeUndefined() // the PO number is optional
     expect(fails(t, c, order({ supplier: '' }))).toMatch(/supplier/)
     expect(fails(t, c, order({ lines: [] }))).toMatch(/at least one/)
     expect(fails(t, c, order({ lines: [{ key: b.key, qty: 0 }] }))).toMatch(/whole number/)
@@ -155,13 +158,13 @@ describe('procurement', () => {
     const b = rowOf(t, c, 'E-House', 'Anchor bolt')
     t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: b.key, qty: 150 }] }, TODAY)) // received without a purchase order
     expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 150, allocated: 0, status: 'partial' })
-    expect(fails(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 120 }, { foundationId: f2, qty: 40 }]))).toMatch(/Only 150/)
-    expect(fails(t, c, A.setAllocations(b.key, [{ foundationId: f2, qty: 100 }]))).toMatch(/cannot be allocated more than/) // OP-2 needs 8*4+4*2=40
-    t = run(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 100 }, { foundationId: f2, qty: 40 }]))
-    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 150, allocated: 140, unallocated: 10 })
+    expect(fails(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 130 }, { foundationId: f2, qty: 30 }]))).toMatch(/Only 150/)
+    expect(fails(t, c, A.setAllocations(b.key, [{ foundationId: f2, qty: 100 }]))).toMatch(/cannot be allocated more than/) // OP-2 needs 4*2*4=32 of this designation (its 4×1 of type B is a separate requirement)
+    t = run(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 100 }, { foundationId: f2, qty: 32 }]))
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 150, allocated: 132, unallocated: 18 })
     // Allocating does not change what was received; reducing it frees the material again.
     t = run(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 60 }]))
-    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 150, allocated: 100, unallocated: 50 })
+    expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 150, allocated: 92, unallocated: 58 })
     // A delivery that has been allocated against cannot be voided away.
     expect(fails(t, c, A.voidDelivery(t.deliveries![0].id))).toMatch(/allocated/)
     t = run(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 0 }, { foundationId: f2, qty: 0 }]))
@@ -173,13 +176,13 @@ describe('procurement', () => {
     let { c, f1 } = world()
     let t = tracked(c)
     const b = rowOf(t, c, 'E-House', 'Anchor bolt')
-    t = run(t, c, A.createPurchaseOrder({ number: 'PO-9', supplier: 'Nucor', date: TODAY, lines: [{ key: b.key, qty: 184 }] }, TODAY))
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-9', supplier: 'Nucor', date: TODAY, lines: [{ key: b.key, qty: 176 }] }, TODAY))
     t = run(t, c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: [{ key: b.key, qty: 100 }] }, TODAY))
     const before = { orders: t.orders, orderLines: t.orderLines, deliveries: t.deliveries, deliveryLines: t.deliveryLines, history: t.history.length }
     c = build(c, K.configureFoundation(f1, { quantity: 20 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
     const after = rowOf(t, c, 'E-House', 'Anchor bolt')
-    expect(after).toMatchObject({ required: 280, ordered: 184, received: 100, outstanding: 180, toOrder: 96, status: 'partial' })
+    expect(after).toMatchObject({ required: 272, ordered: 176, received: 100, outstanding: 172, toOrder: 96, status: 'partial' })
     expect(t.orders).toEqual(before.orders)
     expect(t.orderLines).toEqual(before.orderLines)
     expect(t.deliveries).toEqual(before.deliveries)
@@ -308,31 +311,32 @@ describe('quantity audit: footing quantity × anchorages per footing × quantity
 })
 
 describe('material labels', () => {
-  it('name the anchorage types that need a material, with the specification beneath; entered materials keep their name', () => {
+  it('name a material by its anchorage designation and name, with the specification beneath; entered materials keep their name', () => {
     const { c, area, f3 } = staging()
     let t = tracked(c)
     const label = (cat: string, re: RegExp) => materialLabel(consolidate(t, c).find((g) => g.category === cat && re.test(g.specification + g.size))!)
-    expect(label('bolt', /3\/4/)).toEqual({ title: 'OP1-D2', sub: '3/4" × 460 mm, all-thread' })
-    expect(label('embed-plate', /320/)).toEqual({ title: 'OP1-D4', sub: '16 x 320 x 520 mm' })
+    expect(label('bolt', /3\/4/)).toEqual({ title: 'OP1-D2 Anchor bolt', sub: '3/4" × 460 mm, all-thread' })
+    expect(label('embed-plate', /320/)).toEqual({ title: 'OP1-D4 Embed plate', sub: '16 x 320 x 520 mm' })
     t = run(t, c, A.addMaterials([{ areaId: area, foundationId: '', category: 'other', name: 'Non-shrink grout', specification: 'Type 10', size: '', unit: 'bag', requiredQty: 5, basis: 'fixed' } as never]))
     expect(materialLabel(consolidate(t, c).find((g) => g.name === 'Non-shrink grout')!)).toEqual({ title: 'Non-shrink grout', sub: 'Type 10' })
     void f3
   })
-  it('identical materials from several anchorage types are one line naming them all', () => {
+  it('identical materials from several anchorage types are separate lines, each named by its designation', () => {
     let { c, A1, B1 } = world()
     const same = { kind: 'bolt' as const, qty: 4, diameter: 'M25', length: 900, lengthUnit: 'mm' as const, thread: 'both-ends' as const, topThread: 100, bottomThread: 80, nutsPerBolt: 2, washersPerBolt: 2 }
     c = build(c, K.setAnchorageComponents(B1, [same]))
     c = build(c, K.configureFoundation(c.foundations[1].id, { groups: [{ anchorageTypeId: B1, count: 1 }] }))
     const g = consolidate(tracked(c), c).filter((x) => x.area === 'E-House' && x.category === 'bolt')
-    expect(g).toHaveLength(1)
-    expect(materialLabel(g[0]).title).toBe('A, B')
+    expect(g).toHaveLength(2)
+    expect(g.map((x) => materialLabel(x).title)).toEqual(['A Anchor bolt', 'B Anchor bolt'])
     void A1
   })
 })
 
 describe('anchor bolts installed directly in footings', () => {
   const fbolt = (o: Record<string, unknown> = {}) => ({ qty: 4, diameter: '3/4"', length: 460, lengthUnit: 'mm' as const, thread: 'all-thread' as const, nutsPerBolt: 6, washersPerBolt: 2, ...o })
-  const find = (c: ConstructionState, area: string, cat: string, re?: RegExp) => consolidate(tracked(c), c).find((g) => g.area === area && g.category === cat && (!re || re.test(g.specification)))!
+  /** `des` picks the anchorage designation ('' is the generic line with none, e.g. bolts cast directly in a footing). */
+  const find = (c: ConstructionState, area: string, cat: string, re?: RegExp, des?: string) => consolidate(tracked(c), c).find((g) => g.area === area && g.category === cat && (!re || re.test(g.specification)) && (des === undefined || g.designation === des))!
 
   it('7 footings × 4 bolts = 28 bolts, with their nuts and washers, and no plinths or anchorage type', () => {
     let { c, area } = staging()
@@ -342,15 +346,15 @@ describe('anchor bolts installed directly in footings', () => {
     expect(c.plinths.length).toBe(before.plinths) // no artificial plinth records
     expect(c.anchorageGroups?.length).toBe(before.groups)
     expect(c.foundationBolts).toHaveLength(1)
-    // the identical 3/4" all-thread bolt in the staging OP1-D2 type merges into the same requirement
-    const bolts = find(c, 'E-House', 'bolt', /3\/4/)
+    // Bolts cast in a footing belong to no anchorage designation: they are their own line, apart from the identical OP1-D2 anchorage bolts.
+    const bolts = find(c, 'E-House', 'bolt', /3\/4/, '')
     expect(bolts.contributions.find((x) => x.foundationId === f.id)).toMatchObject({ qty: 28, anchorage: 'Footing', source: 'calculated' })
-    expect(bolts.required).toBe(36 + 28)
-    expect(find(c, 'E-House', 'nut', /3\/4/).required).toBe((36 + 28) * 6)
-    expect(find(c, 'E-House', 'washer', /3\/4/).required).toBe((36 + 28) * 2)
-    expect(consolidate(tracked(c), c).filter((g) => g.area === 'E-House' && g.category === 'bolt' && /3\/4/.test(g.specification))).toHaveLength(1) // one line, no duplicate
+    expect(bolts.required).toBe(28)
+    expect(find(c, 'E-House', 'nut', /3\/4/, '').required).toBe(28 * 6)
+    expect(find(c, 'E-House', 'washer', /3\/4/, '').required).toBe(28 * 2)
+    expect(find(c, 'E-House', 'bolt', /3\/4/, 'OP1-D2').required).toBe(36)
+    expect(consolidate(tracked(c), c).filter((g) => g.area === 'E-House' && g.category === 'bolt' && /3\/4/.test(g.specification))).toHaveLength(2)
     expect(bolts.lines[0].calc.expression).toMatch(/4 per footing × 7 footings/)
-    expect(bolts.lines[0].calc.expression).toMatch(/4 per anchorage × 9 OP1-D2/)
   })
 
   it('a foundation can have plinths, footing bolts, both or neither; several bolt configurations are kept', () => {
@@ -361,8 +365,10 @@ describe('anchor bolts installed directly in footings', () => {
     c = build(c, K.createFoundation(area, 'BOTH', '', null, 5, { groups: [{ anchorageTypeId: both, count: 1 }], bolts: [fbolt({ qty: 1 })] }))
     expect(c.foundationBolts!.filter((b) => b.foundationId === c.foundations.find((f) => f.number === 'BOLTS')!.id)).toHaveLength(2)
     expect(c.plinths.filter((p) => p.foundationId === c.foundations.find((f) => f.number === 'BOLTS')!.id)).toHaveLength(0)
-    expect(find(c, 'E-House', 'bolt', /^1"/).required).toBe(2 * 2 + 4) // BOLTS 2 footings × 2, plus the OP1-D3 anchorage bolt
-    expect(find(c, 'E-House', 'bolt', /3\/4/).required).toBe(36 + 2 * 4 + 5 * 4 + 5 * 1) // OP1-D2 36, BOLTS 8, BOTH: 5 footings × (1 D2 anchorage × 4 + 1 footing bolt)
+    expect(find(c, 'E-House', 'bolt', /^1"/, '').required).toBe(2 * 2) // BOLTS: 2 footings × 2
+    expect(find(c, 'E-House', 'bolt', /^1"/, 'OP1-D3').required).toBe(4) // the OP1-D3 anchorage bolt stays apart
+    expect(find(c, 'E-House', 'bolt', /3\/4/, '').required).toBe(2 * 4 + 5 * 1) // footing bolts: BOLTS 8, BOTH 5 footings × 1
+    expect(find(c, 'E-House', 'bolt', /3\/4/, 'OP1-D2').required).toBe(36 + 5 * 4) // OP1-D2 anchorage bolts: 36, BOTH 5 × 4
     expect(find(c, 'E-House', 'nut').required).toBeGreaterThan(0)
   })
 
@@ -379,10 +385,10 @@ describe('anchor bolts installed directly in footings', () => {
     const id = c.foundationBolts![0].id
     c = build(c, K.configureFoundation(f.id, { bolts: [{ ...fbolt({ qty: 6 }), id }] }))
     expect(c.foundationBolts!.find((b) => b.foundationId === f.id)).toMatchObject({ id, qty: 6 })
-    expect(find(c, 'E-House', 'bolt', /3\/4/).contributions.find((x) => x.foundationId === f.id)!.qty).toBe(12)
+    expect(find(c, 'E-House', 'bolt', /3\/4/, '').contributions.find((x) => x.foundationId === f.id)!.qty).toBe(12)
     const plinths = c.plinths.length
     c = build(c, K.configureFoundation(f.id, { quantity: 5 }))
-    expect(find(c, 'E-House', 'bolt', /3\/4/).contributions.find((x) => x.foundationId === f.id)!.qty).toBe(30) // follows the footing quantity
+    expect(find(c, 'E-House', 'bolt', /3\/4/, '').contributions.find((x) => x.foundationId === f.id)!.qty).toBe(30) // follows the footing quantity
     c = build(c, K.configureFoundation(f.id, { bolts: [] }))
     expect(c.foundationBolts!.some((b) => b.foundationId === f.id)).toBe(false)
     expect(c.plinths.length).toBe(plinths)
@@ -394,13 +400,13 @@ describe('anchor bolts installed directly in footings', () => {
     let t = tracked(c)
     const expected = expectedTotals(c)
     for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
-    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && /3\/4/.test(r.specification))!
-    expect(row().required).toBe(64)
-    t = run(t, c, A.createPurchaseOrder({ number: 'PO-FB', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 64 }] }, TODAY))
+    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && /3\/4/.test(r.specification) && r.designation === '')!
+    expect(row().required).toBe(28)
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-FB', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 28 }] }, TODAY))
     const f = c.foundations.find((x) => x.number === 'FB-3')!
     c = build(c, K.configureFoundation(f.id, { quantity: 10 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
-    expect(row()).toMatchObject({ required: 76, ordered: 64, toOrder: 12 })
+    expect(row()).toMatchObject({ required: 40, ordered: 28, toOrder: 12 })
   })
 })
 
@@ -432,9 +438,9 @@ describe('material status, installation and the overview', () => {
     let row = rowOf(t, c, 'E-House', 'Anchor bolt')
     expect(row).toMatchObject({ installed: 40, received: 100, allocated: 0, stage: 'partially-installed', installable: 60 })
     expect(t.installations![0]).toMatchObject({ by: 'sam@example.com', at: NOW, qty: 40 })
-    // never "Installed" until the full 184 are in
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key, qty: 84 }] }, TODAY))
-    t = run(t, c, inst(144))
+    // never "Installed" until the full 176 are in
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key, qty: 76 }] }, TODAY))
+    t = run(t, c, inst(136))
     expect(rowOf(t, c, 'E-House', 'Anchor bolt').stage).toBe('installed')
     expect(fails(t, c, inst(1))).toMatch(/already installed/)
     // a delivery that has been installed from cannot be voided away
@@ -443,7 +449,7 @@ describe('material status, installation and the overview', () => {
     expect(rowOf(t, c, 'E-House', 'Anchor bolt').stage).toBe('partially-installed')
     expect(t.history.filter((h) => h.action === 'installation')).toHaveLength(3)
     row = rowOf(t, c, 'E-House', 'Anchor bolt')
-    expect(row.received).toBe(184)
+    expect(row.received).toBe(176)
   })
 
   it('the overview combines matching specifications across areas, keeps each area, and counts each once', () => {
@@ -452,30 +458,30 @@ describe('material status, installation and the overview', () => {
     const rows = procurementRows(t, c)
     const merged = mergeAcrossAreas(rows)
     const bolts = merged.find((m) => m.category === 'bolt')!
-    expect(bolts.areas.map((a) => [a.area, a.required]).sort()).toEqual([['E-House', 184], ['Pipe Rack', 20]])
-    expect(bolts.required).toBe(204)
-    expect(merged.filter((m) => m.category === 'bolt')).toHaveLength(1) // one line, not one per area
+    expect(bolts.areas.map((a) => [a.area, a.required]).sort()).toEqual([['E-House', 176], ['Pipe Rack', 20]])
+    expect(bolts.required).toBe(196)
+    expect(merged.filter((m) => m.category === 'bolt').map((m) => m.designation)).toEqual(['A', 'B']) // one line per designation, not one per area
     expect(merged.reduce((a, m) => a + m.required, 0)).toBe(rows.reduce((a, r) => a + r.required, 0)) // nothing double-counted or dropped
     // a new area shows up with no extra work
     const { c: c2 } = world()
     const c3 = build(c2, K.createArea(c2.projects[0].id, 'Mole Sieve', []))
     const c4 = build(c3, K.createFoundation(c3.areas.find((a) => a.name === 'Mole Sieve')!.id, 'MS-1', '', null, 2, { groups: [{ anchorageTypeId: c3.anchorageTypes[0].id, count: 1 }] }))
     t = tracked(c4)
-    expect(mergeAcrossAreas(procurementRows(t, c4)).find((m) => m.category === 'bolt')!.required).toBe(204 + 8)
-    expect(mergeAcrossAreas(procurementRows(t, c4)).find((m) => m.category === 'bolt')!.areas.map((a) => a.area).sort()).toEqual(['E-House', 'Mole Sieve', 'Pipe Rack'])
+    expect(mergeAcrossAreas(procurementRows(t, c4)).find((m) => m.category === 'bolt' && m.designation === 'A')!.required).toBe(196 + 8)
+    expect(mergeAcrossAreas(procurementRows(t, c4)).find((m) => m.category === 'bolt' && m.designation === 'A')!.areas.map((a) => a.area).sort()).toEqual(['E-House', 'Mole Sieve', 'Pipe Rack'])
   })
 
   it('gauge counts are in requirements, not units, and Ordered + Outstanding is always the total', () => {
     const { c } = world()
     let t = tracked(c)
     const rows = () => procurementRows(t, c).filter((r) => r.area === 'E-House')
-    expect(progressCounts(rows())).toEqual({ total: 4, ordered: 0, delivered: 0, allocated: 0, outstanding: 4 })
+    expect(progressCounts(rows())).toEqual({ total: 7, ordered: 0, delivered: 0, allocated: 0, outstanding: 7 })
     const bolt = rowOf(t, c, 'E-House', 'Anchor bolt'), nut = rowOf(t, c, 'E-House', 'Nut')
-    t = run(t, c, A.createPurchaseOrder({ number: 'PO-G', supplier: 'Nucor', date: TODAY, lines: [{ key: bolt.key, qty: 184 }, { key: nut.key, qty: 100 }] }, TODAY)) // nuts only partly ordered
-    expect(progressCounts(rows())).toMatchObject({ total: 4, ordered: 1, delivered: 0, outstanding: 3 })
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 184 }] }, TODAY))
-    t = run(t, c, A.setAllocations(bolt.key, [{ foundationId: c.foundations[0].id, qty: 144 }, { foundationId: c.foundations[1].id, qty: 32 }]))
-    expect(progressCounts(rows())).toMatchObject({ total: 4, ordered: 1, delivered: 1, allocated: 0 }) // 176 of 184 allocated: not fully
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-G', supplier: 'Nucor', date: TODAY, lines: [{ key: bolt.key, qty: 176 }, { key: nut.key, qty: 100 }] }, TODAY)) // nuts only partly ordered
+    expect(progressCounts(rows())).toMatchObject({ total: 7, ordered: 1, delivered: 0, outstanding: 6 })
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 176 }] }, TODAY))
+    t = run(t, c, A.setAllocations(bolt.key, [{ foundationId: c.foundations[0].id, qty: 144 }, { foundationId: c.foundations[1].id, qty: 16 }]))
+    expect(progressCounts(rows())).toMatchObject({ total: 7, ordered: 1, delivered: 1, allocated: 0 }) // 160 of 176 allocated: not fully
     const p = progressCounts(rows())
     expect(p.ordered + p.outstanding).toBe(p.total)
   })
@@ -539,9 +545,9 @@ describe('Area Overview materials gauge stays in step with the Materials tab', (
     }
     for (const a of c.areas) check(a.id)
     const bolt = rowOf(t, c, 'E-House', 'Anchor bolt')
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 184 }] }, TODAY))
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 176 }] }, TODAY))
     check(eh)
-    expect(gauge(t, c, eh).percent).toBe(25)
+    expect(gauge(t, c, eh).percent).toBe(14) // 1 of E-House's 7 requirements (A and B bolts, nuts, washers, A template)
     // the requirement grows: no longer fully delivered
     c = build(c, K.configureFoundation(c.foundations[0].id, { quantity: 20 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
@@ -830,44 +836,52 @@ describe('footing anchor bolts: quantity method', () => {
   }
   const req = (c: ConstructionState, cat: string) => consolidate(tracked(c), c).filter((g) => g.area === 'Mole Sieve' && g.category === cat)
 
-  it('OP1-21-26: 4 extra bolts as a total is 4 additional, not 20, on top of the typical 20', () => {
+  const reqD = (c: ConstructionState, cat: string, des: string) => req(c, cat).filter((g) => g.designation === des)
+
+  it('OP1-21-26: 4 extra bolts as a total is 4 additional, not 20, beside the typical 20 (generic footing bolts are a separate line from OP1-D2 bolts)', () => {
     let { c, f } = moleSieve()
     expect(req(c, 'bolt')[0].required).toBe(20) // typical only
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] }))
     const bolts = req(c, 'bolt')
-    expect(bolts).toHaveLength(1) // matching specification: one line, nothing lost
-    expect(bolts[0].required).toBe(24) // 20 typical + 4 additional (never replaced, never 20 extra)
-    expect(bolts[0].contributions.reduce((a, x) => a + x.qty, 0)).toBe(24)
-    expect(bolts[0].contributions.find((x) => x.anchorage === 'Footing')!.qty).toBe(4)
-    expect(bolts[0].contributions.find((x) => x.anchorage === 'OP1-D2')!.qty).toBe(20)
-    expect(bolts[0].lines[0].calc.expression).toMatch(/4 per anchorage × 5 OP1-D2/)
-    expect(bolts[0].lines[0].calc.expression).toMatch(/4 extra on the footings, in total/)
-    expect(req(c, 'nut')[0].required).toBe(20 * 6 + 4 * 6) // 144 nuts
-    expect(req(c, 'washer')[0].required).toBe(20 * 2 + 4 * 2) // 48 washers
+    expect(bolts).toHaveLength(2) // OP1-D2 anchorage bolts, and the footing bolts, which belong to no designation: nothing lost
+    const typical = reqD(c, 'bolt', 'OP1-D2')[0], extra = reqD(c, 'bolt', '')[0]
+    expect(typical.required).toBe(20) // the typical bolts are never replaced
+    expect(extra.required).toBe(4) // 4 additional, never 20 extra
+    expect(extra.contributions.find((x) => x.anchorage === 'Footing')!.qty).toBe(4)
+    expect(typical.contributions.find((x) => x.anchorage === 'OP1-D2')!.qty).toBe(20)
+    expect(typical.lines[0].calc.expression).toMatch(/4 per anchorage × 5 OP1-D2/)
+    expect(extra.lines[0].calc.expression).toMatch(/4 extra on the footings, in total/)
+    expect(reqD(c, 'nut', 'OP1-D2')[0].required + reqD(c, 'nut', '')[0].required).toBe(20 * 6 + 4 * 6) // 144 nuts
+    expect(reqD(c, 'washer', 'OP1-D2')[0].required + reqD(c, 'washer', '')[0].required).toBe(20 * 2 + 4 * 2) // 48 washers
     expect(c.foundationBolts![0].mode).toBe('total')
   })
 
   it('per foundation multiplies by the physical foundations; total stays fixed when the quantity changes', () => {
     let { c, f } = moleSieve()
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'per-foundation', qty: 4 }), fb({ mode: 'total', qty: 4, diameter: 'M24', length: 900 })] }))
-    expect(req(c, 'bolt').find((g) => /3\/4/.test(g.specification))!.required).toBe(20 + 20) // typical 20 + 4 × 5
-    expect(req(c, 'bolt').find((g) => /M24/.test(g.specification))!.required).toBe(4)
+    const of = (re: RegExp, des: string) => reqD(c, 'bolt', des).find((g) => re.test(g.specification))!
+    expect(of(/3\/4/, 'OP1-D2').required).toBe(20) // typical
+    expect(of(/3\/4/, '').required).toBe(4 * 5) // 4 × 5 foundations
+    expect(of(/M24/, '').required).toBe(4)
     c = build(c, K.configureFoundation(f, { quantity: 8 }))
-    expect(req(c, 'bolt').find((g) => /3\/4/.test(g.specification))!.required).toBe(32 + 32) // both follow the quantity
-    expect(req(c, 'bolt').find((g) => /M24/.test(g.specification))!.required).toBe(4) // the total does not
+    expect(of(/3\/4/, 'OP1-D2').required).toBe(32) // both follow the quantity
+    expect(of(/3\/4/, '').required).toBe(32)
+    expect(of(/M24/, '').required).toBe(4) // the total does not
     // two configurations of the same specification, one of each method, are both counted
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'per-foundation', qty: 1 }), fb({ mode: 'total', qty: 4 })] }))
-    expect(req(c, 'bolt')[0].required).toBe(32 + 8 + 4)
+    expect(reqD(c, 'bolt', '').find((g) => /3\/4/.test(g.specification))!.required).toBe(8 + 4) // 1 × 8 foundations + 4 in total, both counted
+    expect(reqD(c, 'bolt', 'OP1-D2')[0].required).toBe(32)
   })
 
   it('existing configurations default to per foundation, so current calculations are unchanged', () => {
     let { c, f } = moleSieve()
     c = build(c, K.configureFoundation(f, { bolts: [fb()] })) // no mode given
     expect(c.foundationBolts![0].mode).toBe('per-foundation')
-    expect(req(c, 'bolt')[0].required).toBe(20 + 20)
+    expect(reqD(c, 'bolt', '')[0].required).toBe(20)
+    expect(reqD(c, 'bolt', 'OP1-D2')[0].required).toBe(20)
     // a bolt saved before the method existed (no mode at all) counts per foundation
     const legacy = { ...c, foundationBolts: c.foundationBolts!.map((b) => { const o = { ...b } as Partial<typeof b>; delete o.mode; return o as typeof b }) }
-    expect(consolidate(tracked(legacy), legacy).find((g) => g.category === 'bolt')!.required).toBe(40)
+    expect(consolidate(tracked(legacy), legacy).find((g) => g.category === 'bolt' && g.designation === '')!.required).toBe(20)
     expect(K.configureFoundation(f, { bolts: [fb({ mode: 'each' })] } as never)(c, {}).error).toMatch(/per foundation or total/)
   })
 
@@ -878,12 +892,13 @@ describe('footing anchor bolts: quantity method', () => {
     const expected = expectedTotals(c)
     for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
     expect(procurementRows(t, c).map((r) => [r.key, r.required]).sort()).toEqual(consolidate(t, c).map((r) => [r.key, r.required]).sort())
-    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt')!
+    const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && r.designation === 'OP1-D2')!
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-20', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 20 }] }, TODAY))
     t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 12 }] }, TODAY))
-    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] })) // the extra bolts were added after the typical order
+    c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] })) // re-saving the same configuration changes nothing that was ordered or received
     t = refreshRequirements(t, c, { log: true, at: NOW })
-    expect(row()).toMatchObject({ required: 24, ordered: 20, received: 12, toOrder: 4 })
+    expect(row()).toMatchObject({ required: 20, ordered: 20, received: 12, toOrder: 0 })
+    expect(procurementRows(t, c).find((r) => r.category === 'bolt' && r.designation === '')).toMatchObject({ required: 4, ordered: 0 })
     expect(t.orderLines).toHaveLength(1)
     expect(t.deliveries).toHaveLength(1)
   })

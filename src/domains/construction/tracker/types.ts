@@ -64,6 +64,8 @@ export interface TrackerLine {
   qtyEach?: number | null
   /** Calculated requirements: the stable key that finds this line again, and the parts of the total. */
   deriveKey?: string
+  /** Calculated requirements: the anchorage designation (OP1-D2) the material belongs to, or empty for a generic material. */
+  designation?: string
   breakdown?: RequirementPart[]
   /** A calculated requirement that no longer applies but has orders or deliveries, so it is kept. */
   requirementRemoved?: boolean
@@ -132,7 +134,7 @@ export interface ImportMeta {
 /* ── Procurement ─────────────────────────────────────────────────────────
  * Orders and deliveries are recorded against a consolidated requirement (an area's total of one specification, found by `key`), not against
  * each foundation. The area, category and specification are copied onto every line so a record stays readable if the requirement changes. */
-export interface GroupRef { key: string; areaId: string | null; area: string; category: ComponentCategory; name: string; specification: string; size: string; unit: string }
+export interface GroupRef { key: string; areaId: string | null; area: string; category: ComponentCategory; name: string; specification: string; size: string; unit: string; /** Anchorage designation, '' for a generic material. */ designation?: string }
 export interface PurchaseOrder { id: string; number: string; supplierId: string | null; supplier: string; date: ISODate; expectedDate: string | null; notes: string; cancelled?: boolean; createdAt: string; createdBy: string }
 export interface OrderLine extends GroupRef { id: string; orderId: string; qty: number }
 /** One shipment: who confirmed it and when, and what it brought. */

@@ -24,7 +24,19 @@ export interface Requirement {
   parts: RequirementPart[]
   anchorageCodes: string[]
   expression: string
+  /** The anchorage designation it belongs to (OP1-D2), or '' for a generic material. */
+  designation: string
 }
+
+/**
+ * The key of a calculated requirement. Anchorage-specific components (bolts, nuts, washers, sole plates, templates and embed plates of an anchorage type)
+ * carry their anchorage designation in the key, so OP1-D2's plywood templates and OP1-D3's stay separate requirements even when physically identical.
+ * Generic materials (footing bolts, plates created in a foundation) have no designation and consolidate by specification alone, exactly as before.
+ */
+export const reqKey = (areaId: string, it: { category: string; name: string; spec: string; size: string }, designation = '') =>
+  `anchorage|${areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}${designation ? `|${norm(designation)}` : ''}`
+/** The key a requirement had before designations were part of it (also the key of a generic requirement). */
+export const legacyReqKey = (key: string, designation: string) => (designation ? key.slice(0, key.length - designation.trim().toLowerCase().replace(/\s+/g, ' ').length - 1) : key)
 
 const fmt = (n: number) => n.toLocaleString('en-CA')
 const num = (n: number | null) => (n === null ? '' : String(n))
@@ -111,8 +123,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
       const instances = rowsOfType.reduce((a, r) => a + instancesOf(c, r, comp), 0)
       if (instances === 0) continue
       for (const it of itemsOf(comp)) {
-        const key = `anchorage|${areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
-        const g = groups.get(key) ?? { key, id: requirementId(key), areaId, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+        const key = reqKey(areaId, it, type.code)
+        const g = groups.get(key) ?? { key, id: requirementId(key), areaId, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: type.code }
         const part = g.parts.find((p) => p.anchorageTypeId === typeId && p.instances === instances)
         if (part) { part.each += it.each } else g.parts.push({ anchorageTypeId: typeId, code: type.code, instances, each: it.each })
         g.required += it.each * instances
@@ -130,8 +142,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     const footings = total ? 1 : f.quantity ?? 1
     const sentinel = total ? '#bolt-total' : ''
     for (const it of itemsOf(boltAsComponent(fb))) {
-      const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
-      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+      const key = reqKey(area.id, it, '')
+      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: '' }
       const part = g.parts.find((p) => p.anchorageTypeId === sentinel && p.each === it.each)
       if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: sentinel, code: 'Footing', instances: footings, each: it.each })
       g.required += it.each * footings
@@ -150,8 +162,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
       if (!comp || comp.kind !== 'embed-plate') continue
       const code = typeOf.get(comp.anchorageTypeId)?.code ?? f.number
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
-        const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
-        const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+        const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code ?? '')
+        const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code ?? '' }
         const part = g.parts.find((p) => p.anchorageTypeId === '#unit' && p.each === it.each && p.code === code)
         if (part) part.instances += 1; else g.parts.push({ anchorageTypeId: '#unit', code, instances: 1, each: it.each })
         g.required += it.each
@@ -168,8 +180,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     const code = typeOf.get(comp.anchorageTypeId)?.code ?? f.number
     const each = fe.mode === 'per-foundation'
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
-      const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
-      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+      const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code ?? '')
+      const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code ?? '' }
       const id = each ? '#embed-each' : '#embed-total'
       const n = each ? (f.quantity ?? 1) : 1
       const part = g.parts.find((p) => p.anchorageTypeId === id && p.each === it.each && p.code === code)
@@ -241,13 +253,20 @@ export function refreshRequirements(s: TrackerState, c: RefSource | undefined, o
   const log: AuditEntry[] = []
   const reqs = deriveRequirements(c)
   const byKey = new Map(reqs.map((r) => [r.key, r]))
+  // A calculated line saved before requirements were separated by designation has the old key. When exactly one requirement now stands for it (and no
+  // existing line already has that requirement), it continues as that requirement: same line, same orders and deliveries, new key. A line the old key
+  // cannot be matched to alone (several designations used to share it) is kept, marked no longer required, with everything recorded on it.
+  const exact = new Set((s.manual ?? []).filter((l) => l.origin === 'anchorage' && l.deriveKey && byKey.has(l.deriveKey)).map((l) => l.deriveKey as string))
+  const byLegacy = new Map<string, Requirement[]>()
+  for (const r of reqs) if (r.designation) byLegacy.set(legacyReqKey(r.key, r.designation), [...(byLegacy.get(legacyReqKey(r.key, r.designation)) ?? []), r])
   let changed = false
   const next: TrackerLine[] = []
   const seen = new Set<string>()
   for (const l of s.manual ?? []) {
     if (l.origin === 'anchorage' && l.deriveKey) {
-      const r = byKey.get(l.deriveKey)
-      seen.add(l.deriveKey)
+      let r = byKey.get(l.deriveKey)
+      if (!r) { const cand = (byLegacy.get(l.deriveKey) ?? []).filter((x) => !exact.has(x.key)); if (cand.length === 1) { r = cand[0]; exact.add(r.key); changed = true } }
+      seen.add(r?.key ?? l.deriveKey)
       if (!r) {
         if (!hasOps(l)) { changed = true; continue } // never ordered or received: simply no longer a requirement
         if (!l.requirementRemoved || l.requiredQty !== 0) {
@@ -258,8 +277,8 @@ export function refreshRequirements(s: TrackerState, c: RefSource | undefined, o
         continue
       }
       const calc: QuantityCalc = { kind: 'derived', formula: null, expression: r.expression, recomputed: r.required }
-      const updated: TrackerLine = { ...l, requiredQty: r.required, calc, breakdown: r.parts, anchorageType: r.anchorageCodes.join(', '), area: r.areaName, areaId: r.areaId, requirementRemoved: false }
-      if (l.requiredQty !== r.required || l.calc.expression !== r.expression || l.requirementRemoved || l.area !== r.areaName || l.anchorageType !== updated.anchorageType) {
+      const updated: TrackerLine = { ...l, deriveKey: r.key, designation: r.designation, requiredQty: r.required, calc, breakdown: r.parts, anchorageType: r.anchorageCodes.join(', '), area: r.areaName, areaId: r.areaId, requirementRemoved: false }
+      if (l.deriveKey !== r.key || (l.designation ?? '') !== r.designation || l.requiredQty !== r.required || l.calc.expression !== r.expression || l.requirementRemoved || l.area !== r.areaName || l.anchorageType !== updated.anchorageType) {
         changed = true
         if (opts.log && l.requiredQty !== r.required) log.push(entry(at, l, 'quantity', `Required quantity recalculated ${l.requiredQty.toLocaleString('en-CA')} → ${r.required.toLocaleString('en-CA')} (${r.expression})`, [{ field: 'Required', from: String(l.requiredQty), to: String(r.required) }]))
         next.push(updated)
@@ -281,7 +300,7 @@ export function refreshRequirements(s: TrackerState, c: RefSource | undefined, o
     if (seen.has(r.key)) continue
     changed = true
     const line: TrackerLine = {
-      id: r.id, origin: 'anchorage', deriveKey: r.key, breakdown: r.parts, source: { sheet: 'Anchorage library', row: 0 }, area: r.areaName, footingType: '', anchorageType: r.anchorageCodes.join(', '), footings: 0, plinths: 0, bolts: 0,
+      id: r.id, origin: 'anchorage', deriveKey: r.key, designation: r.designation, breakdown: r.parts, source: { sheet: 'Anchorage library', row: 0 }, area: r.areaName, footingType: '', anchorageType: r.anchorageCodes.join(', '), footings: 0, plinths: 0, bolts: 0,
       component: r.name, category: r.category, requiredQty: r.required, calc: { kind: 'derived', formula: null, expression: r.expression, recomputed: r.required }, sourceStatus: '', sourceNotes: [],
       orderedQty: null, receipts: [], confirmedNoReceipts: false, notes: '', description: '', specification: r.spec, size: r.size, unit: 'ea', poRef: '', expectedDate: null, archived: false,
       areaId: r.areaId, foundationId: null, anchorageTypeId: r.parts.length === 1 && !r.parts[0].anchorageTypeId.startsWith('#') ? r.parts[0].anchorageTypeId || null : null, supplierId: null, supplier: '', createdAt: at, createdBy: '',
@@ -309,7 +328,7 @@ export function expectedTotals(c: RefSource): Map<string, number> {
       for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === p.anchorageTypeId)) {
         const n = comp.kind === 'embed-plate' ? ((c.foundationEmbeds ?? []).some((e) => e.foundationId === f.id && e.componentId === comp.id) ? 0 : Math.max(0, footings - overridden)) : footings
         for (const it of itemsOf(comp)) {
-          const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+          const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code ?? '')
           out.set(key, (out.get(key) ?? 0) + n * it.each)
         }
       }
@@ -318,7 +337,7 @@ export function expectedTotals(c: RefSource): Map<string, number> {
       const comp = embedComponent(e, all)
       if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
-        const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+        const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code ?? '')
         out.set(key, (out.get(key) ?? 0) + it.each * (e.mode === 'total' ? 1 : footings))
       }
     }
@@ -327,14 +346,14 @@ export function expectedTotals(c: RefSource): Map<string, number> {
         const comp = all.get(e.componentId)
         if (!comp || comp.kind !== 'embed-plate') continue
         for (const it of itemsOf({ ...comp, qty: e.qty })) {
-          const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+          const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code ?? '')
           out.set(key, (out.get(key) ?? 0) + it.each)
         }
       }
     }
     for (const b of (c.foundationBolts ?? []).filter((x) => x.foundationId === f.id)) {
       for (const it of itemsOf(boltAsComponent(b))) {
-        const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+        const key = reqKey(f.areaId, it, '')
         out.set(key, (out.get(key) ?? 0) + (b.mode === 'total' ? 1 : footings) * it.each)
       }
     }

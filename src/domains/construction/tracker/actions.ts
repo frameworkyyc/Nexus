@@ -291,4 +291,4 @@ export const setPreferredSupplier = (category: ComponentCategory, supplier: stri
   return { state: withConfigLog({ ...s, preferredSuppliers: prefs }, ctx, category, `Preferred supplier for ${category}: ${rec ? rec.name : 'none'}`) }
 }
 
-export { createPurchaseOrder, addOrderLines, cancelPurchaseOrder, recordDelivery, voidDelivery, setAllocations, recordInstallation, voidInstallation } from './procurementActions'
+export { createPurchaseOrder, setPurchaseOrderNumber, addOrderLines, cancelPurchaseOrder, recordDelivery, voidDelivery, setAllocations, recordInstallation, voidInstallation } from './procurementActions'

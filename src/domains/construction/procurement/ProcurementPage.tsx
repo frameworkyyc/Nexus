@@ -13,13 +13,13 @@ import { useAccess } from '@/lib/access'
 import { AccessBar } from '../tracker/manage/AccessBar'
 import { Chips } from '../tracker/manage/MaterialsByArea'
 import { cancelPurchaseOrder, voidDelivery } from '../tracker/commands'
-import { specText } from '../tracker/consolidate'
+import { displayName, specText } from '../tracker/consolidate'
 import { orderProgress, procurementRows, PROC_LABEL, type ProcRow, type ProcStatus } from '../tracker/procurement'
 import { trackerStore, useTracker } from '../tracker/store'
 import { useToast } from '@/components/ui/Toast'
 import { paths } from '../paths'
 import { useConstruction } from '../store'
-import { fmt, OrderModal, ReceiveModal, RowModal, when, who } from './Dialogs'
+import { fmt, OrderModal, PoNumberModal, poLabel, ReceiveModal, RowModal, when, who } from './Dialogs'
 
 type Tab = 'requirements' | 'orders' | 'deliveries'
 const TONE: Record<ProcStatus, Tone> = { pending: 'muted', ordered: 'info', partial: 'warn', received: 'ok' }
@@ -40,7 +40,7 @@ export function ProcurementPage() {
   const [status, setStatus] = useState<ProcStatus | ''>('')
   const [search, setSearch] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string }>(null)
+  const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string } | { kind: 'po'; order: string }>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const areaFilter = params.get('area') ?? ''
 
@@ -119,8 +119,8 @@ export function ProcurementPage() {
                     </td></tr>
                     {g.rows.map((r) => (
                       <tr key={r.key} className={`border-b border-line transition-colors hover:bg-hover ${r.orphan ? 'opacity-70' : ''}`}>
-                        <td><input type="checkbox" aria-label={`Select ${r.name} ${specText(r)}`} checked={picked.has(r.key)} onChange={() => setPicked(toggle(picked, r.key))} /></td>
-                        <td><button type="button" onClick={() => setDialog({ kind: 'row', key: r.key })} className="block text-left"><span className="font-medium underline-offset-4 hover:underline">{r.name}</span>{r.orphan && <span className="ml-2 text-xs text-warn">No longer required</span>}<span className="block text-xs text-muted" title={specText(r)}>{specText(r) || r.unit}</span></button></td>
+                        <td><input type="checkbox" aria-label={`Select ${displayName(r)} ${specText(r)}`} checked={picked.has(r.key)} onChange={() => setPicked(toggle(picked, r.key))} /></td>
+                        <td><button type="button" onClick={() => setDialog({ kind: 'row', key: r.key })} className="block text-left"><span className="font-medium underline-offset-4 hover:underline">{displayName(r)}</span>{r.orphan && <span className="ml-2 text-xs text-warn">No longer required</span>}<span className="block text-xs text-muted" title={specText(r)}>{specText(r) || r.unit}</span></button></td>
                         <td className="text-right font-medium">{fmt(r.required)}</td><td className="text-right">{fmt(r.ordered)}</td><td className="text-right">{fmt(r.received)}</td>
                         <td className="text-right">{fmt(r.outstanding)}</td><td className="text-right" title={`${fmt(r.unallocated)} received and not yet allocated`}>{fmt(r.allocated)}</td>
                         <td><StatusBadge tone={TONE[r.status]} label={PROC_LABEL[r.status]} /></td>
@@ -150,18 +150,18 @@ export function ProcurementPage() {
                   return (
                     <Fragment key={o.id}>
                       <tr className={`border-b border-line transition-colors hover:bg-hover ${o.cancelled ? 'opacity-60' : ''}`}>
-                        <td><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} lines of ${o.number}`} onClick={() => setOpen(toggle(open, o.id))} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
-                        <td className="font-medium">{o.number}</td><td>{o.supplier}</td><td>{formatDate(o.date)}</td>
+                        <td><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} lines of ${poLabel(o)}`} onClick={() => setOpen(toggle(open, o.id))} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
+                        <td className="font-medium">{o.number ? o.number : <span className="font-normal text-muted">Not Assigned</span>}{!o.cancelled && canOrder && <button type="button" className="ml-2 text-xs font-normal text-muted underline-offset-4 hover:text-ink hover:underline" aria-label={`${o.number ? 'Edit' : 'Add'} PO number for ${poLabel(o)} ${o.supplier}`} onClick={() => setDialog({ kind: 'po', order: o.id })}>{o.number ? 'Edit' : 'Add PO number'}</button>}</td><td>{o.supplier}</td><td>{formatDate(o.date)}</td>
                         <td className="text-right">{fmt(p.ordered)}</td><td className="text-right">{fmt(p.received)}</td><td className="text-right">{fmt(o.cancelled ? 0 : p.due)}</td>
                         <td><StatusBadge tone={st === 'Complete' ? 'ok' : st === 'Partially received' ? 'warn' : st === 'Cancelled' ? 'muted' : 'info'} label={st} /></td>
                         <td className="whitespace-nowrap text-right">
                           {!o.cancelled && p.due > 0 && canReceive && <Button className="!h-8" onClick={() => setDialog({ kind: 'receive', keys: [], order: o.id })}>Receive</Button>}
-                          {!o.cancelled && canVoid && p.deliveries.length === 0 && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(`Cancel purchase order ${o.number}? It stays on record.`)) void act(() => trackerStore.run(cancelPurchaseOrder(o.id))) }}>Cancel</Button>}
+                          {!o.cancelled && canVoid && p.deliveries.length === 0 && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(`Cancel ${o.number ? `purchase order ${o.number}` : 'this purchase order (no PO number)'}? It stays on record.`)) void act(() => trackerStore.run(cancelPurchaseOrder(o.id))) }}>Cancel</Button>}
                         </td>
                       </tr>
                       {isOpen && (
                         <tr data-wide><td colSpan={9} className="border-b border-line bg-hover px-3 py-3">
-                          <table className="w-full max-w-4xl text-left" aria-label={`Lines of ${o.number}`}>
+                          <table className="w-full max-w-4xl text-left" aria-label={`Lines of ${poLabel(o)}`}>
                             <thead><tr className="border-b border-line"><th scope="col" className="t-label font-medium">Area</th><th scope="col" className="t-label font-medium">Material</th><th scope="col" className="t-label text-right font-medium">Ordered</th><th scope="col" className="t-label text-right font-medium">Received</th><th scope="col" className="t-label text-right font-medium">Due</th></tr></thead>
                             <tbody>{p.lines.map(({ line, received, due }) => <tr key={line.id} className="border-b border-line"><td>{line.area}</td><td title={`${line.name} ${specText(line)}`}>{line.name}{specText(line) ? ` · ${specText(line)}` : ''}</td><td className="text-right">{fmt(line.qty)}</td><td className="text-right">{fmt(received)}</td><td className="text-right">{fmt(due)}</td></tr>)}</tbody>
                           </table>
@@ -194,7 +194,7 @@ export function ProcurementPage() {
                     <Fragment key={d.id}>
                       <tr className="border-b border-line transition-colors hover:bg-hover">
                         <td><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Hide' : 'Show'} lines of the delivery on ${d.date}`} onClick={() => setOpen(toggle(open, d.id))} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
-                        <td>{formatDate(d.date)}</td><td>{d.reference || <span className="text-muted">—</span>}</td><td>{(state.orders ?? []).find((o) => o.id === d.orderId)?.number ?? <span className="text-muted">—</span>}</td>
+                        <td>{formatDate(d.date)}</td><td>{d.reference || <span className="text-muted">—</span>}</td><td>{(() => { const o = (state.orders ?? []).find((x) => x.id === d.orderId); return o ? (o.number || <span className="text-muted">Not Assigned</span>) : <span className="text-muted">—</span> })()}</td>
                         <td className="text-right">{fmt(lines.reduce((a, l) => a + l.qty, 0))}</td><td>{who(d.by)}</td><td>{when(d.at) || '—'}</td>
                         <td className="text-right">{canVoid && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm('Void this delivery? It is removed from the received totals and stays in the history.')) void act(() => trackerStore.run(voidDelivery(d.id))) }}>Void</Button>}</td>
                       </tr>
@@ -209,6 +209,7 @@ export function ProcurementPage() {
       )}
 
       {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
+      {dialog?.kind === 'po' && (state.orders ?? []).some((o) => o.id === dialog.order) && <PoNumberModal order={(state.orders ?? []).find((o) => o.id === dialog.order)!} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'receive' && <ReceiveModal rows={rows} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
       {dlg && <RowModal row={dlg as ProcRow} state={state} foundationName={foundationName} onClose={() => setDialog(null)} onOrder={() => setDialog({ kind: 'order', keys: [dlg.key] })} onReceive={() => setDialog({ kind: 'receive', keys: [dlg.key] })} />}
     </>

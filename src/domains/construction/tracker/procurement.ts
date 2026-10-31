@@ -82,18 +82,38 @@ function legacyAllocatedBy(g: Consolidated): Map<string, number> {
   return m
 }
 
+/**
+ * Records made before requirements were separated by designation carry the old key (no designation on the end). Such a key follows to its
+ * requirement when exactly one designation now owns it; when several share it the record stays visible under its own old key, so nothing is
+ * lost or guessed. Records already carrying a current key are untouched.
+ */
+export function keyAliases(groups: Pick<Consolidated, 'key' | 'designation'>[]): Map<string, string> {
+  const norm = (t: string) => t.trim().toLowerCase().replace(/\s+/g, ' ')
+  const exact = new Set(groups.map((g) => g.key))
+  const byLegacy = new Map<string, string[]>()
+  for (const g of groups) {
+    if (!g.designation) continue
+    const legacy = g.key.slice(0, g.key.length - norm(g.designation).length - 1)
+    byLegacy.set(legacy, [...(byLegacy.get(legacy) ?? []), g.key])
+  }
+  const out = new Map<string, string>()
+  for (const [legacy, keys] of byLegacy) if (keys.length === 1 && !exact.has(legacy)) out.set(legacy, keys[0])
+  return out
+}
+
 export function procurementRows(s: TrackerState, c: ConsolidationSource): ProcRow[] {
   const groups = consolidate(s, c)
+  const alias = keyAliases(groups)
+  const at = <T extends { key: string }>(r: T): T => (alias.has(r.key) ? { ...r, key: alias.get(r.key)! } : r)
   const live = new Set(activeOrders(s).map((o) => o.id))
-  const orderLines = (s.orderLines ?? []).filter((l) => live.has(l.orderId))
-  const deliveryLines = s.deliveryLines ?? []
-  const allocations = s.allocations ?? []
-  const installs = s.installations ?? []
+  const orderLines = (s.orderLines ?? []).filter((l) => live.has(l.orderId)).map(at)
+  const deliveryLines = (s.deliveryLines ?? []).map(at)
+  const allocations = (s.allocations ?? []).map(at)
+  const installs = (s.installations ?? []).map(at)
   const byKey = new Map(groups.map((g) => [g.key, g]))
   const refs = new Map<string, GroupRef>()
-  for (const l of [...orderLines, ...deliveryLines]) if (!byKey.has(l.key) && !refs.has(l.key)) refs.set(l.key, l)
-  for (const a of allocations) if (!byKey.has(a.key) && !refs.has(a.key)) { /* allocations only follow deliveries, which already carry the reference */ }
-  const orphans: Consolidated[] = [...refs.values()].map((r) => ({ ...r, lines: [], required: 0, contributions: [], removed: true }))
+  for (const l of [...orderLines, ...deliveryLines, ...installs]) if (!byKey.has(l.key) && !refs.has(l.key)) refs.set(l.key, l)
+  const orphans: Consolidated[] = [...refs.values()].map((r) => ({ ...r, designation: r.designation ?? '', lines: [], required: 0, contributions: [], removed: true }))
   return [...groups, ...orphans].map((g): ProcRow => {
     const ol = orderLines.filter((l) => l.key === g.key), dl = deliveryLines.filter((l) => l.key === g.key), al = allocations.filter((a) => a.key === g.key)
     const orderedOnLines = sum(g.lines.map((l) => l.orderedQty ?? 0))
@@ -127,6 +147,7 @@ export interface MergedRow {
   specKey: string
   category: ProcRow['category']
   name: string
+  designation: string
   specification: string
   size: string
   unit: string
@@ -146,8 +167,8 @@ export function mergeAcrossAreas(rows: ProcRow[]): MergedRow[] {
   const out = new Map<string, MergedRow>()
   for (const r of rows) {
     if (r.required <= 0) continue
-    const specKey = [r.category, norm(r.name), norm(r.specification), norm(r.size), norm(r.unit) || 'ea'].join('|')
-    const m = out.get(specKey) ?? { specKey, category: r.category, name: r.name, specification: r.specification, size: r.size, unit: r.unit, required: 0, ordered: 0, received: 0, allocated: 0, installed: 0, stage: 'pending' as MaterialStatus, areas: [] }
+    const specKey = [r.category, norm(r.designation ?? ''), norm(r.name), norm(r.specification), norm(r.size), norm(r.unit) || 'ea'].join('|')
+    const m = out.get(specKey) ?? { specKey, category: r.category, name: r.name, designation: r.designation ?? '', specification: r.specification, size: r.size, unit: r.unit, required: 0, ordered: 0, received: 0, allocated: 0, installed: 0, stage: 'pending' as MaterialStatus, areas: [] }
     m.required += r.required; m.ordered += r.ordered; m.received += r.received; m.allocated += r.allocated; m.installed += r.installed; m.areas.push(r)
     out.set(specKey, m)
   }
