@@ -506,11 +506,10 @@ describe('editing and deleting orders', () => {
     expect(row(t, c, 'OP1-D2')).toMatchObject({ ordered: 5, toOrder: 0 })
   })
 
-  it('refuses to delete an order with deliveries and explains; allows it after the deliveries are voided; refuses when allocations would exceed what stays ordered', () => {
+  it('refuses to delete an order with deliveries and points to cancelling or voiding; allows it after the deliveries are voided; refuses when allocations would exceed what stays ordered', () => {
     const { c, t: t0, d2, id } = setup2()
     let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 2 }] }, TODAY))
-    expect(fails(t, c, A.deletePurchaseOrder(id))).toMatch(/Deliveries have been recorded against Site order, so it cannot be deleted\. Void those deliveries first/)
-    expect(fails(t, c, A.cancelPurchaseOrder(id))).toMatch(/cannot be cancelled/) // the existing safe workflow is equally protective
+    expect(fails(t, c, A.deletePurchaseOrder(id))).toMatch(/Deliveries have been recorded against Site order, so it cannot be deleted\. Cancel the order to keep those deliveries on record, or void the deliveries first/)
     t = run(t, c, A.voidDelivery(t.deliveries![0].id))
     // allocations from a delivery that arrived with no order
     const t1 = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
@@ -522,5 +521,140 @@ describe('editing and deleting orders', () => {
     const gone = run(cancelled, c, A.deletePurchaseOrder(id))
     expect(gone.orders).toHaveLength(0)
     expect(gone.history.at(-1)!.summary).toMatch(/was cancelled/)
+  })
+})
+
+describe('cancelling orders that have deliveries, and correcting deliveries', () => {
+  const place = (lines: { key: string; qty: number }[], o: Partial<Parameters<typeof A.createPurchaseOrder>[0]> = {}) => A.createPurchaseOrder({ number: 'PO-1', supplier: 'Nucor', date: TODAY, lines, name: 'Site order', ...o }, TODAY)
+  function setup3() {
+    const { c } = world()
+    let t = tracked(c)
+    const [d2, d3] = rowsOf(t, c, 'Plywood template')
+    t = run(t, c, place([{ key: d2.key, qty: 5 }, { key: d3.key, qty: 10 }]))
+    const id = t.orders![0].id
+    return { c, t, d2, d3, id }
+  }
+  const row = (t: TrackerState, c: ConstructionState, d: string) => rowsOf(t, c, 'Plywood template').find((r) => r.designation === d)!
+
+  it('cancels an order with a partial delivery: the delivered quantity stays counted, the undelivered is removed, and the requirement reads as still to order', () => {
+    const { c, t: t0, d2, d3, id } = setup3()
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d3.key, qty: 4 }] }, TODAY))
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 10, received: 4, toOrder: 0, status: 'partial' })
+    t = run(t, c, A.cancelPurchaseOrder(id))
+    expect(t.orders![0].cancelled).toBe(true)
+    // D3: 4 delivered stays as ordered and received; the other 6 are to order again. D2: nothing was delivered, so all 5 are removed.
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 4, received: 4, toOrder: 6, outstanding: 6, status: 'partial' })
+    expect(row(t, c, 'OP1-D2')).toMatchObject({ ordered: 0, received: 0, toOrder: 5, status: 'pending', stage: 'pending' })
+    // history is kept: the order, its original line quantities, the delivery and the audit trail
+    expect(t.orderLines!.map((l) => l.qty).sort()).toEqual([10, 5])
+    expect(t.deliveries).toHaveLength(1)
+    expect(t.deliveryLines).toHaveLength(1)
+    expect(t.history.at(-1)!.summary).toMatch(/^Order cancelled: Site order · PO PO-1 — 4 delivered stays recorded, 11 undelivered removed from what is ordered/)
+    expect(t.history.at(-1)!.changes.map((x) => [x.from, x.to]).sort()).toEqual([['10', '4'], ['5', '0']])
+    const p = orderProgress(t, id)
+    expect(p).toMatchObject({ ordered: 4, original: 15, received: 4, due: 0, cancelledQty: 11 })
+    void d2
+  })
+
+  it('refuses further deliveries, edits and a second cancellation on a cancelled order', () => {
+    const { c, t: t0, d3, id } = setup3()
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d3.key, qty: 4 }] }, TODAY))
+    t = run(t, c, A.cancelPurchaseOrder(id))
+    expect(fails(t, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d3.key, qty: 1 }] }, TODAY))).toMatch(/Site order is cancelled, so no further deliveries/)
+    expect(fails(t, c, A.editPurchaseOrder(id, { name: 'x' }))).toMatch(/not available/)
+    expect(fails(t, c, A.addOrderLines(id, [{ key: d3.key, qty: 1 }]))).toMatch(/not available/)
+    expect(fails(t, c, A.cancelPurchaseOrder(id))).toMatch(/already cancelled/)
+    // deliveries may still arrive without an order and are counted on top
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: d3.key, qty: 2 }] }, TODAY))
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 4, received: 6, toOrder: 6 })
+  })
+
+  it('a cancelled order with a fully delivered line keeps it as ordered and delivered; nothing goes negative', () => {
+    const { c, t: t0, d2, id } = setup3()
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
+    t = run(t, c, A.cancelPurchaseOrder(id))
+    expect(row(t, c, 'OP1-D2')).toMatchObject({ ordered: 5, received: 5, toOrder: 0, status: 'received' })
+    for (const r of procurementRows(t, c)) for (const v of [r.ordered, r.received, r.toOrder, r.outstanding, r.unallocated]) expect(v).toBeGreaterThanOrEqual(0)
+    // over-delivery on the line: the cancelled order counts no more than was ordered
+    const t2 = run(run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 7 }] }, TODAY)), c, A.cancelPurchaseOrder(id))
+    expect(orderProgress(t2, id).lines.find((l) => l.line.qty === 5)).toMatchObject({ ordered: 5, received: 7 })
+  })
+
+  it('cancelling an order with no deliveries removes all of it from what is ordered', () => {
+    const { c, t: t0, id } = setup3()
+    const t = run(t0, c, A.cancelPurchaseOrder(id))
+    expect(row(t, c, 'OP1-D2')).toMatchObject({ ordered: 0, toOrder: 5 })
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 0, toOrder: 10 })
+    expect(orderProgress(t, id)).toMatchObject({ ordered: 0, original: 15, cancelledQty: 15 })
+  })
+
+  it('the Materials gauges follow: a cancelled order moves its undelivered requirements back to not ordered', () => {
+    const { c, t: t0, d2, d3, id } = setup3()
+    const counts = (t: TrackerState) => progressCounts(procurementRows(t, c).filter((r) => r.required > 0 && r.name === 'Plywood template'))
+    expect(counts(t0)).toMatchObject({ total: 2, ordered: 2, outstanding: 0 })
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 5 }, { key: d3.key, qty: 3 }] }, TODAY))
+    t = run(t, c, A.cancelPurchaseOrder(id))
+    expect(counts(t)).toMatchObject({ total: 2, ordered: 1, delivered: 1, outstanding: 1 }) // D2 complete, D3 partly delivered and not fully ordered any more
+  })
+
+  it('corrects a delivery: quantity, date, reference and note, with before and after in the history; the order and requirement recalculate', () => {
+    const { c, t: t0, d3, id } = setup3()
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, reference: 'DN-1', lines: [{ key: d3.key, qty: 9 }] }, TODAY))
+    const did = t.deliveries![0].id, lid = t.deliveryLines![0].id
+    t = run(t, c, A.correctDelivery(did, { reference: 'DN-001', note: 'recounted', quantities: [{ lineId: lid, qty: 6 }] }, TODAY))
+    expect(t.deliveries).toHaveLength(1)
+    expect(t.deliveries![0]).toMatchObject({ id: did, reference: 'DN-001', note: 'recounted' })
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ received: 6, outstanding: 4 })
+    expect(orderProgress(t, id).lines.find((l) => l.line.qty === 10)).toMatchObject({ received: 6, due: 4 })
+    const last = t.history.at(-1)!
+    expect(last.summary).toMatch(/^Delivery corrected \(Site order\), dated 2026-10-30: Reference DN-1 → DN-001; Note none → recounted; .*OP1-D3 Plywood template.* 9 → 6 \(delivery now 6 items\)/)
+    expect(last.changes).toHaveLength(3)
+    expect(run(t, c, A.correctDelivery(did, { reference: 'DN-001' }, TODAY)).history).toHaveLength(t.history.length) // unchanged: no noise
+  })
+
+  it('refuses invalid corrections and corrections that would leave less received than allocated or installed', () => {
+    const { c, t: t0, d3, id } = setup3()
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d3.key, qty: 8 }] }, TODAY))
+    const did = t.deliveries![0].id, lid = t.deliveryLines![0].id
+    for (const qty of [0, -1, 2.5, Number.NaN]) expect(fails(t, c, A.correctDelivery(did, { quantities: [{ lineId: lid, qty }] }, TODAY))).toMatch(/whole number of 1 or more/)
+    expect(fails(t, c, A.correctDelivery(did, { date: '2027-01-01' }, TODAY))).toMatch(/future/)
+    expect(fails(t, c, A.correctDelivery(did, { date: 'nonsense' }, TODAY))).toMatch(/valid delivery date/)
+    expect(fails(t, c, A.correctDelivery('nope', { note: 'x' }, TODAY))).toMatch(/no longer exists/)
+    expect(fails(t, c, A.correctDelivery(did, { quantities: [{ lineId: 'zzz', qty: 3 }] }, TODAY))).toMatch(/not on this delivery/)
+    const f = c.foundations[1].id // OP1-D3's 10 foundations
+    t = run(t, c, A.setAllocations(d3.key, [{ foundationId: f, qty: 8 }]))
+    expect(fails(t, c, A.correctDelivery(did, { quantities: [{ lineId: lid, qty: 5 }] }, TODAY))).toMatch(/8 has been allocated .* more than would remain received/)
+    expect(fails(t, c, A.correctDelivery(did, { quantities: [{ lineId: lid, qty: 12 }] }, TODAY))).toBeUndefined() // raising it is fine
+    t = run(t, c, A.setAllocations(d3.key, [{ foundationId: f, qty: 0 }]))
+    t = run(t, c, A.recordInstallation({ key: d3.key, qty: 6, date: TODAY }, TODAY))
+    expect(fails(t, c, A.correctDelivery(did, { quantities: [{ lineId: lid, qty: 5 }] }, TODAY))).toMatch(/6 has been installed/)
+  })
+
+  it('works end to end: a mistaken delivery is voided, then the order can be deleted; allocations still block until they are removed', () => {
+    const { c, t: t0, d3, id } = setup3()
+    let t = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d3.key, qty: 4 }] }, TODAY))
+    expect(fails(t, c, A.deletePurchaseOrder(id))).toMatch(/cannot be deleted\. Cancel the order to keep those deliveries/)
+    t = run(t, c, A.setAllocations(d3.key, [{ foundationId: c.foundations[1].id, qty: 4 }]))
+    expect(fails(t, c, A.voidDelivery(t.deliveries![0].id))).toMatch(/allocated/)
+    t = run(t, c, A.setAllocations(d3.key, [{ foundationId: c.foundations[1].id, qty: 0 }]))
+    t = run(t, c, A.voidDelivery(t.deliveries![0].id))
+    expect(t.history.some((h) => h.action === 'delivery' && /voided/.test(h.summary))).toBe(true)
+    t = run(t, c, A.deletePurchaseOrder(id))
+    expect(t.orders).toHaveLength(0)
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 0, received: 0, toOrder: 10 })
+    expect(t.history.filter((h) => h.action === 'order').length).toBeGreaterThanOrEqual(2) // placed, deleted
+  })
+
+  it('leaves unrelated orders and their deliveries untouched', () => {
+    const { c, t: t0, d2, d3, id } = setup3()
+    let t = run(t0, c, place([{ key: d3.key, qty: 3 }], { name: 'Other', number: 'PO-2' }))
+    const other = t.orders!.find((o) => o.number === 'PO-2')!.id
+    t = run(t, c, A.recordDelivery({ orderId: other, date: TODAY, lines: [{ key: d3.key, qty: 3 }] }, TODAY))
+    const before = JSON.stringify({ o: t.orders!.find((o) => o.id === other), l: t.orderLines!.filter((l) => l.orderId === other), d: t.deliveries!.filter((d) => d.orderId === other) })
+    t = run(t, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 2 }] }, TODAY))
+    t = run(t, c, A.cancelPurchaseOrder(id))
+    expect(JSON.stringify({ o: t.orders!.find((o) => o.id === other), l: t.orderLines!.filter((l) => l.orderId === other), d: t.deliveries!.filter((d) => d.orderId === other) })).toBe(before)
+    expect(orderProgress(t, other)).toMatchObject({ ordered: 3, received: 3, due: 0 })
+    expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 3, received: 3 }) // the other order still counts; the cancelled order's undelivered D3 is gone
   })
 })

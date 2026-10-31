@@ -21,6 +21,7 @@ export const setPurchaseOrderSupplier = tagged.setPurchaseOrderSupplier
 export const setPurchaseOrderName = tagged.setPurchaseOrderName
 export const editPurchaseOrder = tagged.editPurchaseOrder
 export const deletePurchaseOrder = tagged.deletePurchaseOrder
+export const correctDelivery = tagged.correctDelivery
 export const addOrderLines = tagged.addOrderLines
 export const cancelPurchaseOrder = tagged.cancelPurchaseOrder
 export const recordDelivery = tagged.recordDelivery

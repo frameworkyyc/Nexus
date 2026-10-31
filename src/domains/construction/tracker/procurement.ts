@@ -73,6 +73,18 @@ export interface ProcRow extends Consolidated {
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 export const activeOrders = (s: TrackerState): PurchaseOrder[] => (s.orders ?? []).filter((o) => !o.cancelled)
 
+/**
+ * What an order line counts as ordered. A live order counts what was ordered. A cancelled order counts only what had already been delivered
+ * against the line (the undelivered part is cancelled), so cancelling never leaves delivered material unaccounted for and never goes below zero.
+ * The line itself keeps the quantity that was originally ordered.
+ */
+export function deliveredByLine(s: Pick<TrackerState, 'deliveryLines'>): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const d of s.deliveryLines ?? []) if (d.orderLineId) m.set(d.orderLineId, (m.get(d.orderLineId) ?? 0) + d.qty)
+  return m
+}
+export const countedQty = (cancelled: boolean | undefined, line: { id: string; qty: number }, delivered: Map<string, number>) => (cancelled ? Math.min(line.qty, delivered.get(line.id) ?? 0) : line.qty)
+
 /** Received on individual lines for one foundation, per foundation id (null = not tied to a foundation). */
 function legacyAllocatedBy(g: Consolidated): Map<string, number> {
   const m = new Map<string, number>()
@@ -106,8 +118,10 @@ export function procurementRows(s: TrackerState, c: ConsolidationSource): ProcRo
   const groups = consolidate(s, c)
   const alias = keyAliases(groups)
   const at = <T extends { key: string }>(r: T): T => (alias.has(r.key) ? { ...r, key: alias.get(r.key)! } : r)
-  const live = new Set(activeOrders(s).map((o) => o.id))
-  const orderLines = (s.orderLines ?? []).filter((l) => live.has(l.orderId)).map(at)
+  const cancelled = new Set((s.orders ?? []).filter((o) => o.cancelled).map((o) => o.id))
+  const known = new Set((s.orders ?? []).map((o) => o.id))
+  const delivered = deliveredByLine(s)
+  const orderLines = (s.orderLines ?? []).filter((l) => known.has(l.orderId)).map((l) => ({ ...l, qty: countedQty(cancelled.has(l.orderId), l, delivered) })).filter((l) => l.qty > 0).map(at)
   const deliveryLines = (s.deliveryLines ?? []).map(at)
   const allocations = (s.allocations ?? []).map(at)
   const installs = (s.installations ?? []).map(at)
@@ -136,11 +150,14 @@ export function procurementRows(s: TrackerState, c: ConsolidationSource): ProcRo
 export function orderProgress(s: TrackerState, orderId: string) {
   const lines = (s.orderLines ?? []).filter((l) => l.orderId === orderId)
   const deliveries = (s.deliveries ?? []).filter((d) => d.orderId === orderId)
+  const cancelled = !!(s.orders ?? []).find((o) => o.id === orderId)?.cancelled
   const lineRows = lines.map((l) => {
     const received = sum((s.deliveryLines ?? []).filter((d) => deliveries.some((x) => x.id === d.deliveryId) && (d.orderLineId === l.id)).map((d) => d.qty))
-    return { line: l, received, due: Math.max(0, l.qty - received) }
+    // A cancelled order counts what was delivered as ordered and owes nothing more; `original` is what was first ordered.
+    const counted = cancelled ? Math.min(l.qty, received) : l.qty
+    return { line: l, original: l.qty, ordered: counted, received, due: cancelled ? 0 : Math.max(0, l.qty - received), cancelledQty: cancelled ? Math.max(0, l.qty - received) : 0 }
   })
-  return { lines: lineRows, ordered: sum(lines.map((l) => l.qty)), received: sum(lineRows.map((r) => r.received)), due: sum(lineRows.map((r) => r.due)), deliveries }
+  return { lines: lineRows, ordered: sum(lineRows.map((r) => r.ordered)), original: sum(lines.map((l) => l.qty)), received: sum(lineRows.map((r) => r.received)), due: sum(lineRows.map((r) => r.due)), cancelledQty: sum(lineRows.map((r) => r.cancelledQty)), deliveries }
 }
 
 /** One requirement across areas: the same specification everywhere it is needed, with each area's own figures kept. */
