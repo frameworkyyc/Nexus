@@ -3,12 +3,10 @@ import { foundationQuantity } from './foundationQuantity'
 
 /** Metres per unit. Every dimension is converted to metres before multiplying, so a volume never depends on the unit it was typed in. */
 export const LENGTH_UNITS: LengthUnit[] = ['mm', 'cm', 'm', 'in', 'ft']
-export const UNIT_LABEL: Record<LengthUnit, string> = { mm: 'mm', cm: 'cm', m: 'm', in: 'in', ft: 'ft' }
 const METRES: Record<LengthUnit, number> = { mm: 0.001, cm: 0.01, m: 1, in: 0.0254, ft: 0.3048 }
 export const isLengthUnit = (u: unknown): u is LengthUnit => typeof u === 'string' && u in METRES
 export const toMetres = (value: number, unit: LengthUnit) => value * METRES[unit]
 
-export const NO_DIMS: Dims = { length: null, width: null, height: null, unit: 'mm' }
 export const hasAnyDim = (d: Dims | null | undefined) => !!d && (d.length !== null || d.width !== null || d.height !== null)
 const valid = (n: number | null): n is number => n !== null && Number.isFinite(n) && n > 0
 

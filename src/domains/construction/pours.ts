@@ -8,8 +8,6 @@ export const compKey = (foundationId: string, unit: number, plinthId: string | n
 export const isOpen = (p: Pour) => p.status === 'planned' || p.status === 'scheduled'
 export const PLAN_LABEL: Record<Pour['status'], string> = { planned: 'Planned', scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' }
 
-export const pourCounts = (s: ConstructionState) => ({ pours: s.pours ?? [], items: s.pourItems ?? [] })
-
 export function concreteOf(s: ConstructionState, f: Foundation): FoundationConcrete {
   return foundationConcrete(f, s.plinths, (s.anchorageGroups ?? []).filter((g) => g.foundationId === f.id))
 }

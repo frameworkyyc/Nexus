@@ -109,8 +109,6 @@ export function materialsProgress(lines: TrackerLine[]): MaterialsProgress {
   }
 }
 
-export const unacknowledged = (state: TrackerState) => state.flags.filter((f) => f.severity === 'review' && !state.acknowledged[f.id])
-
 /** Required − total delivered, never below zero. */
 export const outstandingOf = remainingOf
 

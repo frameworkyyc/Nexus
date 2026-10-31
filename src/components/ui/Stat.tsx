@@ -10,7 +10,3 @@ export function Stat({ label, value, sub }: { label: string; value: ReactNode; s
   )
 }
 
-/** A row of stats separated by thin dividers. */
-export function StatRow({ children }: { children: ReactNode }) {
-  return <dl className="grid grid-cols-2 gap-y-6 border-y border-line py-6 sm:grid-cols-3 lg:grid-cols-5 lg:divide-x lg:divide-line [&>div]:lg:px-6 [&>div:first-child]:lg:pl-0">{children}</dl>
-}

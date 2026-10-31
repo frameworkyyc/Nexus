@@ -52,7 +52,6 @@ const attr = (tag: string, name: string) => new RegExp(`\\b${name}="([^"]*)"`).e
 const textOf = (xml: string) => [...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => decodeEntities(m[1])).join('')
 
 const colToNum = (c: string) => [...c].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0)
-export const colLetter = (n: number) => { let s = ''; for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s }
 export { colToNum }
 
 function parseSheet(name: string, xml: string, shared: string[], comments: Map<string, string>): XSheet {

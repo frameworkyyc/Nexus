@@ -13,8 +13,6 @@ import type { Delivery, GroupRef, PurchaseOrder, TrackerState } from '../tracker
 import { CATEGORY_LABEL } from '../tracker/selectors'
 
 export const fmt = (n: number) => n.toLocaleString('en-CA')
-/** An order's number, or "Not Assigned" when it has none (the number is optional and can be added later). */
-export const poLabel = (o: { number: string }) => o.number || 'Not Assigned'
 export const when = (at: string) => (at ? new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '')
 export const who = (by: string) => by || 'user not recorded'
 const name = (r: { name: string; designation?: string; specification: string; size: string }) => `${displayName(r)}${specText(r) ? ` · ${specText(r)}` : ''}`

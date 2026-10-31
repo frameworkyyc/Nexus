@@ -49,5 +49,3 @@ export function foundationTotals(foundations: Foundation[], plinths: Plinth[]): 
   return t
 }
 
-/** The quantity as shown in lists, e.g. "18". */
-export const quantityLabel = (f: Foundation) => `${foundationQuantity(f).toLocaleString('en-CA')}`

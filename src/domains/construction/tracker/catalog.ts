@@ -14,7 +14,6 @@ export interface CatalogAnchorage { id: string; code: string; description: strin
 export interface Catalog { areas: CatalogArea[]; foundations: CatalogFoundation[]; anchorage: CatalogAnchorage[] }
 
 export type CatalogSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'>
-export const emptyCatalog = (): Catalog => ({ areas: [], foundations: [], anchorage: [] })
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 export const WORKBOOK_ANCHORAGE_PREFIX = 'wb:'

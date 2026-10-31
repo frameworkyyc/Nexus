@@ -12,8 +12,6 @@
  */
 export type Status = 'ok' | 'warn' | 'bad' | 'unknown' | 'info'
 
-export const STATUS_WORD: Record<Status, string> = { ok: 'OK', warn: 'Attention', bad: 'Critical', unknown: 'Unknown', info: 'Info' }
-
 /** CSS custom properties defined in index.css (with dark-safe, AA-contrast values for text on the canvas). */
 export const STATUS_COLOR: Record<Status, string> = {
   ok: 'var(--nx-ok)',

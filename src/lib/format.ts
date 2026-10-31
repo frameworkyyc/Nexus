@@ -10,10 +10,6 @@ export function formatShortDate(iso: string | null | undefined): string {
   return parseISO(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })
 }
 
-export function formatNumber(n: number): string {
-  return n.toLocaleString('en-CA')
-}
-
 export function pct(done: number, total: number): number {
   return total === 0 ? 0 : Math.round((done / total) * 100)
 }

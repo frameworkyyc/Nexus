@@ -1,4 +1,4 @@
-import { remainingStatus, worstStatus, type Status } from '@/components/viz/status'
+import { remainingStatus, type Status } from '@/components/viz/status'
 import type { ISODate } from '@/lib/date'
 import { activeTireSet, currentOilTarget, currentServiceTarget, inspectionStatus, isOilChange, lastService, latestOdometer, latestTread, maintenanceOf, outstandingDefects, tireKm } from './selectors'
 import { fmtMeter, lifespanOf, meterUnitOf } from './meter'
@@ -211,5 +211,3 @@ export function inspectionIndicator(state: FleetState, vehicleId: string, today:
   return { ...common, cadence, status, label: awaitingReview && cadence === 'current' ? `${when} · awaiting review` : when, daysSince: i.daysSince, daysUntilDue, awaitingReview }
 }
 
-/** The single worst status across the gauges. Unknown gauges keep a vehicle from reading as fully healthy. */
-export const rollUp = (...statuses: Status[]): Status => worstStatus(statuses)

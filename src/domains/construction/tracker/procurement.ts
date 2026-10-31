@@ -71,7 +71,6 @@ export interface ProcRow extends Consolidated {
 }
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
-export const activeOrders = (s: TrackerState): PurchaseOrder[] => (s.orders ?? []).filter((o) => !o.cancelled)
 
 /**
  * What an order line counts as ordered. A live order counts what was ordered. A cancelled order counts only what had already been delivered

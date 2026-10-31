@@ -16,14 +16,6 @@ import type { ConstructionState, Foundation } from '../types'
 export const parseQuantity = (t: string) => (t.trim() === '' ? 1 : Number(t))
 /** Plinths-per-foundation text → number; blank means not known (never zero). */
 export const parsePlinths = (t: string) => (t.trim() === '' ? null : Number(t))
-/** "Total plinths" shown live while typing: quantity × plinths per foundation, or why it can't be calculated. */
-export function totalText(qty: string, per: string): string {
-  const q = parseQuantity(qty), p = parsePlinths(per)
-  if (!Number.isInteger(q) || q < 1) return 'Enter a quantity of 1 or more'
-  if (p === null) return 'Not known — enter plinths per foundation'
-  if (!Number.isInteger(p) || p < 0) return 'Enter plinths per foundation as a whole number'
-  return (q * p).toLocaleString('en-CA')
-}
 
 /** Adds a code to the project's Anchorage Library and returns the new type's id. Used by the anchorage group fields, so a type can be created while configuring a foundation. */
 async function createAnchorageType(projectId: string, code: string): Promise<{ id: string } | { error: string }> {

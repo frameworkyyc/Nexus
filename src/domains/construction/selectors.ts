@@ -532,8 +532,6 @@ export function evaluateHandover(idx: Index, areaId: string): HandoverEvaluation
   return { phase, record, items, constructionComplete, allMet, stats, outstandingFoundations: stats.foundations - stats.constructed, openDeficiencies, label }
 }
 
-export const phaseIndex = (p: HandoverPhase) => HANDOVER_PHASES.findIndex((x) => x.id === p)
-
 /* ── Issues requiring attention ─────────────────────────────────────────── */
 
 export type IssueSeverity = 'high' | 'medium' | 'low'
@@ -659,13 +657,6 @@ export function upcomingWork(idx: Index, today: ISODate, days = 14, areaId?: str
     .sort((a, b) => a.activity.plannedDate!.localeCompare(b.activity.plannedDate!))
 }
 
-export function activitiesWhere(idx: Index, pred: (a: Activity, def: ActivityDef, status: ActivityStatus) => boolean, areaId?: string): UpcomingItem[] {
-  return idx.state.activities
-    .filter((a) => pred(a, getDef(a.scope, a.key), effectiveStatus(idx, a)))
-    .map((a) => ({ activity: a, title: activityTitle(idx, a), foundation: idx.foundation.get(a.foundationId)!, status: effectiveStatus(idx, a) }))
-    .filter((x) => !areaId || x.foundation.areaId === areaId)
-}
-
 /* ── Workforce context ──────────────────────────────────────────────────── */
 
 export function onSite(offsetDays: number, anchor: ISODate, date: ISODate): boolean {
@@ -681,7 +672,6 @@ export function crewsOnSite(idx: Index, date: ISODate) {
     superintendents: s.people.filter((p) => p.role === 'superintendent' && p.offsetDays !== null && onSite(p.offsetDays, s.rotationAnchor, date)),
   }
 }
-
 
 /* ── Plinth material readiness and area status ──────────────────────────── */
 

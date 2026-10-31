@@ -1,5 +1,3 @@
-import { NavLink } from 'react-router-dom'
-
 // Desktop: underlined text tabs (unchanged). Phone: large pill chips that scroll sideways (an intentional scroll area).
 const base = 'relative shrink-0 whitespace-nowrap pb-3 text-[13px] transition-colors phone:inline-flex phone:h-11 phone:items-center phone:rounded-full phone:border phone:px-4 phone:pb-0 phone:text-[15px]'
 const on = 'text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-ink phone:border-ink phone:bg-ink phone:text-white phone:after:hidden'
@@ -25,14 +23,3 @@ export function Tabs<T extends string>({ items, value, onChange }: { items: TabI
   )
 }
 
-export function NavTabs({ items }: { items: { to: string; label: string; end?: boolean }[] }) {
-  return (
-    <nav className={row} aria-label="Sections" data-compact>
-      {items.map((t) => (
-        <NavLink key={t.to} to={t.to} end={t.end} className={({ isActive }) => `${base} ${isActive ? on : off}`}>
-          {t.label}
-        </NavLink>
-      ))}
-    </nav>
-  )
-}

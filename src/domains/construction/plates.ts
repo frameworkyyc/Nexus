@@ -14,7 +14,6 @@ export const plateAsComponent = (p: PlateSpec, id: string): AnchorageComponent =
   nutsPerBolt: 0, washersPerBolt: 0, nutSize: '', washerSize: '',
 })
 
-export const libraryPlateId = (p: LibraryEmbedPlate) => p.id
 /** What a foundation's embed plate entry refers to: a library embed plate (an anchorage type's, or one saved to the library), or its own specification. */
 export function embedComponent(e: FoundationEmbed, byId: Map<string, AnchorageComponent>): AnchorageComponent | undefined {
   if (e.componentId) return byId.get(e.componentId)

@@ -20,7 +20,12 @@ export interface Snapshot { rows: RowSet; version: number; // eslint-disable-nex
 
 export async function readModule(db: D1, module: ModuleName): Promise<Snapshot> {
   const spec = MODULES[module]
-  const [rows, v] = await Promise.all([loadRows(db, spec.tables), db.prepare('SELECT version FROM module_versions WHERE module = ?').bind(module).first<{ version: number }>()])
+  // Both reads are started inside async functions so that a failure while preparing either one rejects the Promise.all instead of throwing
+  // after the other read has already started, which would leave that read's rejection unhandled.
+  const [rows, v] = await Promise.all([
+    loadRows(db, spec.tables),
+    (async () => db.prepare('SELECT version FROM module_versions WHERE module = ?').bind(module).first<{ version: number }>())(),
+  ])
   return { rows, version: Number(v?.version ?? 0), state: spec.fromRows(rows) }
 }
 
