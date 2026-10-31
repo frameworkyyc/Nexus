@@ -172,7 +172,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const assigned = fleet.assignments.filter((a) => a.projectId === projectId && !a.endDate).length
   const admin = access.can('structure.manage')
   const steps = [
-    { done: areas.length > 0, title: 'Add construction areas', text: 'Areas group a project’s foundations and materials.', to: paths.register(projectId), cta: 'Open the Foundation Register', admin: true },
+    { done: areas.length > 0, title: 'Add construction areas', text: 'Areas group a project’s foundations and materials.', to: paths.register(projectId), cta: 'Open Foundations', admin: true },
     { done: foundations.length > 0, title: 'Add foundations', text: 'Add them one at a time, or a whole list at once.', to: paths.register(projectId), cta: 'Add foundations', admin: true },
     { done: anchorage.length > 0, title: 'Set up the anchorage library', text: 'Define anchorage types once; materials and plinths select from them.', to: paths.anchorage(projectId), cta: 'Open the anchorage library', admin: true },
     { done: materials > 0, title: 'Add materials', text: 'Add them manually, in bulk, or import an Excel tracker.', to: paths.materials(projectId), cta: 'Open Materials', admin: false },

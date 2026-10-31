@@ -26,7 +26,7 @@ const on = 'text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-px 
 const off = 'text-muted hover:text-ink'
 
 /**
- * One navigation row: Overview · Areas ▾ · Register · Materials · Fabrication · Anchorage · Handover · Fleet.
+ * One navigation row: Overview · Areas · Foundations · Materials · Fabrication · Anchorage · Handover · Fleet.
  * Areas live in a menu (not a second row); full labels appear when there is room.
  */
 export function ProjectLayout() {
@@ -51,7 +51,7 @@ export function ProjectLayout() {
   const currentArea = state.areas.find((a) => pathname.includes(`/areas/${a.id}`))
   const allSections = [
     { to: paths.project(projectId), full: `${project.name} overview`, short: 'Overview', end: true },
-    { to: paths.register(projectId), full: 'Foundation register', short: 'Register' },
+    { to: paths.register(projectId), full: 'Foundations', short: 'Foundations' },
     { to: paths.materials(projectId), full: 'Materials', short: 'Materials' },
     ...(IS_PUBLIC_DEMO ? [] : [{ to: paths.procurement(projectId), full: 'Procurement', short: 'Procurement' }]),
     { to: paths.pours(projectId), full: 'Concrete pours', short: 'Pours' },

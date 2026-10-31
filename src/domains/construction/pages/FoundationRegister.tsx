@@ -137,7 +137,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         phone={phone}
         filterCount={areaId ? 2 : 3}
         activeFilters={[areaFilter, stateFilter, typeFilter].filter((v) => v !== 'all').length}
-        search={<Input data-search type="search" placeholder="Search foundations" aria-label="Search register" value={query} onChange={(e) => setQuery(e.target.value)} />}
+        search={<Input data-search type="search" placeholder="Search foundations" aria-label="Search foundations" value={query} onChange={(e) => setQuery(e.target.value)} />}
         filters={(
           <>
             {!areaId && (
@@ -166,12 +166,12 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         secondaryEnd={phone ? (
           <>
             <SortBar options={[{ key: 'number', label: 'Foundation Name' }, { key: 'construction', label: 'Construction' }, { key: 'survey', label: 'Survey' }, { key: 'qaqc', label: 'QA/QC' }, { key: 'state', label: 'Status' }]} value={sort.key} dir={sort.dir} onChange={(k) => setSort({ key: k, dir: 1 })} onToggleDir={() => setSort((x) => ({ ...x, dir: x.dir === 1 ? -1 : 1 }))} />
-            <Segmented label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />
+            <Segmented label="Foundations view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />
             {!areaId && <AddAreaButton projectId={projectId} />}
           </>
         ) : (
           <>
-            <ViewToggle label="Register view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />
+            <ViewToggle label="Foundations view" value={view} onChange={setView} items={[{ id: 'foundations', label: 'Foundations' }, { id: 'plinths', label: 'Plinths' }]} />
             {!areaId && <AddAreaButton projectId={projectId} />}
           </>
         )}
@@ -182,7 +182,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         rows.length === 0 ? (
           <EmptyState
             title={state.areas.some((a) => a.projectId === projectId && !a.archived) ? 'No foundations yet' : 'No construction areas yet'}
-            description={state.areas.some((a) => a.projectId === projectId && !a.archived) ? 'Add foundations to build this register. Materials, survey and QA/QC then use them automatically.' : 'Create an area first, then add its foundations. You can add several foundations at once.'}
+            description={state.areas.some((a) => a.projectId === projectId && !a.archived) ? 'Add foundations to build this list. Materials, survey and QA/QC then use them automatically.' : 'Create an area first, then add its foundations. You can add several foundations at once.'}
             action={<div className="flex flex-wrap justify-center gap-2">{!areaId && !state.areas.some((a) => a.projectId === projectId && !a.archived) && <AddAreaButton projectId={projectId} />}<AddFoundationButton projectId={projectId} areaId={areaId} /></div>}
           />
         ) : <EmptyState title="No foundations match" description="Adjust the search or filters." />

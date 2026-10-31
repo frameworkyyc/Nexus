@@ -57,7 +57,7 @@ export const constructionRoutes: RouteObject[] = [
         handle: { crumb: ProjectCrumb } satisfies CrumbHandle,
         children: [
           { index: true, element: <ProjectHome /> },
-          { path: 'register', element: <RegisterPage />, handle: text('Foundation register') },
+          { path: 'register', element: <RegisterPage />, handle: text('Foundations') },
           { path: 'materials', element: <MaterialsPage />, handle: text('Materials') },
           { path: 'materials/records', element: <MaterialRecordsPage />, handle: text('Material records') },
           ...(IS_PUBLIC_DEMO ? [] : [{ path: 'procurement', element: <ProcurementPage />, handle: text('Procurement') }]),

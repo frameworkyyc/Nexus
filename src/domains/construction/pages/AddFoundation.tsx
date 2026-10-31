@@ -179,7 +179,7 @@ function AddAreaModal({ projectId, onClose }: { projectId: string; onClose: () =
   return (
     <Modal title="Add construction area" onClose={onClose} wide>
       <div className="space-y-4 p-6 text-[13px]">
-        <p className="text-muted">Define the area and its foundations together. More foundations can be added later from the Foundation Register. Nothing is marked as started.</p>
+        <p className="text-muted">Define the area and its foundations together. More foundations can be added later from Foundations. Nothing is marked as started.</p>
         <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
           <Field label="Area name *"><Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Control Building" /></Field>
           <Field label="Identifier (optional)"><Input value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="e.g. A-100" /></Field>
@@ -255,7 +255,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   return (
     <Modal title={`Foundation ${f.number}`} onClose={onClose} form>
       <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
-        {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default register view. Every record keeps pointing at it.</p>}
+        {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default Foundations view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
         <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
         <FoundationConfigFields draft={draft} onChange={setDraft} types={types} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
@@ -263,7 +263,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" disabled={saving || !changed || !number.trim()} onClick={() => void save()}>{saving ? 'Saving…' : 'Save changes'}</Button>
-          <Button disabled={saving} onClick={() => { if (f.archived || window.confirm(`Archive foundation ${f.number}? It is hidden from pickers and the default register view; nothing is deleted.`)) void go([() => constructionStore.run(archiveFoundation(id, !f.archived))]) }}>{f.archived ? 'Restore' : 'Archive'}</Button>
+          <Button disabled={saving} onClick={() => { if (f.archived || window.confirm(`Archive foundation ${f.number}? It is hidden from pickers and the default Foundations view; nothing is deleted.`)) void go([() => constructionStore.run(archiveFoundation(id, !f.archived))]) }}>{f.archived ? 'Restore' : 'Archive'}</Button>
           <Button variant="ghost" onClick={onClose}>Close</Button>
         </div>
       </div>

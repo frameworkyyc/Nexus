@@ -50,7 +50,7 @@ export function FoundationConcrete({ f, plinths, projectId }: { f: Foundation; p
                   <td className="pr-4 tabular-nums">{r.missing ? <span className="text-muted">{r.known ? `${volumeLabel(r.knownTotal)} + ` : ''}{r.missing} without dimensions</span> : volumeLabel(r.knownTotal)}</td>
                 </tr>
               ))}
-              {!by.length && <tr><td colSpan={4} className="py-3 text-muted">No plinths configured. Use Manage on the register to enter anchorage groups.</td></tr>}
+              {!by.length && <tr><td colSpan={4} className="py-3 text-muted">No plinths configured. Use Manage in Foundations to enter anchorage groups.</td></tr>}
               {by.length > 1 && <tr className="font-medium"><td className="py-2 pr-4">Total</td><td className="pr-4 tabular-nums">{c.plinths.length}</td><td className="pr-4 tabular-nums">{(c.plinths.length * qty).toLocaleString('en-CA')}</td><td /></tr>}
             </tbody>
           </table>

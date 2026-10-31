@@ -132,12 +132,12 @@ export function AddMaterialModal({ initial, duplicate, title = 'Add material', p
           <Field label="Anchorage type"><SearchSelect label="Anchorage type" value={m.anchorageTypeId} options={anchorageOptions} onChange={(id) => set({ anchorageTypeId: id })} emptyLabel="None" placeholder="Search by code or description" /></Field>
         </div>
         {catalog.areas.filter((a) => !a.archived).length === 0 && (
-          <p role="status" className="-mt-3 border-l-2 border-warn pl-3 text-xs">This project has no construction areas yet, so there is nothing to select. {access.can('structure.manage') ? <>Create an area in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link> first.</> : 'Ask an administrator to create the areas first.'}</p>
+          <p role="status" className="-mt-3 border-l-2 border-warn pl-3 text-xs">This project has no construction areas yet, so there is nothing to select. {access.can('structure.manage') ? <>Create an area in <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundations</Link> first.</> : 'Ask an administrator to create the areas first.'}</p>
         )}
         {m.areaId && foundations.length === 0 && (
-          <p className="-mt-3 text-xs text-muted">This area has no foundations yet. {access.can('structure.manage') ? <>Add them in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link>.</> : 'An administrator can add them in the Foundation Register.'}</p>
+          <p className="-mt-3 text-xs text-muted">This area has no foundations yet. {access.can('structure.manage') ? <>Add them in <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundations</Link>.</> : 'An administrator can add them in Foundations.'}</p>
         )}
-        {m.areaId && foundations.length > 0 && access.can('structure.manage') && <p className="-mt-3 text-xs text-muted">Foundation missing? Add it in the <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundation Register</Link>.</p>}
+        {m.areaId && foundations.length > 0 && access.can('structure.manage') && <p className="-mt-3 text-xs text-muted">Foundation missing? Add it in <Link className="underline underline-offset-4" to={paths.register(projectId ?? '')} onClick={onClose}>Foundations</Link>.</p>}
 
         {mode === 'one' ? (
           <>

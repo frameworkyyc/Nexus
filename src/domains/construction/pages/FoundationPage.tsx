@@ -39,7 +39,7 @@ export function FoundationPage() {
   const [defTitle, setDefTitle] = useState('')
   const [defSeverity, setDefSeverity] = useState<'minor' | 'major'>('minor')
   const f = idx.foundation.get(foundationId)
-  if (!f) return <EmptyState title="Foundation not found" action={<Link to={paths.register(projectId)} className="text-[13px] underline underline-offset-4">Back to register</Link>} />
+  if (!f) return <EmptyState title="Foundation not found" action={<Link to={paths.register(projectId)} className="text-[13px] underline underline-offset-4">Back to foundations</Link>} />
 
   const area = idx.area.get(f.areaId)!
   const plinths = idx.plinthsByFoundation.get(f.id) ?? []
@@ -55,7 +55,7 @@ export function FoundationPage() {
   return (
     <>
       <Link to={paths.area(projectId, area.id, 'register')} className="mb-5 phone:hidden inline-flex items-center gap-1.5 text-[13px] text-muted transition-colors hover:text-ink">
-        <ArrowLeft size={14} strokeWidth={1.5} />{area.name} register
+        <ArrowLeft size={14} strokeWidth={1.5} />{area.name} foundations
       </Link>
       <PageHeader title={f.number} description={[area.name, f.description, `Quantity ${foundationQuantity(f).toLocaleString('en-CA')}`, plinthsPerFoundation(f, plinths.length) === null ? 'Plinths per foundation not known' : `${plinthsPerFoundation(f, plinths.length)} plinth${plinthsPerFoundation(f, plinths.length) === 1 ? '' : 's'} per foundation`, totalPlinths(f, plinths.length) === null ? '' : `${totalPlinths(f, plinths.length)!.toLocaleString('en-CA')} plinths in total`].filter(Boolean).join(' · ')} actions={<FoundationStateBadge state={fs.state} blocked={fs.blocked} />} />
 
@@ -198,7 +198,7 @@ function PlinthBlock({ f, p, projectId, defaultOpen }: { f: Foundation; p: Plint
               <option value="">None assigned</option>
               {state.anchorageTypes.map((t) => <option key={t.id} value={t.id}>{t.code} — {t.description}</option>)}
             </Select>
-            {grouped && <p className="mt-1 text-xs text-muted">Set by this foundation’s anchorage groups (Manage on the register).</p>}
+            {grouped && <p className="mt-1 text-xs text-muted">Set by this foundation’s anchorage groups (Manage in Foundations).</p>}
           </Field>
           <div>
             <span className="t-label mb-1.5 block">Anchor bolts</span>

@@ -39,7 +39,7 @@ export function PoursPage() {
       <PourLegend />
       <div className="mt-6">
         {pours.length === 0 ? (
-          <EmptyState title={hasFoundations ? 'No pours planned yet' : 'No foundations yet'} description={hasFoundations ? 'Create a pour, then add the foundations, footings and plinths it covers.' : 'Add foundations to the register before planning a pour.'} action={canPlan && hasFoundations ? <Button onClick={() => setCreating(true)}><Plus size={14} strokeWidth={1.5} />New pour</Button> : undefined} />
+          <EmptyState title={hasFoundations ? 'No pours planned yet' : 'No foundations yet'} description={hasFoundations ? 'Create a pour, then add the foundations, footings and plinths it covers.' : 'Add foundations before planning a pour.'} action={canPlan && hasFoundations ? <Button onClick={() => setCreating(true)}><Plus size={14} strokeWidth={1.5} />New pour</Button> : undefined} />
         ) : (
           <div className="overflow-x-auto">
             <table className="card-table w-full min-w-[640px] border-collapse text-left text-[13px]">
