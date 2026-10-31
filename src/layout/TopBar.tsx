@@ -1,9 +1,6 @@
-import { Link, NavLink, useLocation, useMatches, type Params } from 'react-router-dom'
-import { PRIMARY_NAV, activePrimary } from '@/app/primaryNav'
-import { useProjectContext } from '@/app/projectContext'
+import { Link, useMatches, type Params } from 'react-router-dom'
 import { useTenant } from '@/app/tenant'
 import type { ComponentType } from 'react'
-import { MoreMenu } from './MoreMenu'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { SyncIndicator } from './SyncIndicator'
 
@@ -15,40 +12,15 @@ export interface CrumbHandle {
   noLink?: boolean
 }
 
-/**
- * Desktop and iPad header: Nexus · project selector · the four primary sections · More. Below it a thin breadcrumb line shows where you
- * are. Section names are shortened below the `xl` breakpoint so everything fits on an iPad held upright.
- */
+/** Header: the project selector and breadcrumbs on the left, sync status and the user on the right. The sections themselves are in the sidebar. */
 export function TopBar() {
   const tenant = useTenant()
-  const { projectId } = useProjectContext()
-  const { pathname } = useLocation()
-  const active = activePrimary(pathname)
   const crumbs = useMatches().filter((m) => (m.handle as CrumbHandle | undefined)?.crumb)
   return (
-    <header className="shrink-0 border-b border-line bg-surface">
-      <div className="flex h-14 items-center gap-3 px-4 sm:px-6 lg:gap-6">
-        <Link to="/" aria-label="Nexus home" className="shrink-0 leading-none"><span className="block text-[15px] font-semibold tracking-[0.28em]">NEXUS</span><span className="mt-1 block text-micro tracking-wide text-muted">by Framework</span></Link>
+    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-4 sm:px-6">
+      <div className="flex min-w-0 items-center gap-4">
         <ProjectSwitcher />
-        <nav aria-label="Primary" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto lg:gap-1">
-          {PRIMARY_NAV.map((s) => {
-            const on = active === s.id
-            return (
-              <NavLink key={s.id} to={s.to(projectId)} aria-current={on ? 'page' : undefined} className={`relative flex h-14 shrink-0 items-center px-2.5 text-[13px] transition-colors lg:px-3.5 ${on ? 'font-medium text-ink after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-ink' : 'text-muted hover:text-ink'}`}>
-                <span className="hidden xl:inline">{s.label}</span><span className="xl:hidden">{s.short}</span>
-              </NavLink>
-            )
-          })}
-        </nav>
-        <MoreMenu />
-        <div className="flex shrink-0 items-center gap-3">
-          <SyncIndicator />
-          <span className="hidden text-[13px] text-muted 2xl:inline">{tenant.organization || 'Nexus'}</span>
-          <div aria-label="User avatar placeholder" className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-micro font-medium text-white">{tenant.userInitials}</div>
-        </div>
-      </div>
-      {crumbs.length > 1 && (
-        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap border-t border-line/60 bg-canvas px-4 py-2 text-[12.5px] sm:px-6">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-[13px]">
           {crumbs.map((m, i) => {
             const Crumb = (m.handle as CrumbHandle).crumb!
             const last = i === crumbs.length - 1
@@ -60,7 +32,12 @@ export function TopBar() {
             )
           })}
         </nav>
-      )}
+      </div>
+      <div className="flex shrink-0 items-center gap-4">
+        <SyncIndicator />
+        <span className="hidden text-[13px] text-muted lg:inline">{tenant.organization || 'Nexus'}</span>
+        <div aria-label="User avatar placeholder" className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-micro font-medium text-white">{tenant.userInitials}</div>
+      </div>
     </header>
   )
 }

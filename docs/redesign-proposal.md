@@ -39,9 +39,11 @@ This revision replaces the earlier all-disciplines proposal. **Approved with one
 
 ## 2. Revised navigation structure
 
-### 2.1 Frame
-Header (desktop and iPad): logo · **Project selector** · **Project Progress · Project Management · Foundation Overview · Fleet** · More ▾
-Phone: bottom bar with the same four items, project selector in the top bar, More in the top-right menu.
+### 2.1 Frame (revised after Stage 1 review: the left sidebar is back)
+**Desktop (1024px and up):** the original dark Nexus sidebar stays open on the left. It lists the four sections, **Project Progress, Project Management, Foundation Overview and Fleet**, and each one expands to its own pages (areas, disciplines, setup pages), so any page is one click away. Below them a secondary **Tools** group holds Setup (expandable), Issues, Fleet on this project, Fabrication/Handover (demo only), All projects, Company overview, Crew, Safety and Data & backups. A toggle shrinks the sidebar to an icon rail (remembered).
+**Header:** the **project selector** and breadcrumbs on the left; sync status and the user on the right.
+**iPad (768 to 1023px):** the icon rail stays in view; its toggle opens the full sidebar over the page (closes on selection, backdrop tap or Escape).
+**Phone:** the bottom bar with Progress · Manage · Foundation · Fleet, the project selector in the top bar, and a menu with the Tools list.
 
 | Section | Needs project | Purpose | Edits? |
 |---|---|---|---|
@@ -50,8 +52,7 @@ Phone: bottom bar with the same four items, project selector in the top bar, Mor
 | Foundation Overview | yes | One foundation's full status | read-only |
 | Fleet | no | Existing module | as today |
 
-**More** ▾ holds Setup (foundations, areas, Anchorage Library, anchorage types, suppliers, pours), Crew, Safety, Data & backups, and Access. Nothing is removed; admin gating is unchanged.
-The 7 placeholder sidebar entries are dropped from the navigation (see decisions).
+The 7 "coming soon" sidebar placeholders stay out of the navigation.
 
 ### 2.2 Routes
 URLs keep the existing `/projects/:projectId` prefix, so most existing links and bookmarks keep working. Old paths that move are redirected.

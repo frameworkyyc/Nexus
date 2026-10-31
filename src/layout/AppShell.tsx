@@ -8,10 +8,11 @@ import { DataGate } from './DataGate'
 import { MobileHeader } from './MobileHeader'
 import { OnboardingGate } from './OnboardingGate'
 import { MoreSheet } from './MoreSheet'
+import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
 /**
- * Desktop and tablet: one header (project selector, four sections, More) above the page. Phone: compact header, the page scrolls as a normal document (so Safari's
+ * Desktop and tablet: the left sidebar (four sections plus tools) beside a header with the project selector and breadcrumbs. Phone: compact header, the page scrolls as a normal document (so Safari's
  * toolbar collapses naturally) and a fixed bottom navigation. Both render the same routes and share all application state.
  */
 export function AppShell() {
@@ -36,13 +37,16 @@ export function AppShell() {
   }
   return (
     <ToastProvider>
-      <div className="flex h-full flex-col">
-        <TopBar />
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
-            <DataGate><OnboardingGate><Outlet /></OnboardingGate></DataGate>
-          </div>
-        </main>
+      <div className="flex h-full">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar />
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 sm:py-8">
+              <DataGate><OnboardingGate><Outlet /></OnboardingGate></DataGate>
+            </div>
+          </main>
+        </div>
       </div>
     </ToastProvider>
   )

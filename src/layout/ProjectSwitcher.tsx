@@ -42,10 +42,10 @@ export function ProjectSwitcher({ phone = false }: { phone?: boolean }) {
   return (
     <div ref={box} className="relative min-w-0">
       <button type="button" onClick={() => setOpen(!open)} aria-haspopup="listbox" aria-expanded={open} aria-label={`Project: ${label}. Change project`}
-        className={phone ? 'grid h-11 w-11 shrink-0 place-items-center text-ink' : 'flex h-9 max-w-[16rem] items-center gap-2 rounded-nx border border-line px-2.5 text-[13px] hover:border-ink lg:px-3'}>
+        className={phone ? 'grid h-11 w-11 shrink-0 place-items-center text-ink' : 'flex h-9 max-w-[16rem] items-center gap-2 rounded-nx border border-line px-3 text-[13px] hover:border-ink'}>
         {phone ? <FolderKanban size={21} strokeWidth={1.75} aria-hidden="true" /> : <>
           <FolderKanban size={15} strokeWidth={1.5} className="shrink-0 text-muted" aria-hidden="true" />
-          <span className="hidden truncate font-medium lg:inline">{label}</span>
+          <span className="truncate font-medium">{label}</span>
           <ChevronDown size={14} strokeWidth={1.5} className="shrink-0 text-muted" aria-hidden="true" />
         </>}
       </button>
