@@ -12,6 +12,7 @@ import { constructionStore, useConstruction } from '../store'
 import { useTracker } from '../tracker/store'
 import { itemsOf } from '../tracker/requirements'
 import type { AnchorageType } from '../types'
+import { plateText } from '../plates'
 import { AnchorageComponentsModal } from './AnchorageComponentsModal'
 
 /**
@@ -80,6 +81,15 @@ export function AnchorageLibrary() {
             {workbookOnly.map((c) => (
               <li key={c} className="flex items-center justify-between gap-3 border-b border-line py-2.5"><span>{c}</span>{admin && <Button variant="ghost" className="h-8 px-2" onClick={() => void run(constructionStore.run(addAnchorageType(projectId, c, '')))}>Add to library</Button>}</li>
             ))}
+          </ul>
+        </section>
+      )}
+      {(state.libraryEmbedPlates ?? []).some((x) => x.projectId === projectId) && (
+        <section className="mt-8" aria-label="Embed plates saved to the library">
+          <h2 className="t-label mb-1">Embed plates saved to the library</h2>
+          <p className="mb-2 text-xs text-muted">Created in a foundation’s Embed plates section and saved for reuse. They have no anchorage type; any foundation can choose them.</p>
+          <ul className="divide-y divide-line border-y border-line text-[13px]">
+            {(state.libraryEmbedPlates ?? []).filter((x) => x.projectId === projectId).map((x) => <li key={x.id} className="py-2">{plateText(x)}</li>)}
           </ul>
         </section>
       )}

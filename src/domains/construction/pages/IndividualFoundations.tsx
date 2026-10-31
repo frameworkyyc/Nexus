@@ -76,7 +76,7 @@ function UnitsEditor({ foundation, projectId, units, choices, onClose }: { found
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const removedComp = (id: string) => !choices.some((c) => c.component.id === id)
-  const label = (id: string) => { const c = choices.find((x) => x.component.id === id); return c ? `${c.type.code} · ${plateText(c.component)}` : 'Removed embed plate' }
+  const label = (id: string) => { const c = choices.find((x) => x.component.id === id); return c ? `${c.type?.code ?? 'Library'} · ${plateText(c.component)}` : 'Removed embed plate' }
   const set = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)))
   const exists = (l: string) => rows.some((r) => r.label.toLowerCase() === l.toLowerCase())
   const addLabels = (labels: string[]) => {
@@ -108,7 +108,7 @@ function UnitsEditor({ foundation, projectId, units, choices, onClose }: { found
 
         {rows.length > 0 && (
           <div className="flex flex-wrap items-end gap-3 rounded-nx bg-hover px-4 py-3" role="group" aria-label="Apply embed plates to selected">
-            <Field label={`Embed plate for ${picked.size || 'selected'} selected`}><Select aria-label="Embed plate to apply" value={bulkComp} onChange={(e) => setBulkComp(e.target.value)}><option value="">Choose…</option>{choices.map((c) => <option key={c.component.id} value={c.component.id}>{c.type.code} · {plateText(c.component)}</option>)}</Select></Field>
+            <Field label={`Embed plate for ${picked.size || 'selected'} selected`}><Select aria-label="Embed plate to apply" value={bulkComp} onChange={(e) => setBulkComp(e.target.value)}><option value="">Choose…</option>{choices.map((c) => <option key={c.component.id} value={c.component.id}>{c.type?.code ?? 'Library'} · {plateText(c.component)}</option>)}</Select></Field>
             <Field label="Quantity each"><Input aria-label="Quantity to apply" className="!w-24" inputMode="numeric" value={bulkQty} onChange={(e) => setBulkQty(e.target.value)} /></Field>
             <Button disabled={picked.size === 0 || !bulkComp || !(Number(bulkQty) >= 1)} onClick={() => setRows((rs) => rs.map((r) => (picked.has(r.key) ? { ...r, embeds: [{ componentId: bulkComp, qty: bulkQty }] } : r)))}>Apply to selected</Button>
             <Button variant="ghost" onClick={() => setPicked(picked.size === rows.length ? new Set() : new Set(rows.map((r) => r.key)))}>{picked.size === rows.length ? 'Clear selection' : 'Select all'}</Button>
@@ -125,7 +125,7 @@ function UnitsEditor({ foundation, projectId, units, choices, onClose }: { found
                   <div key={i} className="grid grid-cols-[1fr_5rem_auto] items-center gap-2">
                     <Select aria-label={`Embed plate ${i + 1} of ${r.label}`} value={e.componentId} onChange={(ev) => set(r.key, { embeds: r.embeds.map((x, j) => (j === i ? { ...x, componentId: ev.target.value } : x)) })}>
                       {removedComp(e.componentId) && <option value={e.componentId}>{label(e.componentId)}</option>}
-                      {choices.map((c) => <option key={c.component.id} value={c.component.id}>{c.type.code} · {plateText(c.component)}</option>)}
+                      {choices.map((c) => <option key={c.component.id} value={c.component.id}>{c.type?.code ?? 'Library'} · {plateText(c.component)}</option>)}
                     </Select>
                     <Input aria-label={`Embed plate quantity ${i + 1} of ${r.label}`} inputMode="numeric" value={e.qty} onChange={(ev) => set(r.key, { embeds: r.embeds.map((x, j) => (j === i ? { ...x, qty: ev.target.value } : x)) })} />
                     <button type="button" aria-label={`Remove embed plate ${i + 1} of ${r.label}`} onClick={() => set(r.key, { embeds: r.embeds.filter((_, j) => j !== i) })} className="grid h-9 w-9 place-items-center text-muted hover:text-ink"><X size={14} strokeWidth={1.5} /></button>

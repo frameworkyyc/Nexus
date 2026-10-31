@@ -4,6 +4,7 @@ import * as K from '../actions'
 import * as A from '../tracker/actions'
 import { emptyConstruction } from '../empty'
 import { areaTree, consolidate, entryNotes, materialLabel } from '../tracker/consolidate'
+import { embedChoices } from '../configActions'
 import { materialStatus, mergeAcrossAreas, procurementRows, procStatus, progressCounts } from '../tracker/procurement'
 import { expectedTotals, refreshRequirements } from '../tracker/requirements'
 import { materialsIndicator } from '../packageProgress'
@@ -707,5 +708,108 @@ describe('embed plates added directly to a foundation', () => {
     c = build(c, K.configureFoundation(f.id, cfg(c, [{ qty: 2, mode: 'per-foundation' }])))
     const d4 = c.anchorageTypes.find((t) => t.code === 'OP1-D4')!
     expect(K.setAnchorageComponents(d4.id, [])(c, {}).error).toMatch(/used by 1 foundation/)
+  })
+})
+
+describe('embed plates created inside a foundation', () => {
+  const plate = (o: Record<string, unknown> = {}) => ({ thickness: 16, width: 300, length: 300, unit: 'mm' as const, studCount: 4, studDiameter: 19, studLength: 150, ...o })
+  const entry = (o: Record<string, unknown> = {}) => ({ plate: plate(), save: 'foundation' as const, qty: 2, mode: 'per-foundation' as const, ...o })
+  const line = (c: ConstructionState, re = /16 × 300 × 300/) => consolidate(tracked(c), c).find((g) => g.area === 'E-House' && g.category === 'embed-plate' && re.test(g.size))!
+
+  it('needs no anchorage type: 18 foundations × 2 = 36, named by the foundation and the plate specification', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
+    c = build(c, K.configureFoundation(f.id, { embeds: [entry()] }))
+    const g = line(c)
+    expect(g.required).toBe(36)
+    expect(materialLabel(g)).toEqual({ title: 'OP1-01-01', sub: '16 × 300 × 300 mm w/ 4 headed studs Ø19 × 150 mm long' })
+    expect(g.contributions).toEqual([expect.objectContaining({ foundation: 'OP1-01-01', anchorage: 'OP1-01-01', qty: 36, source: 'calculated' })])
+    expect(c.foundationEmbeds![0]).toMatchObject({ componentId: '', plate: { thickness: 16, width: 300, length: 300, unit: 'mm', studCount: 4 } })
+    expect(c.libraryEmbedPlates ?? []).toHaveLength(0) // foundation specific: nothing added to the library
+    expect(c.plinths.filter((p) => p.foundationId === f.id)).toHaveLength(1)
+    c = build(c, K.configureFoundation(f.id, { embeds: [entry({ mode: 'total', qty: 2 })] }))
+    expect(line(c).required).toBe(2)
+    expect(line(c).lines[0].calc.expression).toMatch(/2 in total/)
+  })
+
+  it('works with no anchorage types at all', () => {
+    let c: ConstructionState = { ...emptyConstruction(), company: { id: '', name: '' } }
+    c = build(c, K.createOrganization({ name: 'Northline' }))
+    c = build(c, K.createProject({ name: 'Plant' }))
+    c = build(c, K.createArea(c.projects[0].id, 'Shed', []))
+    c = build(c, K.createFoundation(c.areas[0].id, 'F-1', '', null, 5, { embeds: [entry({ qty: 3 })] }))
+    expect(consolidate(tracked(c), c).find((g) => g.category === 'embed-plate')!.required).toBe(15)
+  })
+
+  it('identical specifications on different foundations are one requirement, each foundation shown', () => {
+    let { c } = staging()
+    const a = c.foundations.find((x) => x.number === 'OP1-01-01')!, b = c.foundations.find((x) => x.number === 'OP1-01-02')!
+    c = build(c, K.configureFoundation(a.id, { embeds: [entry()] }))
+    c = build(c, K.configureFoundation(b.id, { embeds: [entry({ qty: 3 })] })) // OP1-01-02 has 1 footing
+    const g = line(c)
+    expect(consolidate(tracked(c), c).filter((x) => x.area === 'E-House' && x.category === 'embed-plate' && /16 × 300/.test(x.size))).toHaveLength(1)
+    expect(g.required).toBe(36 + 3)
+    expect(materialLabel(g).title).toBe('OP1-01-01, OP1-01-02')
+    expect(g.contributions.map((x) => [x.foundation, x.qty]).sort()).toEqual([['OP1-01-01', 36], ['OP1-01-02', 3]])
+  })
+
+  it('saving to the library makes it reusable by other foundations and never saves a specification twice', () => {
+    let { c } = staging()
+    const a = c.foundations.find((x) => x.number === 'OP1-01-01')!, b = c.foundations.find((x) => x.number === 'OP1-01-02')!
+    c = build(c, K.configureFoundation(a.id, { embeds: [entry({ save: 'library' })] }))
+    expect(c.libraryEmbedPlates).toHaveLength(1)
+    expect(c.foundationEmbeds!.find((e) => e.foundationId === a.id)).toMatchObject({ componentId: c.libraryEmbedPlates![0].id })
+    expect(c.foundationEmbeds!.find((e) => e.foundationId === a.id)!.plate).toBeUndefined()
+    // another foundation chooses it from the library list
+    const choice = embedChoices(c, c.projects[0].id).find((x) => x.type === null)!
+    expect(choice.component.size).toBe('16 × 300 × 300 mm w/ 4 headed studs Ø19 × 150 mm long')
+    c = build(c, K.configureFoundation(b.id, { embeds: [{ componentId: choice.component.id, qty: 2, mode: 'total' }] }))
+    expect(line(c).required).toBe(36 + 2)
+    // creating the same specification again from a third foundation reuses the library entry
+    const d = c.foundations.find((x) => x.number === 'OP1-01-03')!
+    c = build(c, K.configureFoundation(d.id, { embeds: [entry({ save: 'library', qty: 1 })] }))
+    expect(c.libraryEmbedPlates).toHaveLength(1)
+    expect(line(c).required).toBe(36 + 2 + 7)
+    // editing keeps entries and ids; a foundation's own entry can later be moved to the library
+    const mine = c.foundationEmbeds!.find((e) => e.foundationId === a.id)!
+    c = build(c, K.configureFoundation(a.id, { embeds: [{ id: mine.id, componentId: mine.componentId, qty: 1, mode: 'per-foundation' }] }))
+    expect(line(c).required).toBe(18 + 2 + 7)
+  })
+
+  it('keeps quantities in step: recount agrees, Procurement matches Materials, orders and deliveries are kept', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
+    c = build(c, K.configureFoundation(f.id, { embeds: [entry({ save: 'library' }), entry({ plate: plate({ studCount: null, studDiameter: null, studLength: null }), qty: 4, mode: 'total' })] }))
+    let t = tracked(c)
+    const expected = expectedTotals(c)
+    for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
+    expect(procurementRows(t, c).map((r) => [r.key, r.required]).sort()).toEqual(consolidate(t, c).map((r) => [r.key, r.required]).sort())
+    const row = () => procurementRows(t, c).find((r) => r.category === 'embed-plate' && /16 × 300 × 300 mm/.test(r.size) && /headed/.test(r.size))!
+    expect(row().required).toBe(36)
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-CP', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 36 }] }, TODAY))
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 10 }] }, TODAY))
+    c = build(c, K.configureFoundation(f.id, { quantity: 20 }))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    expect(row()).toMatchObject({ required: 40, ordered: 36, received: 10, toOrder: 4 })
+    expect(t.orderLines).toHaveLength(1)
+    expect(t.deliveries).toHaveLength(1)
+  })
+
+  it('validates the plate, the studs and the quantity method', () => {
+    let { c } = staging()
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
+    const err = (e: Record<string, unknown>) => K.configureFoundation(f.id, { embeds: [entry(e)] } as never)(c, {}).error
+    expect(err({ plate: plate({ thickness: 0 }) })).toMatch(/thickness, width and length/)
+    expect(err({ plate: plate({ length: null }) })).toMatch(/thickness, width and length/)
+    expect(err({ plate: plate({ unit: 'cm' }) })).toMatch(/mm or inches/)
+    expect(err({ plate: plate({ studDiameter: null }) })).toMatch(/stud diameter/)
+    expect(err({ plate: plate({ studCount: 0 }) })).toMatch(/headed studs/)
+    expect(err({ plate: undefined })).toMatch(/thickness, width and length/)
+    expect(err({ mode: 'each' })).toMatch(/per foundation or total/)
+    expect(err({ qty: 0 })).toMatch(/whole number/)
+    expect(err({ save: 'cloud' })).toMatch(/where to save/)
+    expect(K.configureFoundation(f.id, { embeds: [entry(), entry()] } as never)(c, {}).error).toMatch(/Combine/)
+    c = build(c, K.configureFoundation(f.id, { embeds: [entry(), entry({ mode: 'total' })] })) // same plate with a different method is fine
+    expect(c.foundationEmbeds).toHaveLength(2)
   })
 })

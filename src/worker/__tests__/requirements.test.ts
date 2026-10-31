@@ -380,3 +380,52 @@ describe('migration 0019', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '19' })
   })
 })
+
+describe('embed plates created in a foundation, on the server', () => {
+  it('are saved foundation-specific or to the library, feed Materials and Procurement, and survive a backup', async () => {
+    const { db, aid } = await setup()
+    const plate = { thickness: 16, width: 300, length: 300, unit: 'mm', studCount: 4, studDiameter: 19, studLength: 150 }
+    await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'OP-2', '', null, 18, {}])
+    const f2 = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'OP-2'").get() as { id: string }).id
+    const own = [{ plate, save: 'foundation', qty: 2, mode: 'per-foundation' }]
+    expect((await cmd(db, 'editor@example.com', 'construction', 'configureFoundation', [f2, { embeds: own }])).status).toBe(403)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [f2, { embeds: [{ ...own[0], plate: { ...plate, thickness: 0 } }] }])).status).toBe(422)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [f2, { embeds: own }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT component_id, thickness, width, length, stud_count, qty, mode FROM foundation_embeds').all()).toEqual([{ component_id: '', thickness: 16, width: 300, length: 300, stud_count: 4, qty: 2, mode: 'per-foundation' }])
+    expect(count(db, 'library_embed_plates')).toBe(0)
+    const rows = async () => { const m = await get(db, 'materials'); const c = await get(db, 'construction'); return procurementRows(refreshRequirements(m, c, { log: false }), c) }
+    expect((await rows()).find((r) => r.category === 'embed-plate')).toMatchObject({ required: 36, status: 'pending' })
+    // the same plate saved to the library from another foundation: reused, one library row, one consolidated requirement
+    const f1 = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'OP-1'").get() as { id: string }).id // 12 foundations
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [f1, { embeds: [{ plate, save: 'library', qty: 1, mode: 'per-foundation' }] }])).status).toBe(200)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [f1, { embeds: [{ plate, save: 'library', qty: 1, mode: 'per-foundation' }] }])).status).toBe(200)
+    expect(count(db, 'library_embed_plates')).toBe(1)
+    expect(db.raw.prepare('SELECT created_by FROM library_embed_plates').get()).toEqual({ created_by: 'admin@example.com' })
+    const embed = (await rows()).filter((r) => r.category === 'embed-plate')
+    expect(embed).toHaveLength(1)
+    expect(embed[0].required).toBe(36 + 12)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [f2, { quantity: 20 }])).status).toBe(200)
+    expect((await rows()).find((r) => r.category === 'embed-plate')!.required).toBe(40 + 12)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+    const backup = (await as(db, 'admin@example.com', 'GET', '/api/backup')).body
+    expect(backup.tables.library_embed_plates).toHaveLength(1)
+    expect(backup.tables.foundation_embeds).toHaveLength(2)
+  })
+})
+
+describe('migration 0020', () => {
+  it('adds plate columns and the library table without touching existing embed plates', () => {
+    const db = createTestDb({ migrate: false })
+    const files = ['0001_core_schema.sql', '0002_seed_reef_and_fleet.sql', '0003_tire_thresholds.sql', '0004_vehicle_planning_and_demo_inspections.sql', '0005_materials_management_and_roles.sql', '0006_material_entry_references.sql', '0007_fresh_install_organization_projects.sql', '0008_foundation_quantity.sql', '0009_accessory_type_directory.sql', '0010_foundation_configuration_and_pours.sql', '0011_fleet_lifespan_settings_and_inspection_readings.sql', '0012_anchorage_components_requirements_deliveries.sql', '0013_sole_plate_center_hole.sql', '0014_embed_plate_headed_studs.sql', '0015_procurement.sql', '0016_footing_anchor_bolts.sql', '0017_material_installations.sql', '0018_individual_foundations.sql', '0019_foundation_embed_plates.sql']
+    for (const f of files) applyMigrationFile(db.raw, f)
+    db.raw.exec('PRAGMA foreign_keys = OFF')
+    db.raw.exec("INSERT INTO foundation_embeds (id, foundation_id, component_id, qty, mode, seq) VALUES ('e1', 'f1', 'ac-1', 2, 'per-foundation', 0)")
+    const before = db.raw.prepare('SELECT id, foundation_id, component_id, qty, mode FROM foundation_embeds').all()
+    applyMigrationFile(db.raw, '0020_custom_embed_plates.sql')
+    expect(db.raw.prepare('SELECT id, foundation_id, component_id, qty, mode FROM foundation_embeds').all()).toEqual(before)
+    expect(db.raw.prepare('SELECT thickness, plate_unit, stud_count FROM foundation_embeds').get()).toEqual({ thickness: null, plate_unit: 'mm', stud_count: null })
+    expect(count(db, 'library_embed_plates')).toBe(0)
+    expect(() => db.raw.exec("INSERT INTO library_embed_plates (id, project_id, thickness, width, length, seq) VALUES ('l', 'p', 0, 1, 1, 0)")).toThrow() // sizes must be positive
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '20' })
+  })
+})

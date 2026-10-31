@@ -3,11 +3,11 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, Foundation, FoundationBolt, FoundationEmbed, LengthUnit, Plinth } from '../types'
+import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, Foundation, FoundationBolt, FoundationEmbed, LengthUnit, PlateSpec, Plinth } from '../types'
 import type { FoundationConfig, FoundationEmbedInput, FootingBoltInput, GroupInput } from '../configActions'
 import { itemsOf } from '../tracker/requirements'
+import { plateText } from '../plates'
 
 /** Text-box state for a set of dimensions. */
 export interface DimsDraft { length: string; width: string; height: string; unit: LengthUnit }
@@ -24,13 +24,21 @@ const boltInput = (d: BoltDraft): FootingBoltInput => ({
   id: d.id, qty: Number(d.qty), diameter: d.diameter, length: numOrNull(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? numOrNull(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? numOrNull(d.bottomThread) : null,
   spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize,
 })
-/** Text-box state for one embed plate configuration on a foundation. */
-export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total' }
-const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode })
-const embedInput = (d: EmbedDraft): FoundationEmbedInput => ({ id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode })
-/** A library embed plate the form can offer: the component and the anchorage type that defines it. */
-export interface EmbedOption { component: AnchorageComponent; type: AnchorageType }
-export const embedOptionLabel = (o: EmbedOption) => { const it = itemsOf({ ...o.component, qty: 1 })[0]; return `${o.type.code} · ${[it.name !== 'Embed plate' ? it.name : '', it.size, it.spec].filter(Boolean).join(' · ') || 'Embed plate'}` }
+/** Text-box state for a plate created in the form: size and optional headed studs. */
+export interface PlateDraft { thickness: string; width: string; length: string; unit: 'mm' | 'in'; studCount: string; studDiameter: string; studLength: string }
+export const blankPlate = (unit: 'mm' | 'in' = 'mm'): PlateDraft => ({ thickness: '', width: '', length: '', unit, studCount: '', studDiameter: '', studLength: '' })
+const plateDraft = (p: PlateSpec): PlateDraft => ({ thickness: String(p.thickness), width: String(p.width), length: String(p.length), unit: p.unit, studCount: p.studCount === null ? '' : String(p.studCount), studDiameter: p.studDiameter === null ? '' : String(p.studDiameter), studLength: p.studLength === null ? '' : String(p.studLength) })
+/** Text-box state for one embed plate configuration on a foundation. `componentId` empty = a plate created here (`plate`), saved to this foundation or to the library. */
+export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total'; plate?: PlateDraft; save?: 'foundation' | 'library' }
+const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode, ...(e.plate ? { plate: plateDraft(e.plate), save: 'foundation' as const } : {}) })
+const numOrNullStr = (t: string) => (t.trim() === '' ? null : Number(t))
+const plateSpec = (d: PlateDraft): PlateSpec => ({ thickness: Number(d.thickness), width: Number(d.width), length: Number(d.length), unit: d.unit, studCount: numOrNullStr(d.studCount), studDiameter: numOrNullStr(d.studDiameter), studLength: numOrNullStr(d.studLength) })
+const embedInput = (d: EmbedDraft): FoundationEmbedInput => (d.componentId || !d.plate
+  ? { id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode }
+  : { id: d.id, plate: plateSpec(d.plate), save: d.save ?? 'foundation', qty: Number(d.qty), mode: d.mode })
+/** A library embed plate the form can offer: the component and the anchorage type that defines it (none for a plate saved to the library on its own). */
+export interface EmbedOption { component: AnchorageComponent; type: AnchorageType | null }
+export const embedOptionLabel = (o: EmbedOption) => { const it = itemsOf({ ...o.component, qty: 1 })[0]; return `${o.type?.code ?? 'Library'} · ${[it.name !== 'Embed plate' ? it.name : '', it.size, it.spec].filter(Boolean).join(' · ') || 'Embed plate'}` }
 export interface ConfigDraft { footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
 
 const num = (v: number | null) => (v === null ? '' : String(v))
@@ -63,6 +71,11 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
     const dims = dimsFrom(g.dims, `Anchorage group ${i + 1} dimensions`)
     if ('error' in dims) return dims
     groups.push({ id: g.id, anchorageTypeId: g.typeId || null, count, dims: dims.dims })
+  }
+  for (const [i, e] of (d.embeds ?? []).entries()) {
+    if (e.componentId || !e.plate) continue
+    const nums = [e.plate.thickness, e.plate.width, e.plate.length, e.plate.studCount, e.plate.studDiameter, e.plate.studLength].filter((t) => t.trim() !== '')
+    if (nums.some((t) => !Number.isFinite(Number(t)))) return { error: `Embed plates ${i + 1}: enter the plate and stud sizes as numbers.` }
   }
   return { config: { footing: foot.dims, plinthBase: d.plinthBase, groups, bolts: (d.bolts ?? []).map(boltInput), embeds: (d.embeds ?? []).map(embedInput) } }
 }
@@ -98,7 +111,7 @@ export function DimsRow({ label, value, onChange, idPrefix }: { label: string; v
  * Footing dimensions and anchorage groups for a foundation design. Dimensions are optional; each group says how many plinths use an
  * anchorage type from the project's library (or none yet) and may carry default plinth dimensions.
  */
-export function FoundationConfigFields({ draft, onChange, types, quantity, preview, onCreateType, embedOptions = [], anchorageHref }: {
+export function FoundationConfigFields({ draft, onChange, types, quantity, preview, onCreateType, embedOptions = [], foundationName = '' }: {
   draft: ConfigDraft
   onChange: (d: ConfigDraft) => void
   types: AnchorageType[]
@@ -106,7 +119,8 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
   preview: FoundationConcrete | string | null
   /** The Anchorage Library's embed plates, to choose from. */
   embedOptions?: EmbedOption[]
-  anchorageHref?: string
+  /** The foundation's name, shown in Materials for plates created here. */
+  foundationName?: string
   /** Adds a type to the project's Anchorage Library and resolves to its id (or why not). Absent = the user may not create types. */
   onCreateType?: (code: string) => Promise<{ id: string } | { error: string }>
 }) {
@@ -188,11 +202,10 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
 
       <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
         <legend className="t-label mb-1 p-0">Embed plates</legend>
-        <p className="text-xs text-muted">Embed plates from the Anchorage Library, added directly to this foundation: no anchorage group or plinth is needed. Count each per foundation or as a total.</p>
-        {(draft.embeds ?? []).map((e, i) => <EmbedCard key={e.id ?? `embed-${i}`} index={i} value={e} quantity={quantity} options={embedOptions} supplied={suppliedByTypes(draft, embedOptions, e.componentId)} onChange={(v) => onChange({ ...draft, embeds: draft.embeds.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...draft, embeds: draft.embeds.filter((_, j) => j !== i) })} />)}
-        {embedOptions.length === 0 && <p role="status" className="border-l-2 border-warn pl-3 text-xs">No embed plates are defined yet. Add one to an anchorage type in the Anchorage Library (Configure → Embed plate), then choose it here.{anchorageHref && <> <Link to={anchorageHref} className="underline underline-offset-4">Anchorage types</Link></>}</p>}
+        <p className="text-xs text-muted">Embed plates added directly to this foundation: choose one from the Anchorage Library or create a new one. No anchorage group, plinth or anchorage type is needed. Count each per foundation or as a total.</p>
+        {(draft.embeds ?? []).map((e, i) => <EmbedCard key={e.id ?? `embed-${i}`} index={i} value={e} quantity={quantity} options={embedOptions} foundationName={foundationName} supplied={suppliedByTypes(draft, embedOptions, e.componentId)} onChange={(v) => onChange({ ...draft, embeds: draft.embeds.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...draft, embeds: draft.embeds.filter((_, j) => j !== i) })} />)}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <Button disabled={embedOptions.length === 0} onClick={() => onChange({ ...draft, embeds: [...(draft.embeds ?? []), { componentId: embedOptions.find((o) => !(draft.embeds ?? []).some((x) => x.componentId === o.component.id))?.component.id ?? embedOptions[0].component.id, qty: '1', mode: 'per-foundation' }] })}><Plus size={14} strokeWidth={1.5} />Add embed plates</Button>
+          <Button onClick={() => onChange({ ...draft, embeds: [...(draft.embeds ?? []), embedOptions.length === 0 ? { componentId: '', qty: '1', mode: 'per-foundation', plate: blankPlate(), save: 'foundation' } : { componentId: embedOptions.find((o) => !(draft.embeds ?? []).some((x) => x.componentId === o.component.id))?.component.id ?? embedOptions[0].component.id, qty: '1', mode: 'per-foundation' }] })}><Plus size={14} strokeWidth={1.5} />Add embed plates</Button>
           {(draft.embeds ?? []).length > 0 && <p className="text-xs text-muted" aria-live="polite">Embed plates required: <span className="font-medium text-ink">{embedTotal(draft.embeds, quantity).toLocaleString('en-CA')}</span></p>}
         </div>
       </fieldset>
@@ -240,22 +253,53 @@ const embedTotal = (embeds: EmbedDraft[], quantity: number) => embeds.reduce((t,
 /** The anchorage type, among those chosen on this form, that already supplies this embed plate (so a direct entry replaces it). */
 const suppliedByTypes = (draft: ConfigDraft, options: EmbedOption[], componentId: string) => {
   const o = options.find((x) => x.component.id === componentId)
-  return o && draft.groups.some((g) => g.typeId === o.type.id) ? o.type.code : ''
+  return o?.type && draft.groups.some((g) => g.typeId === o.type?.id) ? o.type.code : ''
 }
 
-/** One embed plate configuration: which library plate, how many, and whether that is per foundation or a total. The total is shown as you type. */
-function EmbedCard({ index, value: e, quantity, options, supplied, onChange, onRemove }: { index: number; value: EmbedDraft; quantity: number; options: EmbedOption[]; supplied: string; onChange: (v: EmbedDraft) => void; onRemove: () => void }) {
+const NEW_PLATE = '__new'
+/**
+ * One embed plate configuration: a plate from the Anchorage Library, or a new one created here (size and headed studs, no anchorage type needed), how
+ * many, and whether that is per foundation or a total. A new plate is saved to this foundation only, or to the library for other foundations to use.
+ */
+function EmbedCard({ index, value: e, quantity, options, foundationName, supplied, onChange, onRemove }: { index: number; value: EmbedDraft; quantity: number; options: EmbedOption[]; foundationName: string; supplied: string; onChange: (v: EmbedDraft) => void; onRemove: () => void }) {
   const n = index + 1
   const q = Number(e.qty)
   const valid = Number.isInteger(q) && q >= 1
-  const known = options.some((o) => o.component.id === e.componentId)
+  const creating = !e.componentId && !!e.plate
+  const known = !e.componentId || options.some((o) => o.component.id === e.componentId)
+  const p = e.plate
+  const setPlate = (patch: Partial<PlateDraft>) => onChange({ ...e, plate: { ...(p ?? blankPlate()), ...patch } })
+  const spec = p && ['thickness', 'width', 'length'].every((k) => Number(p[k as 'thickness']) > 0) ? plateText(plateSpec(p)) : ''
+  const grid = 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4'
   return (
     <div role="group" aria-label={`Embed plates ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
       <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_7rem_11rem]">
-        <div className="col-span-2 sm:col-span-1"><Field label="Embed plate type *"><Select aria-label={`Embed plate type ${n}`} value={e.componentId} onChange={(ev) => onChange({ ...e, componentId: ev.target.value })}>{!known && <option value={e.componentId}>Removed embed plate</option>}{options.map((o) => <option key={o.component.id} value={o.component.id}>{embedOptionLabel(o)}</option>)}</Select></Field></div>
+        <div className="col-span-2 sm:col-span-1"><Field label="Embed plate type *">
+          <Select aria-label={`Embed plate type ${n}`} value={creating ? NEW_PLATE : e.componentId} onChange={(ev) => ev.target.value === NEW_PLATE ? onChange({ ...e, componentId: '', plate: p ?? blankPlate(), save: e.save ?? 'foundation' }) : onChange({ ...e, componentId: ev.target.value, plate: undefined, save: undefined })}>
+            {!known && <option value={e.componentId}>Removed embed plate</option>}
+            {options.map((o) => <option key={o.component.id} value={o.component.id}>{embedOptionLabel(o)}</option>)}
+            <option value={NEW_PLATE}>+ Create New Embed Plate</option>
+          </Select></Field></div>
         <Field label="Quantity *"><Input aria-label={`Embed plate quantity ${n}`} inputMode="numeric" value={e.qty} onChange={(ev) => onChange({ ...e, qty: ev.target.value })} /></Field>
         <Field label="Quantity is"><Select aria-label={`Quantity method ${n}`} value={e.mode} onChange={(ev) => onChange({ ...e, mode: ev.target.value as EmbedDraft['mode'] })}><option value="per-foundation">Per foundation</option><option value="total">Total</option></Select></Field>
       </div>
+      {creating && p && (
+        <div className="space-y-3 border-t border-line pt-3">
+          <div className={grid}>
+            <Field label="Plate thickness *"><Input aria-label={`Plate thickness ${n}`} inputMode="decimal" value={p.thickness} onChange={(ev) => setPlate({ thickness: ev.target.value })} placeholder="e.g. 16" /></Field>
+            <Field label="Plate width *"><Input aria-label={`Plate width ${n}`} inputMode="decimal" value={p.width} onChange={(ev) => setPlate({ width: ev.target.value })} placeholder="e.g. 300" /></Field>
+            <Field label="Plate length *"><Input aria-label={`Plate length ${n}`} inputMode="decimal" value={p.length} onChange={(ev) => setPlate({ length: ev.target.value })} placeholder="e.g. 300" /></Field>
+            <Field label="Unit"><Select aria-label={`Plate unit ${n}`} value={p.unit} onChange={(ev) => setPlate({ unit: ev.target.value as 'mm' | 'in' })}><option value="mm">mm</option><option value="in">inches</option></Select></Field>
+          </div>
+          <div className={grid}>
+            <Field label="Headed studs (optional)"><Input aria-label={`Headed studs ${n}`} inputMode="numeric" value={p.studCount} onChange={(ev) => setPlate({ studCount: ev.target.value })} placeholder="None" /></Field>
+            <Field label={`Stud diameter (${p.unit})`}><Input aria-label={`Stud diameter ${n}`} inputMode="decimal" value={p.studDiameter} onChange={(ev) => setPlate({ studDiameter: ev.target.value })} placeholder="e.g. 19" /></Field>
+            <Field label={`Stud length (${p.unit})`}><Input aria-label={`Stud length ${n}`} inputMode="decimal" value={p.studLength} onChange={(ev) => setPlate({ studLength: ev.target.value })} placeholder="e.g. 150" /></Field>
+            <Field label="Save"><Select aria-label={`Save plate ${n}`} value={e.save ?? 'foundation'} onChange={(ev) => onChange({ ...e, save: ev.target.value as 'foundation' | 'library' })}><option value="foundation">Foundation specific</option><option value="library">Save to Anchorage Library</option></Select></Field>
+          </div>
+          <p className="text-xs text-muted">{spec ? <>Appears in Materials as <span className="font-medium text-ink">{foundationName || 'this foundation'}</span> · {spec}. </> : 'Enter the plate size to see how it will appear in Materials. '}{(e.save ?? 'foundation') === 'library' ? 'Saved to the library so other foundations can choose it.' : 'Kept on this foundation only.'}</p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p role="status" aria-live="polite" className="text-[13px]">{!valid ? <span className="text-muted">Enter a whole number of 1 or more.</span> : e.mode === 'per-foundation' ? <><span className="text-muted">{q.toLocaleString('en-CA')} per foundation × {quantity.toLocaleString('en-CA')} foundation{quantity === 1 ? '' : 's'} = </span><span className="font-medium">{(q * quantity).toLocaleString('en-CA')} plates required</span></> : <><span className="text-muted">{q.toLocaleString('en-CA')} in total across all {quantity.toLocaleString('en-CA')} = </span><span className="font-medium">{q.toLocaleString('en-CA')} plate{q === 1 ? '' : 's'} required</span></>}</p>
         <Button variant="ghost" aria-label={`Remove embed plates ${n}`} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button>

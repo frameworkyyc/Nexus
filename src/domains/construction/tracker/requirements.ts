@@ -1,3 +1,4 @@
+import { componentMap, embedComponent } from '../plates'
 import type { AnchorageComponent, ConstructionState, FoundationBolt } from '../types'
 import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, RequirementPart, TrackerLine, TrackerState } from './types'
 
@@ -8,7 +9,7 @@ import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, Requirement
  * anchorage, and a foundation design stands for `quantity` physical foundations, so a design with 3 plinths of type A and a quantity of 12
  * has 36 anchorages of type A. Totals are grouped by area and specification: the same item on many foundations is one requirement.
  */
-export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits' | 'foundationEmbeds'>>
+export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits' | 'foundationEmbeds' | 'libraryEmbedPlates'>>
 
 export interface Requirement {
   key: string
@@ -70,7 +71,7 @@ export const boltAsComponent = (b: FoundationBolt): AnchorageComponent => ({ ...
  * footings the individual list replaces the anchorage type's embed plates, so nothing is counted twice; the other footings keep the type's.
  */
 export function overriddenFootings(c: RefSource, foundationId: string): number {
-  const embeds = new Set((c.anchorageComponents ?? []).filter((x) => x.kind === 'embed-plate').map((x) => x.id))
+  const embeds = new Set([...componentMap(c).values()].filter((x) => x.kind === 'embed-plate').map((x) => x.id))
   return (c.foundationUnits ?? []).filter((u) => u.foundationId === foundationId && u.embeds.some((e) => embeds.has(e.componentId))).length
 }
 
@@ -96,7 +97,6 @@ export const instancesOf = (c: RefSource, row: { foundationId: string; instances
 
 export function deriveRequirements(c: RefSource): Requirement[] {
   const comps = c.anchorageComponents ?? []
-  if (comps.length === 0) return []
   const typeOf = new Map(c.anchorageTypes.map((t) => [t.id, t]))
   const areaOf = new Map(c.areas.map((a) => [a.id, a]))
   const groups = new Map<string, Requirement>()
@@ -138,7 +138,7 @@ export function deriveRequirements(c: RefSource): Requirement[] {
   }
   // Embed plates chosen for individual foundations (A-1, A-2…): each is one footing needing that many of a library embed plate. They merge into the
   // same requirement as an identical library embed plate, so a specification is never listed twice.
-  const compById = new Map(comps.map((x) => [x.id, x]))
+  const compById = componentMap(c)
   for (const u of c.foundationUnits ?? []) {
     const f = c.foundations.find((x) => x.id === u.foundationId)
     const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
@@ -146,7 +146,7 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     for (const e of u.embeds) {
       const comp = compById.get(e.componentId)
       if (!comp || comp.kind !== 'embed-plate') continue
-      const code = typeOf.get(comp.anchorageTypeId)?.code ?? ''
+      const code = typeOf.get(comp.anchorageTypeId)?.code ?? f.number
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
         const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
         const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
@@ -161,9 +161,9 @@ export function deriveRequirements(c: RefSource): Requirement[] {
   for (const fe of c.foundationEmbeds ?? []) {
     const f = c.foundations.find((x) => x.id === fe.foundationId)
     const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
-    const comp = compById.get(fe.componentId)
+    const comp = embedComponent(fe, compById)
     if (!f || !area || !comp || comp.kind !== 'embed-plate') continue
-    const code = typeOf.get(comp.anchorageTypeId)?.code ?? ''
+    const code = typeOf.get(comp.anchorageTypeId)?.code ?? f.number
     const each = fe.mode === 'per-foundation'
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
       const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
@@ -300,7 +300,8 @@ export function expectedTotals(c: RefSource): Map<string, number> {
   for (const f of c.foundations) {
     if (f.archived) continue
     const footings = f.quantity ?? 1
-    const overridden = (c.foundationUnits ?? []).filter((u) => u.foundationId === f.id && u.embeds.some((e) => (c.anchorageComponents ?? []).some((x) => x.id === e.componentId && x.kind === 'embed-plate'))).length
+    const all = componentMap(c)
+    const overridden = (c.foundationUnits ?? []).filter((u) => u.foundationId === f.id && u.embeds.some((e) => all.get(e.componentId)?.kind === 'embed-plate')).length
     for (const p of c.plinths) {
       if (p.foundationId !== f.id || !p.anchorageTypeId) continue
       for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === p.anchorageTypeId)) {
@@ -312,8 +313,8 @@ export function expectedTotals(c: RefSource): Map<string, number> {
       }
     }
     for (const e of (c.foundationEmbeds ?? []).filter((x) => x.foundationId === f.id)) {
-      const comp = (c.anchorageComponents ?? []).find((x) => x.id === e.componentId && x.kind === 'embed-plate')
-      if (!comp) continue
+      const comp = embedComponent(e, all)
+      if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
         const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
         out.set(key, (out.get(key) ?? 0) + it.each * (e.mode === 'total' ? 1 : footings))
@@ -321,8 +322,8 @@ export function expectedTotals(c: RefSource): Map<string, number> {
     }
     for (const u of (c.foundationUnits ?? []).filter((x) => x.foundationId === f.id)) {
       for (const e of u.embeds) {
-        const comp = (c.anchorageComponents ?? []).find((x) => x.id === e.componentId && x.kind === 'embed-plate')
-        if (!comp) continue
+        const comp = all.get(e.componentId)
+        if (!comp || comp.kind !== 'embed-plate') continue
         for (const it of itemsOf({ ...comp, qty: e.qty })) {
           const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
           out.set(key, (out.get(key) ?? 0) + it.each)

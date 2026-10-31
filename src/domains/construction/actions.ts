@@ -399,7 +399,7 @@ const plinthProblem = (n: unknown) => (n === null || (typeof n === 'number' && N
  * Adds a foundation designation to an area: one row, however many physical foundations (`quantity`) it stands for, with the plinth records of
  * one foundation. Every applicable activity starts as "not started". A name that already exists in the area (archived or not) is refused.
  */
-export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1, config?: FoundationConfig): Reducer => (s) => {
+export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1, config?: FoundationConfig): Reducer => (s, ctx) => {
   const num = String(number).trim()
   const bad = numberProblem(s, areaId, num) ?? quantityProblem(quantity) ?? plinthProblem(plinthCount)
   if (bad) return fail(bad)
@@ -413,7 +413,7 @@ export const createFoundation = (areaId: string, number: string, description: st
   const applied = config.groups ? applyGroups(withDims, { ...fresh }, config.groups) : withDims
   if (typeof applied === 'string') return fail(applied)
   const withBolts = config.bolts ? applyBolts(applied, applied.foundations.find((f) => f.id === foundation.id)!, config.bolts) : applied
-  return ok(config.embeds ? applyEmbeds(withBolts, withBolts.foundations.find((f) => f.id === foundation.id)!, config.embeds) : withBolts)
+  return ok(config.embeds ? applyEmbeds(withBolts, withBolts.foundations.find((f) => f.id === foundation.id)!, config.embeds, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString())) : withBolts)
 }
 
 /** Renames a foundation. Its id, plinths, activities and every material, survey and QA/QC record that points at it are unaffected. */

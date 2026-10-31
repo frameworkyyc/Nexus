@@ -1,7 +1,8 @@
 import { blankActivitiesFor } from './blankActivities'
 import { dimsProblem, hasAnyDim } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, LibraryEmbedPlate, PlateSpec, Plinth } from './types'
+import { plateText, plateAsComponent, samePlate } from './plates'
 
 const fail = (error: string) => ({ error }) as const
 const ok = (state: ConstructionState) => ({ state }) as const
@@ -14,7 +15,22 @@ export interface GroupInput { id?: string; anchorageTypeId: string | null; count
 export type FootingBoltInput = Omit<ComponentInput, 'kind'>
 export const MAX_FOOTING_BOLTS = 10
 /** An embed plate added directly to a foundation. `id` names an existing entry; absent = new. */
-export interface FoundationEmbedInput { id?: string; componentId: string; qty: number; mode: 'per-foundation' | 'total' }
+/** An embed plate entry: a library plate (`componentId`), or a plate created here (`plate`) saved only to this foundation or to the Anchorage Library. */
+export interface FoundationEmbedInput { id?: string; componentId?: string; plate?: PlateSpec; save?: 'foundation' | 'library'; qty: number; mode: 'per-foundation' | 'total' }
+const dimOk = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100_000
+/** What is wrong with a plate specification created in the form, or null. */
+export function plateProblem(p: PlateSpec | undefined): string | null {
+  if (!p) return 'enter the plate thickness, width and length.'
+  if (!dimOk(p.thickness) || !dimOk(p.width) || !dimOk(p.length)) return 'enter the plate thickness, width and length as numbers above 0.'
+  if (p.unit !== 'mm' && p.unit !== 'in') return 'choose mm or inches.'
+  const studs = [p.studCount, p.studDiameter, p.studLength].some((v) => v !== null && v !== undefined)
+  if (studs) {
+    if (!Number.isInteger(p.studCount) || (p.studCount as number) < 1 || (p.studCount as number) > 1000) return 'enter a whole number of headed studs (1 to 1,000), or leave the studs empty.'
+    if (!dimOk(p.studDiameter)) return 'enter the stud diameter.'
+    if (!dimOk(p.studLength)) return 'enter the stud length.'
+  }
+  return null
+}
 export const MAX_FOUNDATION_EMBEDS = 10
 export interface FoundationConfig { footing?: Dims | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[]; /** Absent = unchanged; a list replaces the foundation's embed plates (empty = none). */ embeds?: FoundationEmbedInput[] }
 
@@ -49,11 +65,18 @@ export function configProblem(s: ConstructionState, f: Foundation, cfg: Foundati
     const seen = new Set<string>()
     for (const [i, e] of cfg.embeds.entries()) {
       const at = `Embed plates ${i + 1}`
-      const existing = (s.foundationEmbeds ?? []).some((x) => x.foundationId === f.id && x.componentId === e?.componentId)
-      if (!e || (!choices.has(e.componentId) && !existing)) return `${at}: choose an embed plate from the Anchorage Library.`
+      if (!e || typeof e !== 'object') return `${at}: choose an embed plate.`
       if (e.mode !== 'per-foundation' && e.mode !== 'total') return `${at}: choose per foundation or total.`
       if (!Number.isInteger(e.qty) || e.qty < 1 || e.qty > 1_000_000) return `${at}: enter a whole number of 1 or more.`
-      const key = `${e.componentId}|${e.mode}`
+      if (e.componentId) {
+        const existing = (s.foundationEmbeds ?? []).some((x) => x.foundationId === f.id && x.componentId === e.componentId)
+        if (!choices.has(e.componentId) && !existing) return `${at}: choose an embed plate from the Anchorage Library.`
+      } else {
+        const bad = plateProblem(e.plate)
+        if (bad) return `${at}: ${bad}`
+        if (e.save !== undefined && e.save !== 'foundation' && e.save !== 'library') return `${at}: choose where to save the plate.`
+      }
+      const key = `${e.componentId || plateText(e.plate as PlateSpec)}|${e.mode}`
       if (seen.has(key)) return `${at}: that embed plate is already listed with the same quantity method. Combine them.`
       seen.add(key)
       if (e.id && !(s.foundationEmbeds ?? []).some((x) => x.id === e.id && x.foundationId === f.id)) return `${at} no longer exists. Reload and try again.`
@@ -173,16 +196,32 @@ export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingB
 }
 
 /** Sets a foundation's embed plates to exactly `inputs`, keeping the id of any entry edited in place. */
-export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: FoundationEmbedInput[]): ConstructionState {
+export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: FoundationEmbedInput[], by = '', now = ''): ConstructionState {
   const mine = (s.foundationEmbeds ?? []).filter((e) => e.foundationId === f.id)
+  const projectId = projectOfFoundation(s, f) ?? ''
+  let library = s.libraryEmbedPlates ?? []
+  const cleanPlate = (p: PlateSpec): PlateSpec => ({ thickness: p.thickness, width: p.width, length: p.length, unit: p.unit, studCount: p.studCount ?? null, studDiameter: p.studDiameter ?? null, studLength: p.studLength ?? null })
+  /** The project's library plate with this specification, created if it does not exist yet (so a specification is never saved twice). */
+  const libraryPlate = (p: PlateSpec): string => {
+    const have = library.find((x) => x.projectId === projectId && samePlate(x, p))
+    if (have) return have.id
+    let n = library.length + 1
+    let id = `lp-${projectId}-${n}`
+    while (library.some((x) => x.id === id)) id = `lp-${projectId}-${++n}`
+    const made: LibraryEmbedPlate = { ...cleanPlate(p), id, projectId, createdAt: now, createdBy: by }
+    library = [...library, made]
+    return id
+  }
   const used = new Set((s.foundationEmbeds ?? []).map((e) => e.id))
   const next: FoundationEmbed[] = []
   for (const [i, e] of inputs.entries()) {
     let id = e.id ?? ''
     if (!id) { let n = mine.length + i + 1; id = `${f.id}-em${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-em${++n}` }
-    next.push({ id, foundationId: f.id, componentId: e.componentId, qty: e.qty, mode: e.mode })
+    if (e.componentId) next.push({ id, foundationId: f.id, componentId: e.componentId, qty: e.qty, mode: e.mode })
+    else if (e.save === 'library') next.push({ id, foundationId: f.id, componentId: libraryPlate(e.plate as PlateSpec), qty: e.qty, mode: e.mode })
+    else next.push({ id, foundationId: f.id, componentId: '', qty: e.qty, mode: e.mode, plate: cleanPlate(e.plate as PlateSpec) })
   }
-  return { ...s, foundationEmbeds: [...(s.foundationEmbeds ?? []).filter((e) => e.foundationId !== f.id), ...next] }
+  return { ...s, libraryEmbedPlates: library, foundationEmbeds: [...(s.foundationEmbeds ?? []).filter((e) => e.foundationId !== f.id), ...next] }
 }
 
 /** Quantity can only fall to the highest physical foundation that has no pour records. */
@@ -197,7 +236,7 @@ export function quantityBelowPours(s: ConstructionState, foundationId: string, q
  * Sets a foundation's footing dimensions, how plinth height is measured and/or its anchorage groups in one step. Dimensions are optional and
  * can be edited at any time; nothing recorded on existing plinths is lost (see applyGroups).
  */
-export const configureFoundation = (id: string, cfg: FoundationConfig & { description?: string; quantity?: number }): Reducer => (s) => {
+export const configureFoundation = (id: string, cfg: FoundationConfig & { description?: string; quantity?: number }): Reducer => (s, ctx) => {
   const f = s.foundations.find((x) => x.id === id)
   if (!f) return fail('Foundation not found.')
   const bad = configProblem(s, f, cfg)
@@ -222,7 +261,7 @@ export const configureFoundation = (id: string, cfg: FoundationConfig & { descri
     if (typeof r === 'string') return fail(r)
     next = r
   }
-  if (cfg.embeds) next = applyEmbeds(next, next.foundations.find((x) => x.id === id)!, cfg.embeds)
+  if (cfg.embeds) next = applyEmbeds(next, next.foundations.find((x) => x.id === id)!, cfg.embeds, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString()))
   if (cfg.bolts) next = applyBolts(next, next.foundations.find((x) => x.id === id)!, cfg.bolts)
   return ok(next)
 }
@@ -340,9 +379,12 @@ export const MAX_UNITS = 500
 export const MAX_UNIT_EMBEDS = 10
 
 /** The library embed plates a foundation's individual foundations may use: embed plate components of this project's (non-archived) anchorage types. */
-export function embedChoices(s: ConstructionState, projectId: string | undefined) {
+export function embedChoices(s: ConstructionState, projectId: string | undefined): { component: AnchorageComponent; type: AnchorageType | null }[] {
   const types = new Map(s.anchorageTypes.filter((t) => !t.archived && (!t.projectId || t.projectId === projectId)).map((t) => [t.id, t]))
-  return (s.anchorageComponents ?? []).filter((c) => c.kind === 'embed-plate' && types.has(c.anchorageTypeId)).map((c) => ({ component: c, type: types.get(c.anchorageTypeId)! }))
+  const fromTypes = (s.anchorageComponents ?? []).filter((c) => c.kind === 'embed-plate' && types.has(c.anchorageTypeId)).map((c) => ({ component: c, type: types.get(c.anchorageTypeId) as AnchorageType | null }))
+  // Plates saved to the library with no anchorage type behind them.
+  const saved = (s.libraryEmbedPlates ?? []).filter((p) => p.projectId === projectId).map((p) => ({ component: plateAsComponent(p, p.id), type: null as AnchorageType | null }))
+  return [...fromTypes, ...saved]
 }
 
 /**

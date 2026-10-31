@@ -1,5 +1,6 @@
 import type { ConstructionState } from '../types'
 import { areaIdFor, CATEGORY_LABEL, CATEGORY_ORDER, allLines } from './selectors'
+import { componentMap, embedComponent } from '../plates'
 import { anchorageInstances, boltAsComponent, instancesOf, itemsOf, type RefSource } from './requirements'
 import type { ComponentCategory, GroupRef, TrackerLine, TrackerState } from './types'
 
@@ -58,7 +59,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
       }
     }
   }
-  const compById = new Map((c.anchorageComponents ?? []).map((x) => [x.id, x]))
+  const compById = componentMap(c)
   for (const u of c.foundationUnits ?? []) {
     const f = foundationOf.get(u.foundationId)
     if (!f || f.archived) continue
@@ -67,20 +68,20 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
       if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
         if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
-        out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: `${f.number} · ${u.label}`, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? '', qty: it.each, individual: true })
+        out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: `${f.number} · ${u.label}`, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? f.number, qty: it.each, individual: true })
       }
     }
   }
   for (const fe of c.foundationEmbeds ?? []) {
     const f = foundationOf.get(fe.foundationId)
-    const comp = compById.get(fe.componentId)
+    const comp = embedComponent(fe, compById)
     if (!f || f.archived || !comp || comp.kind !== 'embed-plate') continue
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
       if (`anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}` !== l.deriveKey) continue
       const qty = it.each * (fe.mode === 'total' ? 1 : (f.quantity ?? 1))
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === comp.anchorageTypeId && !x.individual)
       if (existing) existing.qty += qty
-      else out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: f.number, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? '', qty })
+      else out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: f.number, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? f.number, qty })
     }
   }
   for (const fb of c.foundationBolts ?? []) {

@@ -178,8 +178,13 @@ export interface AnchorageComponent {
   studLength?: number | null
 }
 
-/** An embed plate added directly to a foundation, from the Anchorage Library's embed plates. `per-foundation` multiplies `qty` by the number of physical foundations; `total` is the total across all of them. */
-export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total' }
+/** An embed plate's size and optional headed studs. Created in the foundation form, with no anchorage type behind it. */
+export interface PlateSpec { thickness: number; width: number; length: number; unit: 'mm' | 'in'; studCount: number | null; studDiameter: number | null; studLength: number | null }
+/** A plate specification saved to the project's library (not tied to an anchorage type), reusable by any foundation. */
+export interface LibraryEmbedPlate extends PlateSpec { id: string; projectId: string; createdAt: string; createdBy: string }
+/** An embed plate added directly to a foundation. `componentId` names a library embed plate (an anchorage type's, or a saved library plate); empty means the plate's own
+ * specification is on the foundation (`plate`). `per-foundation` multiplies `qty` by the number of physical foundations; `total` is the total across all of them. */
+export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec }
 
 /** One physical foundation (or a set sharing a label) within a foundation designation, such as A-1 within OP1-01-01. Optional. It inherits the designation's footing,
  * anchorage configuration and quantity, and adds only its identifier and its own embed plates, chosen from the Anchorage Library. */
@@ -449,6 +454,7 @@ export interface ConstructionState {
   foundationBolts?: FoundationBolt[]
   foundationUnits?: FoundationUnit[]
   foundationEmbeds?: FoundationEmbed[]
+  libraryEmbedPlates?: LibraryEmbedPlate[]
   /** Components and specifications of each anchorage type. Optional so older data still loads. */
   anchorageComponents?: AnchorageComponent[]
   pours?: Pour[]
