@@ -5,7 +5,7 @@ import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { MODULES, useModules } from '@/app/modules'
 import { paths } from '@/domains/construction/paths'
 import { useConstruction } from '@/domains/construction/store'
-import { useBackend } from '@/lib/dataSource'
+import { updatedLabel, useBackend } from '@/lib/dataSource'
 
 function DisabledItem({ label, Icon }: { label: string; Icon: (typeof MODULES)[number]['icon'] }) {
   return (
@@ -58,7 +58,7 @@ function AreasNav({ projectId, onClose }: { projectId: string; onClose: () => vo
 }
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { mode, environment, readOnly } = useBackend()
+  const { mode, environment, readOnly, asOf } = useBackend()
   const modules = useModules()
   const inProject = useMatch('/projects/:projectId/*')?.params.projectId
   return (
@@ -100,7 +100,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           </ul>
         </nav>
-        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{readOnly ? 'View only · live project data' : mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'}</div>
+        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{readOnly ? `View only · project data${updatedLabel(asOf)}` : mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'}</div>
       </aside>
     </>
   )

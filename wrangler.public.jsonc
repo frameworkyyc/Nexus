@@ -1,12 +1,13 @@
 {
-  // Local test of the PUBLIC VIEW-ONLY site (never deployed): the public API (NEXUS_ENV "public") over the same local database that
-  // `npm run dev:full` uses, with no sign-in. Run `npm run build` and `npm run db:migrate:local` first, then:
+  // Local test of the PUBLIC VIEW-ONLY site (never deployed): NEXUS_ENV "public", reading the sanitized snapshot from a local R2 bucket. Like production, it
+  // has NO database binding. Publish a snapshot first by running the local app (`wrangler dev --config wrangler.dev.jsonc`) and making any change.
+  // Then, after `npm run build`:
   //   npx wrangler dev --config wrangler.public.jsonc --port 8788
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nexus-public-local",
   "main": "src/worker/index.ts",
   "compatibility_date": "2025-09-01",
-  "assets": { "directory": "./dist", "not_found_handling": "single-page-application", "run_worker_first": ["/api/*"] },
+  "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
   "vars": { "NEXUS_ENV": "public" },
-  "d1_databases": [{ "binding": "DB", "database_name": "nexus-local", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }]
+  "r2_buckets": [{ "binding": "PUBLIC_SNAPSHOT", "bucket_name": "nexus-public-snapshot" }]
 }

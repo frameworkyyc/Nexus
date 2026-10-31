@@ -17,7 +17,7 @@ import type { ModuleName } from '@/shared/registry'
  * unavailable — the application bundle has no database / Access to talk to. Nothing is shown or kept in this browser instead.
  */
 export type Mode = 'checking' | 'server' | 'demo' | 'blocked' | 'unavailable'
-export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string; /** The public view-only site: no sign-in, no editing. Decided by the server, never by the browser. */ readOnly?: boolean }
+export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string; /** The public view-only site: no sign-in, no editing. Decided by the server, never by the browser. */ readOnly?: boolean; /** Public view-only site: when the data shown was last published. */ asOf?: string }
 
 let backend: BackendState = { mode: 'checking', serverAvailable: false }
 const backendListeners = new Set<() => void>()
@@ -47,8 +47,8 @@ export async function startBackend(): Promise<void> {
     return
   }
   try {
-    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string; readOnly?: boolean }>('GET', '/api/session')
-    setBackend({ mode: 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion, ...(s.readOnly ? { readOnly: true } : {}) })
+    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string; readOnly?: boolean; asOf?: string }>('GET', '/api/session')
+    setBackend({ mode: 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion, ...(s.readOnly ? { readOnly: true, ...(s.asOf ? { asOf: s.asOf } : {}) } : {}) })
     await Promise.all(stores.map((m) => m.load()))
   } catch (e) {
     if (e instanceof ApiError && e.authRequired) setBackend({ mode: 'blocked', serverAvailable: true, reason: e.message })
@@ -57,7 +57,14 @@ export async function startBackend(): Promise<void> {
 }
 
 /** Reload every module's saved records (after switching from demonstration data, or when the tab regains focus). */
-export async function reloadAll() { await Promise.all(stores.map((m) => m.load())) }
+export async function reloadAll() {
+  await Promise.all(stores.map((m) => m.load()))
+  // The public view-only site also shows when its data was last published.
+  if (backend.readOnly) { const s = await api<{ asOf?: string }>('GET', '/api/session').catch(() => null); if (s?.asOf && s.asOf !== backend.asOf) setBackend({ ...backend, asOf: s.asOf }) }
+}
+
+/** "updated 14:05" for the public site's footer, or '' when not known. */
+export const updatedLabel = (asOf?: string) => { if (!asOf) return ''; const d = new Date(asOf); return Number.isNaN(d.getTime()) ? '' : ` · updated ${d.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' })}` }
 
 /* ── Save status shown to the user ──────────────────────────────────────── */
 

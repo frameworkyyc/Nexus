@@ -1,5 +1,6 @@
 import { authenticate, AuthError, type AuthEnv } from './auth'
-import { handlePublicApi } from './publicApi'
+import { handlePublicApi, type PublicEnv } from './publicApi'
+import { publishAfterChange, type SnapshotWriter } from './snapshot'
 import type { D1 } from './db'
 import { applyMigration, previewMigration, type MigrationBundle } from './migrate'
 import { checkIntegrity, createBackup, HttpError, readModule, runCommand, systemClock, versions, type Clock } from './service'
@@ -7,8 +8,10 @@ import { listRoles, requirePermission, resolveActor, setRole, type RoleEnv } fro
 import { ROLE_PERMISSIONS } from '@/shared/rbac'
 import { MODULE_NAMES, type ModuleName } from '@/shared/registry'
 
-export interface Env extends AuthEnv, RoleEnv {
+export interface Env extends AuthEnv, RoleEnv, PublicEnv {
   DB?: D1
+  /** Staging only: the private bucket the sanitized public snapshot is written to after each change. Absent = nothing is published. */
+  PUBLIC_SNAPSHOT?: SnapshotWriter & PublicEnv['PUBLIC_SNAPSHOT']
   NEXUS_ENV?: string // "demo" (public, API off) | "public" (public, view only) | "staging" | "production"
 }
 
@@ -27,7 +30,7 @@ async function readJson(request: Request): Promise<unknown> {
  * Nexus API. `/api/health` is public and reveals only whether the backend is configured. Everything else needs a verified
  * Cloudflare Access identity. Same-origin only: no CORS headers are ever sent.
  */
-export async function handleApi(request: Request, env: Env, clock: Clock = systemClock, fetcher: typeof fetch = fetch): Promise<Response> {
+export async function handleApi(request: Request, env: Env, clock: Clock = systemClock, fetcher: typeof fetch = fetch, waitUntil?: (p: Promise<unknown>) => void): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname.replace(/\/+$/, '')
   try {
@@ -71,6 +74,9 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
     if (path === '/api/commands' && request.method === 'POST') {
       const body = (await readJson(request)) as Record<string, unknown>
       const result = await runCommand(db, body as never, actor, clock)
+      // Refresh the public snapshot in the background; a failure there never affects this change (the scheduled publisher catches up).
+      const refresh = publishAfterChange(env, clock)
+      if (waitUntil) waitUntil(refresh); else await refresh
       return json(result)
     }
     if (path === '/api/backup' && request.method === 'GET') {
@@ -87,7 +93,10 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
     }
     if (path === '/api/migrate/apply' && request.method === 'POST') {
       requirePermission(actor, 'access.manage')
-      return json(await applyMigration(db, (await readJson(request)) as never, actor.email, clock))
+      const applied = await applyMigration(db, (await readJson(request)) as never, actor.email, clock)
+      const refresh = publishAfterChange(env, clock)
+      if (waitUntil) waitUntil(refresh); else await refresh
+      return json(applied)
     }
     throw new HttpError(404, 'Not found.', 'not-found')
   } catch (e) {

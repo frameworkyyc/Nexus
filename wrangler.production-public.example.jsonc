@@ -1,14 +1,25 @@
 {
-  // EXAMPLE ONLY — NOT APPLIED. What `wrangler.jsonc` would change for production to become the public, view-only site (docs/PUBLIC_READONLY.md).
-  // Nothing here has been deployed; production still serves the demo until this is approved and merged to main.
+  // EXAMPLE ONLY — NOT APPLIED. What `wrangler.jsonc` would change for production (main, nexus.frameworktools.ca) to become the public, view-only
+  // site (docs/PUBLIC_READONLY.md). Nothing here has been deployed; production still serves the demo until this is approved and merged to main.
   //
-  //   "vars": { "NEXUS_ENV": "public" },
-  //   // The same database as staging, so staging edits appear here with no synchronisation. The public Worker can only SELECT: see src/worker/publicApi.ts.
-  //   "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150" }]
-  //
-  // No Cloudflare Access application may cover the production hostname (nexus.frameworktools.ca); staging.nexus.frameworktools.ca keeps its own.
-  // Do NOT set ACCESS_TEAM_DOMAIN, ACCESS_AUD, INITIAL_ADMIN_EMAIL or DEV_BYPASS_AUTH on production: the public API never reads them.
-  // Build the application bundle (NEXUS_BUNDLE unset), not the demo bundle.
+  // Production has NO database binding. Its only data source is the sanitized snapshot in a private R2 bucket, written by staging and by the
+  // `nexus-publisher` Worker (wrangler.publisher.jsonc). It carries no Cloudflare Access, admin or credentials settings: the public API never reads them.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nexus",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  "build": { "command": "npm run build" },
+  "assets": {
+    "directory": "./dist",
+    // The ASSETS binding lets the Worker add the noindex and security headers to every page; every request passes through the Worker.
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
   "vars": { "NEXUS_ENV": "public" },
-  "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150" }]
+  "r2_buckets": [{ "binding": "PUBLIC_SNAPSHOT", "bucket_name": "nexus-public-snapshot" }]
+  //
+  // Staging (the `previews` block of wrangler.jsonc) additionally gets the same bucket, so each change there refreshes the snapshot straight away:
+  //   "previews": { "r2_buckets": [{ "binding": "PUBLIC_SNAPSHOT", "bucket_name": "nexus-public-snapshot" }], ...existing settings... }
+  // To allow search engines later, add  "PUBLIC_INDEXABLE": "true"  to vars.
 }

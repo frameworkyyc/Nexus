@@ -5,7 +5,7 @@ import { DEMO_DESCRIPTION, DEMO_LABEL } from '@/app/demoConfig'
 import { useModules } from '@/app/modules'
 import { useTenant } from '@/app/tenant'
 import { BottomSheet } from '@/components/ui/BottomSheet'
-import { useBackend } from '@/lib/dataSource'
+import { updatedLabel, useBackend } from '@/lib/dataSource'
 import { resetWholeDemo } from './DemoBadge'
 
 const PRIMARY_IDS = new Set(['dashboard', 'projects', 'fleet'])
@@ -15,7 +15,7 @@ const row = 'flex min-h-[52px] items-center justify-between gap-3 border-b borde
 /** Phone menu: secondary navigation, the demo controls and where the data lives. Primary destinations are in the bottom bar. */
 export function MoreSheet({ onClose }: { onClose: () => void }) {
   const tenant = useTenant()
-  const { mode, environment, readOnly } = useBackend()
+  const { mode, environment, readOnly, asOf } = useBackend()
   const modules = useModules()
   const secondary = modules.filter((m) => m.path && !PRIMARY_IDS.has(m.id))
   const planned = modules.filter((m) => !m.path)
@@ -46,7 +46,7 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
       </ul>
       <div className="px-4 py-5 text-[14px] text-muted">
         <p className="font-medium text-ink">{tenant.organization || 'Nexus'}</p>
-        <p className="mt-0.5">{readOnly ? 'View only · live project data' : mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Sample data kept in this browser only' : 'Demonstration data · fictional records'}</p>
+        <p className="mt-0.5">{readOnly ? `View only · project data${updatedLabel(asOf)}` : mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Sample data kept in this browser only' : 'Demonstration data · fictional records'}</p>
       </div>
     </BottomSheet>
   )
