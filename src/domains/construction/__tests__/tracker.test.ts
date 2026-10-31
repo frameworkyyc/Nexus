@@ -109,26 +109,26 @@ describe('deliveries: workbook status is not a receipt', () => {
   it('supports partial deliveries and calculates remaining only once verified', async () => {
     let s = await loaded()
     const id = line(s, 4).id
-    s = apply(s, A.addReceipt(id, { date: '2026-10-10', qty: 10, reference: 'PS-1', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-10', qty: 10, reference: 'PS-1', note: '' }, TODAY))
     expect(deliveryState(line(s, 4))).toBe('partial')
     expect(remainingOf(line(s, 4))).toBe(14)
-    s = apply(s, A.addReceipt(id, { date: '2026-10-15', qty: 14, reference: 'PS-2', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-15', qty: 14, reference: 'PS-2', note: '' }, TODAY))
     expect(receivedOf(line(s, 4))).toBe(24)
     expect(deliveryState(line(s, 4))).toBe('received')
     expect(remainingOf(line(s, 4))).toBe(0)
-    s = apply(s, A.addReceipt(id, { date: '2026-10-16', qty: 2, reference: '', note: 'extra' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-16', qty: 2, reference: '', note: 'extra' }, TODAY))
     expect(deliveryState(line(s, 4))).toBe('over-received')
     expect(remainingOf(line(s, 4))).toBe(0)
   })
 
   it('rejects invalid receipts', async () => {
     const s = await loaded(); const id = line(s, 4).id
-    expect(err(s, A.addReceipt(id, { date: '2026-10-10', qty: 0, reference: '', note: '' }, TODAY))).toMatch(/greater than zero/)
-    expect(err(s, A.addReceipt(id, { date: '2026-10-10', qty: -3, reference: '', note: '' }, TODAY))).toMatch(/greater than zero/)
-    expect(err(s, A.addReceipt(id, { date: '2026-10-10', qty: 1.5, reference: '', note: '' }, TODAY))).toMatch(/whole number/)
-    expect(err(s, A.addReceipt(id, { date: '2026-11-01', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/future/)
-    expect(err(s, A.addReceipt(id, { date: 'nope', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/valid date/)
-    expect(err(s, A.setOrdered(id, -1))).toMatch(/whole number/)
+    expect(err(s, A.legacyAddReceipt(id, { date: '2026-10-10', qty: 0, reference: '', note: '' }, TODAY))).toMatch(/greater than zero/)
+    expect(err(s, A.legacyAddReceipt(id, { date: '2026-10-10', qty: -3, reference: '', note: '' }, TODAY))).toMatch(/greater than zero/)
+    expect(err(s, A.legacyAddReceipt(id, { date: '2026-10-10', qty: 1.5, reference: '', note: '' }, TODAY))).toMatch(/whole number/)
+    expect(err(s, A.legacyAddReceipt(id, { date: '2026-11-01', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/future/)
+    expect(err(s, A.legacyAddReceipt(id, { date: 'nope', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/valid date/)
+    expect(err(s, A.legacySetOrdered(id, -1))).toMatch(/whole number/)
   })
 
   it('confirming "nothing received" makes remaining known; receipts cancel the confirmation', async () => {
@@ -136,7 +136,7 @@ describe('deliveries: workbook status is not a receipt', () => {
     s = apply(s, A.confirmNoReceipts(id, true))
     expect(deliveryState(line(s, 4))).toBe('none-received')
     expect(remainingOf(line(s, 4))).toBe(24)
-    s = apply(s, A.addReceipt(id, { date: '2026-10-10', qty: 5, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-10', qty: 5, reference: '', note: '' }, TODAY))
     expect(line(s, 4).confirmedNoReceipts).toBe(false)
     expect(err(s, A.confirmNoReceipts(id, true))).toMatch(/Remove the recorded receipts/)
     s = apply(s, A.removeReceipt(id, line(s, 4).receipts[0].id))
@@ -148,7 +148,7 @@ describe('deliveries: workbook status is not a receipt', () => {
     const bolts = () => areaSummary(s.lines).find((g) => g.area === 'North Area' && g.component === '3/4" x 460mm Bolt')!
     const total = bolts().required
     expect(bolts()).toMatchObject({ received: 0, remaining: total })
-    s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-10', qty: 24, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(line(s, 4).id, { date: '2026-10-10', qty: 24, reference: '', note: '' }, TODAY))
     expect(bolts()).toMatchObject({ received: 24, remaining: total - 24, lines: 2 })
   })
 })
@@ -165,7 +165,7 @@ describe('materials progress indicator', () => {
 describe('filters', () => {
   it('filters by area, component type, footing type, anchorage type, delivery status and text', async () => {
     let s = await loaded()
-    s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-10', qty: 10, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(line(s, 4).id, { date: '2026-10-10', qty: 10, reference: '', note: '' }, TODAY))
     expect(filterLines(s.lines, { area: 'South Area' })).toHaveLength(4)
     expect(filterLines(s.lines, { category: 'bolt' }).map((l) => l.source.row)).toEqual([4, 9, 13])
     expect(filterLines(s.lines, { footingType: 'F-11' })).toHaveLength(3)
@@ -180,7 +180,7 @@ describe('filters', () => {
 describe('re-import', () => {
   it('carries Nexus entries over by line identity and keeps removed rows that hold entries', async () => {
     let s = await loaded()
-    s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-10', qty: 10, reference: 'PS-1', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(line(s, 4).id, { date: '2026-10-10', qty: 10, reference: 'PS-1', note: '' }, TODAY))
     s = apply(s, A.setNotes(line(s, 13).id, 'check thread'))
     const flagId = s.flags.find((f) => f.code === 'entered-quantity')!.id
     s = apply(s, A.acknowledgeFlag(flagId, '', TODAY, true))
@@ -197,7 +197,7 @@ describe('re-import', () => {
 
   it('never drops a removed row that holds receipts', async () => {
     let s = await loaded()
-    s = apply(s, A.addReceipt(line(s, 9).id, { date: '2026-10-10', qty: 1, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(line(s, 9).id, { date: '2026-10-10', qty: 1, reference: '', note: '' }, TODAY))
     const again = await importWorkbookFile(sampleWorkbook())
     again.lines = again.lines.filter((l) => l.footingType !== 'F-02')
     s = apply(s, A.importTracker(again, META))

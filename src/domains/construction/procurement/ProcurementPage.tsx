@@ -22,7 +22,23 @@ import { RequirementsView, type RequirementsLayout } from './RequirementsView'
 import { ViewToggle } from '@/components/ui/Toolbar'
 import { usePersistentChoice } from '@/lib/usePersistentChoice'
 
-type Tab = 'requirements' | 'orders'
+type Tab = 'materials' | 'orders'
+
+/** The two Procurement tabs, in order. */
+export const PROCUREMENT_TABS: { id: Tab; label: string }[] = [{ id: 'materials', label: 'Materials' }, { id: 'orders', label: 'Orders' }]
+
+/**
+ * New order and Receive delivery, identical and in the same place on both tabs. New order opens the one order panel; Receive delivery opens the one
+ * delivery panel (which asks for the purchase order first). There is no other way to order or receive from this page.
+ */
+export function ProcurementActions({ canOrder, canReceive, onNewOrder, onReceive }: { canOrder: boolean; canReceive: boolean; onNewOrder: () => void; onReceive: () => void }) {
+  return (
+    <span className="flex flex-wrap items-center gap-2" data-testid="procurement-actions">
+      {canOrder && <Button onClick={onNewOrder}>New order</Button>}
+      {canReceive && <Button onClick={onReceive}>Receive delivery</Button>}
+    </span>
+  )
+}
 
 /**
  * Procurement: the central place to order and receive the materials that Materials says are required. It reads the same consolidated
@@ -38,11 +54,10 @@ export function ProcurementPage() {
   const { state: construction } = useConstruction()
   const access = useAccess()
   const toast = useToast()
-  const [tab, setTab] = useState<Tab>('requirements')
+  const [tab, setTab] = useState<Tab>(params.get('tab') === 'orders' ? 'orders' : 'materials')
   const [layout, setLayout] = usePersistentChoice<RequirementsLayout>('nexus.procurement.view', ['list', 'blocks'], 'list')
   const [status, setStatus] = useState<ProcStatus | ''>('')
   const [search, setSearch] = useState('')
-  const [picked, setPicked] = useState<Set<string>>(new Set())
   const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string } | { kind: 'po'; order: string } | { kind: 'correct'; delivery: string }>(null)
   const areaFilter = params.get('area') ?? ''
 
@@ -62,6 +77,7 @@ export function ProcurementPage() {
   const dlg = dialog?.kind === 'row' ? rows.find((r) => r.key === dialog.key) : undefined
 
   const act = async (run: () => Promise<string | null>) => { const e = await run(); if (e) toast(e) }
+  const actions = <ProcurementActions canOrder={canOrder} canReceive={canReceive} onNewOrder={() => setDialog({ kind: 'order', keys: [] })} onReceive={() => setDialog({ kind: 'receive', keys: [] })} />
 
   if (rows.length === 0 && (state.orders ?? []).length === 0) {
     return (
@@ -79,9 +95,9 @@ export function ProcurementPage() {
       <dl className="mb-6 grid grid-cols-2 gap-6 border-y border-line py-6 lg:grid-cols-4">
         {(['pending', 'ordered', 'partial', 'received'] as ProcStatus[]).map((s) => <Stat key={s} label={PROC_LABEL[s]} value={counts(s)} sub={s === 'pending' ? 'Required, not yet ordered' : s === 'ordered' ? 'Ordered, nothing arrived' : s === 'partial' ? 'Some has arrived' : 'Received and confirmed'} />)}
       </dl>
-      <Tabs<Tab> value={tab} onChange={setTab} items={[{ id: 'requirements', label: 'Requirements', count: rows.length }, { id: 'orders', label: 'Orders', count: orders.filter(projectOrder).length }]} />
+      <Tabs<Tab> value={tab} onChange={setTab} items={[{ ...PROCUREMENT_TABS[0], count: rows.length }, { ...PROCUREMENT_TABS[1], count: orders.filter(projectOrder).length }]} />
 
-      {tab === 'requirements' && (
+      {tab === 'materials' && (
         <div className="space-y-4 pt-6">
           <div className="flex flex-wrap items-center gap-3">
             {areas.length > 1 && <Chips label="Area" value={areaFilter} onChange={(v) => setParams(v ? { area: v } : {})} items={[{ id: '', label: 'All areas' }, ...areas.map(([id, name]) => ({ id, label: name }))]} />}
@@ -94,19 +110,10 @@ export function ProcurementPage() {
             <span className="text-xs text-muted">{shown.length} of {rows.length} materials</span>
             <span className="grow" />
             <ViewToggle label="Requirements view" value={layout} onChange={setLayout} items={[{ id: 'list', label: 'List' }, { id: 'blocks', label: 'Blocks' }]} />
-            {canOrder && <Button onClick={() => setDialog({ kind: 'order', keys: [] })}>New order</Button>}
-            {canReceive && <Button onClick={() => setDialog({ kind: 'receive', keys: [] })}>Receive delivery</Button>}
+            {actions}
           </div>
-          {picked.size > 0 && (
-            <div role="status" className="flex flex-wrap items-center gap-3 rounded-nx border border-line bg-hover px-3 py-2 text-[13px]" data-compact>
-              <span className="font-medium">{picked.size} selected</span>
-              {canOrder && <Button onClick={() => setDialog({ kind: 'order', keys: [...picked] })}>Order selected</Button>}
-              {canReceive && <Button onClick={() => setDialog({ kind: 'receive', keys: [...picked] })}>Receive selected</Button>}
-              <Button variant="ghost" onClick={() => setPicked(new Set())}>Clear</Button>
-            </div>
-          )}
           {shown.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">No materials match.</p> : (
-            <RequirementsView rows={shown} layout={layout} picked={picked} onPick={(keys, on) => setPicked((p) => { const n = new Set(p); for (const k of keys) { if (on) n.add(k); else n.delete(k) } return n })}
+            <RequirementsView rows={shown} layout={layout}
               onOpen={(key) => setDialog({ kind: 'row', key })} showArea={!areaFilter && areas.length > 1} expandAll={!!status || !!search.trim()} />
           )}
         </div>
@@ -115,14 +122,17 @@ export function ProcurementPage() {
       {areas.length > 0 && <div className="pt-5"><UnlinkedNotice state={state} areaIds={new Set(areas.map(([id]) => id))} action={tab !== 'orders' ? <button type="button" className="text-[13px] underline underline-offset-4" onClick={() => setTab('orders')}>Review in Orders</button> : undefined} /></div>}
 
       {tab === 'orders' && (
+        <>
+        <div className="flex flex-wrap items-center gap-3 pt-6" data-compact><span className="text-xs text-muted">{orders.filter(projectOrder).length} order{orders.filter(projectOrder).length === 1 ? '' : 's'}</span><span className="grow" />{actions}</div>
         <OrdersTab state={state} orders={orders.filter(projectOrder)} deliveries={deliveries.filter(projectDelivery)} perms={{ order: canOrder, receive: canReceive, void: canVoid }} act={act}
           onReceive={(id) => setDialog({ kind: 'receive', keys: [], order: id })} onAddMaterials={(id) => setDialog({ kind: 'order', keys: [], order: id })} onEdit={(id) => setDialog({ kind: 'po', order: id })} onCorrect={(id) => setDialog({ kind: 'correct', delivery: id })} />
+        </>
       )}
 
-      {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
+      {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'po' && (state.orders ?? []).some((o) => o.id === dialog.order) && <OrderDetailsModal order={(state.orders ?? []).find((o) => o.id === dialog.order)!} state={state} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'correct' && (state.deliveries ?? []).some((d) => d.id === dialog.delivery) && <CorrectDeliveryModal delivery={(state.deliveries ?? []).find((d) => d.id === dialog.delivery)!} state={state} today={today} onClose={() => setDialog(null)} />}
-      {dialog?.kind === 'receive' && <ReceiveModal rows={rows} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
+      {dialog?.kind === 'receive' && <ReceiveModal state={state} today={today} orderId={dialog.order} focusKeys={dialog.keys} inProject={(id) => projectOrder({ id })} onNewOrder={canOrder ? () => setDialog({ kind: 'order', keys: [] }) : undefined} onClose={() => setDialog(null)} />}
       {dlg && <RowModal row={dlg as ProcRow} state={state} foundationName={foundationName} onClose={() => setDialog(null)} onOrder={() => setDialog({ kind: 'order', keys: [dlg.key] })} onReceive={() => setDialog({ kind: 'receive', keys: [dlg.key] })} />}
     </>
   )

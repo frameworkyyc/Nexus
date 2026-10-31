@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
-import { addReceipt, archiveMaterials, editMaterial, removeReceipt, setOrdered } from './commands'
+import { archiveMaterials, editMaterial, removeReceipt } from './commands'
 import { AddMaterialModal, duplicateOf } from './manage/AddMaterialModal'
 import { anchorageFor, displayOf, foundationsOfArea, legacyIssues } from './catalog'
 import { useMaterialRefs, type MaterialRefs } from './manage/useMaterialRefs'
@@ -26,17 +26,13 @@ const dash = (v?: string | null) => (v ? v : <span className="text-muted">—</s
 
 /** One material: its facts, quantities, deliveries and history. Editing and recording depend on the role. */
 export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => void }) {
-  const { state, today } = useTracker()
+  const { state } = useTracker()
   const { state: construction } = useConstruction()
   const { run, saving } = useTrackerCommand()
   const access = useAccess()
   const { projectId } = useParams()
   const refs = useMaterialRefs(projectId)
   const line = allLines(state).find((l) => l.id === lineId)
-  const [qty, setQty] = useState('')
-  const [date, setDate] = useState(today)
-  const [ref, setRef] = useState('')
-  const [note, setNote] = useState('')
   const [edit, setEdit] = useState(false)
   const [dup, setDup] = useState(false)
   if (!line) return null
@@ -58,10 +54,6 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
   const legacy = legacyIssues(line, refs.catalog, refs.suppliers)
   const history = (state.history ?? []).filter((h) => h.materialId === line.id).slice().reverse()
   const canEdit = access.can('materials.edit')
-  const confirmDelivery = (n: number) => {
-    if (!window.confirm(`Confirm that ${n.toLocaleString('en-CA')} ${unit} of “${line.component}” were physically received and checked?`)) return
-    run(addReceipt(line.id, { date, qty: n, reference: ref, note }, today), () => { setQty(''); setRef(''); setNote('') })
-  }
   return (
     <Modal title={line.component} onClose={onClose} wide>
       <div className="space-y-8 p-6 text-[13px]">
@@ -119,27 +111,11 @@ export function LineModal({ lineId, onClose }: { lineId: string; onClose: () => 
               ))}
             </ul>
           )}
-          {access.can('materials.receive') && remaining > 0 && !line.requirementRemoved && (
-            <>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <Field label="Quantity delivered"><Input aria-label="Quantity delivered" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} placeholder={String(remaining)} /></Field>
-                <Field label="Date received"><Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-                <Field label="Delivery ref. (optional)"><Input value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
-                <Field label="Note (optional)"><Input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <Button variant="primary" disabled={saving} onClick={() => confirmDelivery(qty.trim() === '' ? remaining : Number(qty))}>{saving ? 'Saving…' : qty.trim() === '' ? `Mark delivered (${remaining.toLocaleString('en-CA')} ${unit})` : 'Confirm delivery'}</Button>
-                <span className="text-xs text-muted">Confirms the material was received and checked. For a partial delivery enter what arrived; the rest stays outstanding.</span>
-              </div>
-            </>
-          )}
+          <p className="mt-3 text-xs text-muted">Materials are received against a purchase order: create the order and record its delivery in Procurement. Receipts recorded earlier stay here and keep counting.</p>
         </section>
 
         <section className="grid gap-3 sm:grid-cols-2">
-          <Field label="Ordered quantity (optional)">
-            <Input key={String(line.orderedQty)} inputMode="numeric" placeholder="Not recorded" disabled={!canEdit} defaultValue={line.orderedQty === null ? '' : String(line.orderedQty)}
-              onBlur={(e) => { const v = e.target.value.trim(); if (v !== (line.orderedQty === null ? '' : String(line.orderedQty))) run(setOrdered(line.id, v === '' ? null : Number(v))) }} />
-          </Field>
+          {line.orderedQty !== null && <div><p className="t-label mb-1.5">Ordered quantity entered earlier</p><p className="tabular-nums text-muted">{line.orderedQty.toLocaleString('en-CA')} {unit} <span className="text-xs">(ordered quantities now come from purchase orders)</span></p></div>}
           <div className="sm:col-span-2"><p className="t-label mb-1.5">Notes</p><p className="whitespace-pre-line text-muted">{line.notes || '—'}</p></div>
         </section>
 

@@ -56,7 +56,7 @@ export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMa
   const [open, setOpen] = useState<Set<string>>(new Set())
   const toggle = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const loose = deliveries.filter((d) => !d.orderId)
-  if (orders.length === 0 && loose.length === 0) return <div className="pt-6"><EmptyState title="No orders yet" description="Select materials in Requirements and choose Order selected, or use New order." /></div>
+  if (orders.length === 0 && loose.length === 0) return <div className="pt-6"><EmptyState title="No orders yet" description="Use New order to order the materials you need. Deliveries are then recorded against the order." /></div>
   return (
     <div className="space-y-8 pt-6">
       {orders.length > 0 && (

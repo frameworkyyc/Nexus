@@ -54,7 +54,7 @@ describe('requirements grouped by category', () => {
     const tpl = house.find((r) => r.category === 'template' && r.designation === 'OP1-D2')!
     const run = (r: A.Reducer) => { const o = r(t, { construction: c, actor: 'a', now: NOW }); if (o.error !== undefined) throw new Error(o.error); t = o.state }
     run(A.createPurchaseOrder({ number: '', supplier: '', date: TODAY, lines: [{ key: tpl.key, qty: 5 }] }, TODAY))
-    run(A.recordDelivery({ date: TODAY, lines: [{ key: tpl.key, qty: 3 }] }, TODAY))
+    run(A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: tpl.key, qty: 3 }] }, TODAY))
     const after = procurementRows(t, c).filter((r) => r.required > 0)
     expect(groupByCategory(after).find((x) => x.category === 'template')!.outstanding).toBe(17 - 3)
     expect(after.map((r) => r.key)).toEqual(all.map((r) => r.key)) // same requirements, same keys: selection by key still works

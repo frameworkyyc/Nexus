@@ -34,6 +34,11 @@ const cmd = (db: TestDb, email: string, module: string, name: string, args: unkn
 const give = (db: TestDb, email: string, role: string) => db.raw.prepare("INSERT INTO user_roles (email, role, assigned_by, assigned_at) VALUES (?, ?, 'test', '2026-10-21T00:00:00Z')").run(email, role)
 import { refreshRequirements } from '@/domains/construction/tracker/requirements'
 import { procurementRows } from '@/domains/construction/tracker/procurement'
+import { SERVER_COMMANDS } from '@/shared/registry'
+import * as tracker from '@/domains/construction/tracker/actions'
+import { installLegacyReceiptCommands } from './legacyCommands'
+
+installLegacyReceiptCommands()
 const count = (db: TestDb, table: string) => (db.raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
 const fresh = async () => { const db = createTestDb({ seed: false }); give(db, 'admin@example.com', 'admin'); give(db, 'editor@example.com', 'editor'); give(db, 'viewer@example.com', 'viewer'); await cmd(db, 'admin@example.com', 'construction', 'createOrganization', [{ name: 'Northline' }]); return db }
 const get = async (db: TestDb, module: string) => (await as(db, 'viewer@example.com', 'GET', `/api/state/${module}`)).body.state
@@ -270,7 +275,9 @@ describe('installation tracking on the server', () => {
     const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
     const inst = (qty: number) => ({ key: bolts.key, qty, date: '2026-10-20', note: 'crew A' })
     expect((await cmd(db, 'editor@example.com', 'materials', 'recordInstallation', [inst(10), TODAY])).status).toBe(422) // nothing received yet
-    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ date: '2026-10-19', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ name: 'Bolts', number: '', supplier: '', date: '2026-10-18', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
+    const poId = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ orderId: poId, date: '2026-10-19', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
     expect((await cmd(db, 'viewer@example.com', 'materials', 'recordInstallation', [inst(10), TODAY])).status).toBe(403)
     expect((await cmd(db, 'editor@example.com', 'materials', 'recordInstallation', [inst(10), TODAY])).status).toBe(200)
     expect(db.raw.prepare('SELECT qty, note, recorded_by FROM material_installations').all()).toEqual([{ qty: 10, note: 'crew A', recorded_by: 'editor@example.com' }])
@@ -718,8 +725,11 @@ describe('unlinked deliveries on the server', () => {
     const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
     expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ name: 'Bolts', number: '', supplier: '', date: '2026-10-20', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
     const id = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
-    // received from Requirements without choosing the order
-    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ date: '2026-10-21', lines: [{ key: bolts.key, qty: 40 }] }, TODAY])).status).toBe(200)
+    // a delivery recorded before orders were required (new ones are refused): built here as a historical record
+    const reg = SERVER_COMMANDS.materials as Record<string, unknown>, realDelivery = reg.recordDelivery
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ date: '2026-10-21', lines: [{ key: bolts.key, qty: 40 }] }, TODAY])).status).toBe(422)
+    reg.recordDelivery = (input: Parameters<typeof tracker.historicalUnlinkedDelivery>[0], today: string) => tracker.historicalUnlinkedDelivery(input, today)
+    try { expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ date: '2026-10-21', lines: [{ key: bolts.key, qty: 40 }] }, TODAY])).status).toBe(200) } finally { reg.recordDelivery = realDelivery }
     expect(db.raw.prepare('SELECT order_id FROM procurement_deliveries').get()).toEqual({ order_id: null })
     expect((await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(200) // nothing is linked to it
     expect(count(db, 'procurement_deliveries')).toBe(1)

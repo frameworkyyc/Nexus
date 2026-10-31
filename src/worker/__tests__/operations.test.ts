@@ -6,6 +6,9 @@ import type { TrackerState } from '@/domains/construction/tracker/types'
 import { loadRows, tablesOf } from '../db'
 import { command, rid, session, TODAY, type Session } from './helpers'
 import { createTestDb } from './sqliteD1'
+import { installLegacyReceiptCommands } from './legacyCommands'
+
+installLegacyReceiptCommands()
 
 const SHA = 'a'.repeat(64)
 async function importSample(s: Session, sha: string | null = SHA, requestId = rid()) {

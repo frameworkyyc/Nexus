@@ -180,6 +180,17 @@ export function orderProgress(s: TrackerState, orderId: string) {
   return { lines: lineRows, ordered: sum(lineRows.map((r) => r.ordered)), original: sum(lines.map((l) => l.qty)), received: sum(lineRows.map((r) => r.received)), due: sum(lineRows.map((r) => r.due)), cancelledQty: sum(lineRows.map((r) => r.cancelledQty)), deliveries }
 }
 
+/**
+ * The purchase orders a new delivery can be recorded against: not cancelled (a deleted order is simply gone) and with something still outstanding.
+ * Given material keys, only orders that still owe at least one of those materials. Each comes with its progress (its lines, received and due).
+ */
+export function receivableOrders(s: TrackerState, keys: string[] = []) {
+  return (s.orders ?? []).filter((o) => !o.cancelled)
+    .map((order) => ({ order, progress: orderProgress(s, order.id) }))
+    .filter(({ progress }) => progress.due > 0 && (keys.length === 0 || progress.lines.some((l) => l.due > 0 && keys.includes(l.line.key))))
+    .sort((a, b) => b.order.date.localeCompare(a.order.date) || b.order.number.localeCompare(a.order.number))
+}
+
 /** One requirement across areas: the same specification everywhere it is needed, with each area's own figures kept. */
 export interface MergedRow {
   specKey: string

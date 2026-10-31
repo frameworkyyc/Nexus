@@ -61,7 +61,8 @@ export const importTracker = (parsed: ParsedTracker, meta: Omit<ImportMeta, 'cou
 /** Removes the imported workbook data. Materials entered in Nexus, and the history, are never removed by this. */
 export const clearTracker = (): Reducer => (s) => ({ state: { ...emptyTracker(), manual: s.manual ?? [], history: s.history ?? [] } })
 
-export const addReceipt = (lineId: string, input: { date: ISODate; qty: number; reference: string; note: string }, today: ISODate): Reducer => audited((s, ctx) =>
+/** The old per-line receipt entry. Retired as a command (see `addReceipt`); kept only to build historical receipts in tests. */
+export const legacyAddReceipt = (lineId: string, input: { date: ISODate; qty: number; reference: string; note: string }, today: ISODate): Reducer => audited((s, ctx) =>
   patchLine(s, lineId, (l) => {
     if (!Number.isFinite(input.qty) || input.qty <= 0) return 'Quantity received must be greater than zero.'
     if (!Number.isInteger(input.qty)) return 'Quantity received must be a whole number.'
@@ -70,6 +71,13 @@ export const addReceipt = (lineId: string, input: { date: ISODate; qty: number; 
     return { ...l, receipts: [...l.receipts, { id: nextId(), date: input.date, qty: input.qty, reference: input.reference.trim(), note: input.note.trim(), by: ctx?.actor ?? '', at: ctx?.now ?? new Date().toISOString() }], confirmedNoReceipts: false }
   }))
 
+/**
+ * Retired. New deliveries are recorded against a purchase order (`recordDelivery`), so received quantities always come from an order. Receipts
+ * already recorded on a line stay, keep counting and can still be voided (`removeReceipt`).
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const addReceipt = (_lineId: string, _input: { date: ISODate; qty: number; reference: string; note: string }, _today: ISODate): Reducer => () => ({ error: 'Materials are received against a purchase order. Create an order in Procurement, then use Receive delivery.' })
+
 export const removeReceipt = (lineId: string, receiptId: string): Reducer => audited((s) =>
   patchLine(s, lineId, (l) => (l.receipts.some((r) => r.id === receiptId) ? { ...l, receipts: l.receipts.filter((r) => r.id !== receiptId) } : 'Receipt not found.')))
 
@@ -77,8 +85,13 @@ export const removeReceipt = (lineId: string, receiptId: string): Reducer => aud
 export const confirmNoReceipts = (lineId: string, confirmed: boolean): Reducer => audited((s) =>
   patchLine(s, lineId, (l) => (confirmed && l.receipts.length ? 'Remove the recorded receipts first.' : { ...l, confirmedNoReceipts: confirmed })))
 
-export const setOrdered = (lineId: string, qty: number | null): Reducer => audited((s) =>
+/** The old per-line ordered quantity. Retired as a command (see `setOrdered`); kept only to build historical figures in tests. */
+export const legacySetOrdered = (lineId: string, qty: number | null): Reducer => audited((s) =>
   patchLine(s, lineId, (l) => (qty !== null && !wholeNumber(qty) ? 'Ordered quantity must be a whole number, zero or more.' : { ...l, orderedQty: qty })))
+
+/** Retired. A material becomes Ordered only when it is on a saved purchase order. Quantities already entered stay and keep counting. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const setOrdered = (_lineId: string, _qty: number | null): Reducer => () => ({ error: 'Ordered quantities come from purchase orders. Create an order in Procurement.' })
 
 export const setNotes = (lineId: string, notes: string): Reducer => audited((s) => patchLine(s, lineId, (l) => ({ ...l, notes })))
 
@@ -291,4 +304,4 @@ export const setPreferredSupplier = (category: ComponentCategory, supplier: stri
   return { state: withConfigLog({ ...s, preferredSuppliers: prefs }, ctx, category, `Preferred supplier for ${category}: ${rec ? rec.name : 'none'}`) }
 }
 
-export { createPurchaseOrder, setPurchaseOrderNumber, setPurchaseOrderSupplier, setPurchaseOrderName, editPurchaseOrder, deletePurchaseOrder, correctDelivery, addOrderLines, cancelPurchaseOrder, recordDelivery, voidDelivery, setAllocations, recordInstallation, voidInstallation } from './procurementActions'
+export { createPurchaseOrder, setPurchaseOrderNumber, setPurchaseOrderSupplier, setPurchaseOrderName, editPurchaseOrder, deletePurchaseOrder, correctDelivery, addOrderLines, cancelPurchaseOrder, recordDelivery, historicalUnlinkedDelivery, voidDelivery, setAllocations, recordInstallation, voidInstallation } from './procurementActions'

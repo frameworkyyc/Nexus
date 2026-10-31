@@ -136,17 +136,17 @@ describe('quantities and deliveries', () => {
     const id = s.manual[0].id
     expect(deliveryState(s.manual[0])).toBe('none-received')
     expect(outstandingOf(s.manual[0])).toBe(100)
-    s = apply(s, A.addReceipt(id, { date: '2026-10-10', qty: 40, reference: 'DN-1', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-10', qty: 40, reference: 'DN-1', note: '' }, TODAY))
     expect(receivedOf(s.manual[0])).toBe(40)
     expect(outstandingOf(s.manual[0])).toBe(60)
     expect(deliveryState(s.manual[0])).toBe('partial')
-    s = apply(s, A.addReceipt(id, { date: '2026-10-12', qty: 35, reference: '', note: 'second truck' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-12', qty: 35, reference: '', note: 'second truck' }, TODAY))
     expect(receivedOf(s.manual[0])).toBe(75)
     expect(outstandingOf(s.manual[0])).toBe(25)
-    s = apply(s, A.addReceipt(id, { date: '2026-10-15', qty: 25, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-15', qty: 25, reference: '', note: '' }, TODAY))
     expect(deliveryState(s.manual[0])).toBe('received')
     expect(outstandingOf(s.manual[0])).toBe(0)
-    s = apply(s, A.addReceipt(id, { date: '2026-10-16', qty: 5, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: '2026-10-16', qty: 5, reference: '', note: '' }, TODAY))
     expect(deliveryState(s.manual[0])).toBe('over-received')
     expect(outstandingOf(s.manual[0])).toBe(0)
     expect(s.manual[0].receipts).toHaveLength(4)
@@ -155,13 +155,13 @@ describe('quantities and deliveries', () => {
   it('records who recorded each receipt only when an identity is supplied, and validates receipts', () => {
     const s0 = apply(base(), A.addMaterials([item()]))
     const id = s0.manual[0].id
-    const withUser = apply(s0, A.addReceipt(id, { date: TODAY, qty: 5, reference: '', note: '' }, TODAY))
+    const withUser = apply(s0, A.legacyAddReceipt(id, { date: TODAY, qty: 5, reference: '', note: '' }, TODAY))
     expect(withUser.manual[0].receipts[0].by).toBe('ana@example.com')
-    const anonymous = A.addReceipt(id, { date: TODAY, qty: 5, reference: '', note: '' }, TODAY)(s0)
+    const anonymous = A.legacyAddReceipt(id, { date: TODAY, qty: 5, reference: '', note: '' }, TODAY)(s0)
     expect(anonymous.state!.manual[0].receipts[0].by).toBe('') // never invented
-    expect(err(s0, A.addReceipt(id, { date: TODAY, qty: 0, reference: '', note: '' }, TODAY))).toMatch(/greater than zero/)
-    expect(err(s0, A.addReceipt(id, { date: TODAY, qty: 1.5, reference: '', note: '' }, TODAY))).toMatch(/whole number/)
-    expect(err(s0, A.addReceipt(id, { date: '2026-12-31', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/future/)
+    expect(err(s0, A.legacyAddReceipt(id, { date: TODAY, qty: 0, reference: '', note: '' }, TODAY))).toMatch(/greater than zero/)
+    expect(err(s0, A.legacyAddReceipt(id, { date: TODAY, qty: 1.5, reference: '', note: '' }, TODAY))).toMatch(/whole number/)
+    expect(err(s0, A.legacyAddReceipt(id, { date: '2026-12-31', qty: 1, reference: '', note: '' }, TODAY))).toMatch(/future/)
   })
 
   it('a stated “Delivered” status never becomes a receipt, so nothing counts as delivered until it is confirmed', async () => {
@@ -178,7 +178,7 @@ describe('quantities and deliveries', () => {
   it('works on workbook lines too and voiding a receipt is recorded', async () => {
     let s = await withWorkbook()
     const l = s.lines[0]
-    s = apply(s, A.addReceipt(l.id, { date: TODAY, qty: 3, reference: 'DN-7', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(l.id, { date: TODAY, qty: 3, reference: 'DN-7', note: '' }, TODAY))
     const rid = s.lines[0].receipts[0].id
     s = apply(s, A.removeReceipt(l.id, rid))
     expect(s.history.map((h) => h.action)).toEqual(expect.arrayContaining(['imported', 'receipt', 'receipt-removed']))
@@ -189,7 +189,7 @@ describe('archive, history and import safety', () => {
   it('archiving hides a material from totals but keeps receipts and history; it can be restored', () => {
     let s = apply(base(), A.addMaterials([item()]))
     const id = s.manual[0].id
-    s = apply(s, A.addReceipt(id, { date: TODAY, qty: 4, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(id, { date: TODAY, qty: 4, reference: '', note: '' }, TODAY))
     s = apply(s, A.archiveMaterials([id], true))
     expect(s.manual[0].receipts).toHaveLength(1)
     expect(activeLines(s)).toHaveLength(0)
@@ -215,7 +215,7 @@ describe('archive, history and import safety', () => {
     s = apply(s, A.addMaterials([item()]))
     const l = s.lines[0]
     s = apply(s, A.editMaterial(l.id, { supplierId: ACME.id }))
-    s = apply(s, A.addReceipt(l.id, { date: TODAY, qty: 2, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(l.id, { date: TODAY, qty: 2, reference: '', note: '' }, TODAY))
     s = apply(s, A.archiveMaterials([s.lines[1].id], true))
     const again = apply(s, A.importTracker(await importWorkbookFile(sampleWorkbook()), { ...META, fileName: 'again.xlsx' }))
     expect(again.manual).toEqual(s.manual)
@@ -257,7 +257,7 @@ describe('dashboard, sorting and export', () => {
 
   it('exports Excel-compatible CSV, quoting values and neutralising formulas', () => {
     let s = apply(base(), A.addMaterials([item({ name: '=HYPERLINK("http://x")', notes: 'a, "b"\nc' })]))
-    s = apply(s, A.addReceipt(s.manual[0].id, { date: TODAY, qty: 4, reference: '', note: '' }, TODAY))
+    s = apply(s, A.legacyAddReceipt(s.manual[0].id, { date: TODAY, qty: 4, reference: '', note: '' }, TODAY))
     const csv = toCsv(allLines(s))
     expect(csv.startsWith('﻿')).toBe(true)
     expect(csv).toContain("'=HYPERLINK")

@@ -4,6 +4,9 @@ import { handleApi, type Env } from '../api'
 import { resetAuthCache } from '../auth'
 import { clock, NOW, TODAY } from './helpers'
 import { applyMigrationFile, createTestDb, type TestDb } from './sqliteD1'
+import { installLegacyReceiptCommands } from './legacyCommands'
+
+installLegacyReceiptCommands()
 
 const TEAM = 'https://nexus-team.cloudflareaccess.com'
 const AUD = 'aud-tag-123'

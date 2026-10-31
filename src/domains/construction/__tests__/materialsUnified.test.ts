@@ -279,7 +279,7 @@ describe('Materials, Procurement, Foundation details, Material records and Area 
     let t = tracked(c)
     const rows = liveRows(t, c)
     t = orderAll(t, c, rows)
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: receipt(rows.filter((r) => r.category === 'nut')) }, TODAY)) // no order chosen
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: receipt(rows.filter((r) => r.category === 'nut')) }, TODAY)) // no order chosen
     t = run(t, c, A.deletePurchaseOrder(t.orders![0].id))
     assertAgreement(t, c)
     expect(unlinkedDeliveries(t).count).toBe(1)

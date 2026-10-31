@@ -94,7 +94,7 @@ describe('materials are separated by anchorage designation', () => {
     let t = tracked(c)
     const [d2, d3] = rowsOf(t, c, 'Plywood template')
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-D2', supplier: 'Lumber', date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
     const [a, b] = rowsOf(t, c, 'Plywood template')
     expect(a).toMatchObject({ designation: 'OP1-D2', ordered: 5, received: 5, status: 'received' })
     expect(b).toMatchObject({ designation: 'OP1-D3', ordered: 0, received: 0, status: 'pending', toOrder: 10 })
@@ -467,7 +467,7 @@ describe('editing and deleting orders', () => {
   it('cannot leave a requirement ordered for less than has been allocated', () => {
     const { c, t: t0, d2, id, lineOf } = setup2()
     // 5 arrive without an order and are all allocated; the order for the same requirement is 5
-    let t = run(t0, c, A.recordDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
+    let t = run(t0, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
     t = run(t, c, A.setAllocations(d2.key, [{ foundationId: c.foundations[0].id, qty: 5 }]))
     const lid = lineOf(t, d2.key).id
     expect(fails(t, c, A.editPurchaseOrder(id, { quantities: [{ lineId: lid, qty: 3 }] }))).toMatch(/5 has been allocated .* more than the 3 that would remain ordered/)
@@ -512,7 +512,7 @@ describe('editing and deleting orders', () => {
     expect(fails(t, c, A.deletePurchaseOrder(id))).toMatch(/Deliveries have been recorded against Site order, so it cannot be deleted\. Cancel the order to keep those deliveries on record, or void the deliveries first/)
     t = run(t, c, A.voidDelivery(t.deliveries![0].id))
     // allocations from a delivery that arrived with no order
-    const t1 = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
+    const t1 = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
     const t2 = run(t1, c, A.setAllocations(d2.key, [{ foundationId: c.foundations[0].id, qty: 5 }]))
     expect(fails(t2, c, A.deletePurchaseOrder(id))).toMatch(/cannot be deleted\. .*5 has been allocated/)
     expect(run(t, c, A.deletePurchaseOrder(id)).orders).toHaveLength(0)
@@ -565,7 +565,7 @@ describe('cancelling orders that have deliveries, and correcting deliveries', ()
     expect(fails(t, c, A.addOrderLines(id, [{ key: d3.key, qty: 1 }]))).toMatch(/not available/)
     expect(fails(t, c, A.cancelPurchaseOrder(id))).toMatch(/already cancelled/)
     // deliveries may still arrive without an order and are counted on top
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: d3.key, qty: 2 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: d3.key, qty: 2 }] }, TODAY))
     expect(row(t, c, 'OP1-D3')).toMatchObject({ ordered: 4, received: 6, toOrder: 6 })
   })
 
@@ -576,7 +576,10 @@ describe('cancelling orders that have deliveries, and correcting deliveries', ()
     expect(row(t, c, 'OP1-D2')).toMatchObject({ ordered: 5, received: 5, toOrder: 0, status: 'received' })
     for (const r of procurementRows(t, c)) for (const v of [r.ordered, r.received, r.toOrder, r.outstanding, r.unallocated]) expect(v).toBeGreaterThanOrEqual(0)
     // over-delivery on the line: the cancelled order counts no more than was ordered
-    const t2 = run(run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 7 }] }, TODAY)), c, A.cancelPurchaseOrder(id))
+    // (new deliveries can no longer exceed the order, so the historical over-delivery is built directly)
+    const t5 = run(t0, c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: d2.key, qty: 5 }] }, TODAY))
+    const t7 = { ...t5, deliveryLines: (t5.deliveryLines ?? []).map((l) => ({ ...l, qty: 7 })) }
+    const t2 = run(t7, c, A.cancelPurchaseOrder(id))
     expect(orderProgress(t2, id).lines.find((l) => l.line.qty === 5)).toMatchObject({ ordered: 5, received: 7 })
   })
 

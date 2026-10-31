@@ -39,4 +39,14 @@ describe('command tagging', () => {
     for (const name of ['allocate', 'createPurchaseOrder', 'receiveDelivery', 'createFabrication', 'recordAcceptance', 'setReportedProgress', 'addDocument']) expect(SERVER_COMMANDS.construction).not.toHaveProperty(name)
     expect(Object.keys(SERVER_COMMANDS.construction).sort()).toEqual(['addAnchorageType', 'addFoundations', 'addPourItems', 'archiveAnchorageType', 'archiveArea', 'archiveFoundation', 'cancelPour', 'completePour', 'configureFoundation', 'createArea', 'createFoundation', 'createOrganization', 'createPour', 'createProject', 'editAnchorageType', 'editArea', 'editFoundation', 'recordPour', 'recordPourOverride', 'removePourItem', 'renameFoundation', 'setAnchorageComponents', 'setFoundationNotes', 'setFoundationUnits', 'setPlinthDims', 'setPlinthNotes', 'setPourActual', 'setProjectStatus', 'updateActivity', 'updateOrganization', 'updatePour', 'updateProject'])
   })
+
+  it('the server enforces the purchase-order workflow: no unordered deliveries, no per-line receipts or ordered quantities, and the historical builders are not accepted', () => {
+    const m = SERVER_COMMANDS.materials
+    for (const name of ['legacyAddReceipt', 'legacySetOrdered', 'historicalUnlinkedDelivery']) expect(m).not.toHaveProperty(name)
+    const t = { orders: [], orderLines: [], deliveries: [], deliveryLines: [] }
+    expect(m.recordDelivery({ date: '2026-10-20', lines: [{ key: 'k', qty: 1 }] }, '2026-10-21')(t, {}).error).toMatch(/purchase order/i)
+    expect(m.addReceipt('l', { date: '2026-10-20', qty: 1, reference: '', note: '' }, '2026-10-21')(t, {}).error).toMatch(/purchase order/i)
+    expect(m.setOrdered('l', 5)(t, {}).error).toMatch(/purchase orders/i)
+    for (const name of ['removeReceipt', 'correctDelivery', 'voidDelivery', 'cancelPurchaseOrder']) expect(m).toHaveProperty(name) // corrections and voids stay
+  })
 })

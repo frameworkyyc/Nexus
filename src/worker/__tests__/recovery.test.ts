@@ -9,6 +9,9 @@ import { backupToSql } from '../restoreSql'
 import { checkIntegrity, createBackup, verifyBackup, type Backup } from '../service'
 import { clock, command, session, TODAY, type Session } from './helpers'
 import { createTestDb } from './sqliteD1'
+import { installLegacyReceiptCommands } from './legacyCommands'
+
+installLegacyReceiptCommands()
 
 async function populate(s: Session) {
   await command(s, 'fleet', 'recordOdometer', ['veh-T6010', { date: '2026-10-20', reading: 12_345, note: "driver's note" }, TODAY])

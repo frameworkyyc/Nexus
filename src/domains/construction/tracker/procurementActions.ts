@@ -1,7 +1,7 @@
 import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
 import { consolidate, type ConsolidationSource } from './consolidate'
-import { deliveredByLine, keyAliases, orderTitle, procurementRows } from './procurement'
+import { deliveredByLine, keyAliases, orderProgress, orderTitle, procurementRows } from './procurement'
 import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 import type { Result, Reducer } from './actions'
 
@@ -334,8 +334,8 @@ export const voidInstallation = (installationId: string): Reducer => audited((s,
 
 export interface DeliveryInput { orderId?: string | null; date: ISODate; reference?: string; note?: string; lines: { key: string; qty: number }[] }
 
-/** Records one shipment: any number of materials, in any number of areas, confirmed once, with who confirmed it and when. */
-export const recordDelivery = (input: DeliveryInput, today: ISODate): Reducer => audited((s, ctx): Result => {
+/** Builds a delivery record (linked to an order, or not). Not a command: `recordDelivery` adds the rules for new deliveries; this also builds the shape of historical unlinked ones. */
+const buildDelivery = (input: DeliveryInput, today: ISODate): Reducer => audited((s, ctx): Result => {
   const c = source(ctx)
   if (!c) return { error: 'The project records are not available, so nothing can be received right now.' }
   if (!validDate(input?.date)) return { error: 'Enter a valid delivery date.' }
@@ -365,6 +365,50 @@ export const recordDelivery = (input: DeliveryInput, today: ISODate): Reducer =>
   return { state: withHistory({ ...s, deliveries: [...(s.deliveries ?? []), delivery], deliveryLines: [...(s.deliveryLines ?? []), ...lines] },
     note(ctx, 'delivery', order?.number || delivery.reference || 'Delivery', `Received ${fmt(total)} items in ${lines.length} line${lines.length === 1 ? '' : 's'} (${areas.join(', ')})${order ? ` against ${order.number || 'an order with no PO number'}` : ''} on ${input.date}${delivery.reference ? ` (${delivery.reference})` : ''}`)) }
 })
+
+
+/**
+ * Records one delivery against an existing purchase order: any number of that order's lines, in full or in part, confirmed once with who confirmed
+ * it and when. This is the only way new deliveries are created, so received quantities always trace back to an order:
+ * - the order must exist and must not be cancelled;
+ * - every line must be on that order and have something outstanding, and no quantity may exceed what is still outstanding on its line
+ *   (so a fully received order cannot receive more);
+ * - a repeat of a delivery that was already recorded (same order, date, reference and quantities) is refused.
+ * Deliveries recorded before this rule, with no order, stay as they are and keep counting (see `historicalUnlinkedDelivery`).
+ */
+export const recordDelivery = (input: DeliveryInput, today: ISODate): Reducer => (s, ctx) => {
+  if (!input?.orderId) return { error: 'Choose the purchase order this delivery is against. Materials can only be received against an order.' }
+  const order = (s.orders ?? []).find((o) => o.id === input.orderId)
+  if (!order) return { error: 'That purchase order is not available.' }
+  if (order.cancelled) return { error: `${orderTitle(s, order)} is cancelled, so no further deliveries can be recorded against it.` }
+  const progress = orderProgress(s, order.id)
+  if (progress.lines.length > 0 && progress.due === 0) return { error: `${orderTitle(s, order)} has been received in full, so nothing more can be received against it.` }
+  if (!Array.isArray(input.lines) || input.lines.length === 0) return { error: 'Enter the quantity received for at least one material.' }
+  const c = source(ctx)
+  const k = alias(s, c)
+  const seen = new Set<string>()
+  for (const l of input.lines) {
+    const row = progress.lines.find((x) => k(x.line.key) === l?.key || x.line.key === l?.key)
+    if (!row) return { error: 'One of those materials is not on the purchase order.' }
+    if (seen.has(row.line.id)) return { error: `${label(row.line)} is listed twice.` }
+    seen.add(row.line.id)
+    if (!whole(l.qty)) return { error: `${label(row.line)}: enter a whole number of 1 or more received.` }
+    if (row.due === 0) return { error: `${label(row.line)} has already been received in full on this order.` }
+    if (l.qty > row.due) return { error: `${label(row.line)}: only ${fmt(row.due)} is still outstanding on this order (ordered ${fmt(row.line.qty)}, received ${fmt(row.received)}). Enter ${fmt(row.due)} or less.` }
+  }
+  const ref = clip(input.reference, 60)
+  if (ref) {
+    const sig = (lines: { key: string; qty: number }[]) => lines.map((l) => `${k(l.key)}:${l.qty}`).sort().join('|')
+    const mine = sig(input.lines)
+    const again = (s.deliveries ?? []).find((d) => d.orderId === order.id && d.date === input.date && d.reference === ref
+      && sig((s.deliveryLines ?? []).filter((l) => l.deliveryId === d.id).map((l) => ({ key: l.key, qty: l.qty }))) === mine)
+    if (again) return { error: `A delivery with reference ${ref} dated ${input.date} with these quantities is already recorded against this order. If it is a different delivery, change the reference.` }
+  }
+  return buildDelivery(input, today)(s, ctx)
+}
+
+/** Builds a delivery that belongs to no order, as deliveries recorded before orders were required. For tests and data repair only: not a command, never registered. */
+export const historicalUnlinkedDelivery = (input: Omit<DeliveryInput, 'orderId'>, today: ISODate): Reducer => buildDelivery({ ...input, orderId: null }, today)
 
 /** Voids a delivery recorded in error. Refused if the material it brought has already been allocated. */
 export const voidDelivery = (deliveryId: string): Reducer => audited((s, ctx): Result => {

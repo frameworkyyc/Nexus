@@ -182,7 +182,7 @@ describe('deliveries recorded without an order (the case found on staging)', () 
     const all = procurementRows(base, c).filter((r) => r.required > 0)
     // an order is placed, then the delivery is recorded WITHOUT choosing the order
     let t = orderAll(base, c, all, { name: 'Placed first' })
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: receiveLines(all.filter((r) => ['bolt', 'nut', 'washer'].includes(r.category)), 1) }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: receiveLines(all.filter((r) => ['bolt', 'nut', 'washer'].includes(r.category)), 1) }, TODAY))
     return { c, eh, pr, t, all, orderId: t.orders![0].id }
   }
 

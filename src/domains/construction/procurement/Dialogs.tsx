@@ -7,9 +7,9 @@ import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
 import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, correctDelivery, editPurchaseOrder } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
-import { orderProgress, orderTitle, PROC_LABEL, type ProcRow } from '../tracker/procurement'
+import { orderProgress, orderTitle, PROC_LABEL, receivableOrders, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
-import type { Delivery, GroupRef, PurchaseOrder, TrackerState } from '../tracker/types'
+import type { Delivery, PurchaseOrder, TrackerState } from '../tracker/types'
 import { CATEGORY_LABEL } from '../tracker/selectors'
 
 export const fmt = (n: number) => n.toLocaleString('en-CA')
@@ -111,68 +111,133 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
   )
 }
 
-/** Records one delivery (a shipment) for any number of materials, optionally against a purchase order. Who confirmed it and when are recorded with it. */
-export function ReceiveModal({ rows, initialKeys, state, today, onClose, order: fixedOrder }: { rows: ProcRow[]; initialKeys: string[]; state: TrackerState; today: string; onClose: () => void; order?: PurchaseOrder }) {
-  // Opened from an order, the delivery is for that order. Opened from Requirements, the user picks the order (or none): a delivery recorded with no
-  // order belongs to no order, so deleting the order later would leave it behind.
-  const [picked, setPicked] = useState<string | null>(null) // null = not chosen yet
-  const byKey = new Map(rows.map((r) => [r.key, r]))
-  const [lines, setLines] = useState<{ key: string; qty: string }[]>(() => {
-    const p0 = fixedOrder ? orderProgress(state, fixedOrder.id) : null
-    const keys = p0 ? p0.lines.filter((x) => x.due > 0).map((x) => x.line.key) : initialKeys.filter((k) => byKey.has(k))
-    return keys.map((k) => ({ key: k, qty: String(Math.max(1, p0?.lines.find((x) => x.line.key === k)?.due ?? byKey.get(k)?.outstanding ?? 0)) }))
-  })
-  const candidates = (state.orders ?? []).filter((o) => !o.cancelled && lines.length > 0 && lines.every((l) => (state.orderLines ?? []).some((x) => x.orderId === o.id && x.key === l.key)))
-  const chosenId = fixedOrder ? fixedOrder.id : picked !== null ? picked : candidates.length === 1 ? candidates[0].id : ''
-  const order = fixedOrder ?? (chosenId ? (state.orders ?? []).find((o) => o.id === chosenId) : undefined)
-  const progress = order ? orderProgress(state, order.id) : null
-  const dueOf = (k: string) => progress?.lines.find((x) => x.line.key === k)?.due ?? byKey.get(k)?.outstanding ?? 0
+/** Where an order stands, for the order picker. */
+const orderState = (received: number) => (received > 0 ? 'Partially received' : 'Open')
+
+/**
+ * The delivery form, without its panel: choose an eligible purchase order, choose which of its lines arrived and how many, then record it.
+ * Opened from an order, that order is already chosen; opened from Materials or Orders, the user chooses it. Only orders with something still
+ * outstanding are offered, and only that order's lines can be received, each up to what is still outstanding on it.
+ */
+export function ReceiveForm({ state, today, onClose, orderId, focusKeys = [], onNewOrder, inProject }: { state: TrackerState; today: string; onClose: () => void; orderId?: string; focusKeys?: string[]; onNewOrder?: () => void; inProject?: (orderId: string) => boolean }) {
+  const inScope = (id: string) => !inProject || inProject(id)
+  const eligible = receivableOrders(state, orderId ? [] : focusKeys).filter((x) => inScope(x.order.id))
+  const [chosen, setChosen] = useState(orderId ?? (eligible.length === 1 ? eligible[0].order.id : ''))
+  const [search, setSearch] = useState('')
+  const entry = chosen && inScope(chosen) ? receivableOrders(state).find((x) => x.order.id === chosen) : undefined
+  // Which lines are in this delivery, and how many of each. Re-set whenever the order changes.
+  const initial = (id: string): Record<string, string> => {
+    const p = receivableOrders(state).find((x) => x.order.id === id)?.progress
+    if (!p || !inScope(id)) return {}
+    const wanted = focusKeys.length ? p.lines.filter((l) => l.due > 0 && focusKeys.includes(l.line.key)) : p.lines.filter((l) => l.due > 0)
+    return Object.fromEntries(wanted.map((l) => [l.line.id, String(l.due)]))
+  }
+  const [picked, setPicked] = useState<Record<string, string>>(() => (chosen ? initial(chosen) : {}))
   const [date, setDate] = useState(today)
   const [reference, setReference] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const choices = fixedOrder ? rows.filter((r) => progress!.lines.some((x) => x.line.key === r.key)) : rows
-  const lookup = new Map<string, GroupRef>([...byKey, ...(progress?.lines.map((x) => [x.line.key, x.line] as [string, GroupRef]) ?? [])])
-  const total = lines.reduce((a, l) => a + (Number.isFinite(toQty(l.qty)) ? toQty(l.qty) : 0), 0)
+  const choose = (id: string) => { setChosen(id); setPicked(id ? initial(id) : {}); setError('') }
+  const q = search.trim().toLowerCase()
+  const shown = eligible.filter(({ order }) => !q || `${orderTitle(state, order)} ${order.number} ${order.supplier}`.toLowerCase().includes(q) || order.id === chosen)
+  const lines = entry?.progress.lines ?? []
+  const problem = (id: string, due: number) => {
+    const t = picked[id]
+    if (t === undefined) return ''
+    const n = Number(t)
+    if (t.trim() === '' || !Number.isInteger(n) || n < 1) return 'Enter a whole number of 1 or more.'
+    if (n > due) return `Only ${fmt(due)} outstanding.`
+    return ''
+  }
+  const included = lines.filter((l) => picked[l.line.id] !== undefined)
+  const invalid = included.some((l) => problem(l.line.id, l.due))
+  const total = included.reduce((a, l) => a + (Number.isFinite(Number(picked[l.line.id])) ? Number(picked[l.line.id]) : 0), 0)
+  const toggle = (id: string, due: number, on: boolean) => setPicked((p) => { const n = { ...p }; if (on) n[id] = String(due); else delete n[id]; return n })
   const save = async () => {
-    const payload = lines.map((l) => ({ key: l.key, qty: toQty(l.qty) }))
-    const over = payload.filter((l) => l.qty > dueOf(l.key))
-    if (over.length && !window.confirm(`${over.length} line${over.length === 1 ? '' : 's'} exceed${over.length === 1 ? 's' : ''} what is still due. Confirm that the full quantities were physically received and checked?`)) return
-    if (!over.length && !window.confirm(`Confirm that ${fmt(payload.reduce((a, l) => a + l.qty, 0))} items were physically received and checked?`)) return
+    if (!entry || saving) return
+    const payload = included.map((l) => ({ key: l.line.key, qty: Number(picked[l.line.id]) }))
+    if (!window.confirm(`Confirm that ${fmt(total)} items against ${orderTitle(state, entry.order)} were physically received and checked?`)) return
     setSaving(true); setError('')
-    const e = await trackerStore.run(recordDelivery({ orderId: order?.id ?? null, date, reference, note, lines: payload }, today))
+    const e = await trackerStore.run(recordDelivery({ orderId: entry.order.id, date, reference, note, lines: payload }, today))
     setSaving(false)
     if (e) setError(e); else onClose()
   }
-  return (
-    <Modal title={fixedOrder ? `Receive delivery · ${orderTitle(state, fixedOrder)}` : 'Receive delivery'} onClose={onClose} wide>
-      <div className="space-y-5 p-6 text-[13px]">
-        <p className="text-muted">Enter what was physically received and checked. It is recorded once for the area’s material, not against each foundation. Partial deliveries are fine: record the rest when it arrives.</p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label="Date received *"><Input aria-label="Date received" type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Delivery note / reference"><Input aria-label="Delivery reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. DN-1042" /></Field>
-          <div className="col-span-2"><Field label="Note"><Input aria-label="Delivery note" value={note} onChange={(e) => setNote(e.target.value)} /></Field></div>
-        </div>
-        {!fixedOrder && lines.length > 0 && (
-          <Field label="Against order">
-            <Select aria-label="Against order" value={chosenId} onChange={(e) => setPicked(e.target.value)}>
-              <option value="">Not against an order</option>
-              {candidates.map((o) => <option key={o.id} value={o.id}>{orderTitle(state, o)}</option>)}
-            </Select>
-          </Field>
-        )}
-        {lines.length === 0 ? <p className="border-l-2 border-line pl-3 text-muted">{fixedOrder ? 'Everything on this order has been received.' : 'No materials yet. Choose one below.'}</p> : (
-          <LineList rows={lookup} lines={lines} set={setLines} label="Quantity received" hint={(k) => { const r = byKey.get(k); return order ? `ordered ${fmt(progress!.lines.find((x) => x.line.key === k)?.line.qty ?? 0)} · due ${fmt(dueOf(k))}` : `required ${fmt(r?.required ?? 0)} · received ${fmt(r?.received ?? 0)} · outstanding ${fmt(dueOf(k))}` }} />
-        )}
-        <AddMaterial rows={choices} taken={new Set(lines.map((l) => l.key))} label="Add a material" qtyOf={(r) => Math.max(1, dueOf(r.key))} onAdd={(key, qty) => setLines([...lines, { key, qty: String(qty) }])} />
-        <p className="text-xs text-muted">Recorded as confirmed by you, with the time, when you save.</p>
-        {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" disabled={saving || lines.length === 0} onClick={() => void save()}>{saving ? 'Saving…' : `Confirm delivery · ${fmt(total)} items`}</Button>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        </div>
+  if (eligible.length === 0 && !entry && !orderId) {
+    return (
+      <div className="space-y-4 p-6 text-[13px]">
+        <p role="status" className="border-l-2 border-line pl-3 text-muted">{focusKeys.length ? 'None of the open purchase orders is waiting on this material.' : 'There is no purchase order with materials still to receive.'} Materials are received against an order: create one first, then record its delivery here.</p>
+        <div className="flex flex-wrap gap-2">{onNewOrder && <Button variant="primary" onClick={onNewOrder}>New order</Button>}<Button variant="ghost" onClick={onClose}>Close</Button></div>
       </div>
+    )
+  }
+  return (
+    <div className="space-y-5 p-6 text-[13px]">
+      <p className="text-muted">Choose the purchase order the delivery is against, then the items that arrived. Partial deliveries are fine: record the rest when it arrives.</p>
+      {!orderId && (
+        <Field label="Purchase order *">
+          {eligible.length > 6 && <Input aria-label="Search purchase orders" className="mb-2" placeholder="Search by name, PO number or supplier" value={search} onChange={(e) => setSearch(e.target.value)} />}
+          <Select aria-label="Purchase order" value={chosen} onChange={(e) => choose(e.target.value)}>
+            <option value="">Choose a purchase order…</option>
+            {shown.map(({ order, progress }) => <option key={order.id} value={order.id}>{`${orderTitle(state, order)} · PO ${order.number || 'Not Assigned'} · ${order.supplier || 'Supplier Not Assigned'} · ${orderState(progress.received)} · ${fmt(progress.due)} to receive`}</option>)}
+          </Select>
+        </Field>
+      )}
+      {orderId && entry && <p className="font-medium">{orderTitle(state, entry.order)} <span className="font-normal text-muted">· PO {entry.order.number || 'Not Assigned'} · {entry.order.supplier || 'Supplier Not Assigned'} · {orderState(entry.progress.received)}</span></p>}
+      {orderId && !entry && <p role="status" className="border-l-2 border-line pl-3 text-muted">This order has nothing left to receive, or is cancelled, so no new delivery can be recorded against it.</p>}
+      {entry && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="t-label">Items on this order</h3>
+            <span className="flex gap-2">
+              <Button variant="ghost" className="!h-8" onClick={() => setPicked(Object.fromEntries(lines.filter((l) => l.due > 0).map((l) => [l.line.id, String(l.due)])))}>Receive all outstanding</Button>
+              <Button variant="ghost" className="!h-8" onClick={() => setPicked({})}>Clear</Button>
+            </span>
+          </div>
+          <ul className="divide-y divide-line border-y border-line" aria-label="Items on this order">
+            {lines.map(({ line, received, due }) => {
+              const on = picked[line.id] !== undefined
+              const err = problem(line.id, due)
+              return (
+                <li key={line.id} className={`py-3 ${due === 0 ? 'opacity-60' : ''}`}>
+                  <label className="flex items-start gap-3">
+                    <input type="checkbox" className="mt-1" disabled={due === 0} checked={on} onChange={(e) => toggle(line.id, due, e.target.checked)} aria-label={`Include ${name(line)}`} />
+                    <span className="min-w-0 flex-1"><span className="block font-medium">{name(line)}</span><span className="block text-xs text-muted">{line.area}{due === 0 ? ' · received in full' : ''}</span></span>
+                  </label>
+                  <dl className="mt-2 grid grid-cols-4 gap-2 pl-7 text-xs">
+                    <div><dt className="text-muted">Ordered</dt><dd className="tabular-nums">{fmt(line.qty)}</dd></div>
+                    <div><dt className="text-muted">Received</dt><dd className="tabular-nums">{fmt(received)}</dd></div>
+                    <div><dt className="text-muted">Remaining</dt><dd className="tabular-nums">{fmt(due)}</dd></div>
+                    <div><dt className="text-muted">Receiving now</dt><dd><Input aria-label={`Quantity received: ${name(line)}`} inputMode="numeric" disabled={!on} value={picked[line.id] ?? ''} onChange={(e) => setPicked((p) => ({ ...p, [line.id]: e.target.value }))} className="!h-8" /></dd></div>
+                  </dl>
+                  {err && <p role="alert" className="mt-1 pl-7 text-xs text-bad">{err}</p>}
+                </li>
+              )
+            })}
+          </ul>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Field label="Date received *"><Input aria-label="Date received" type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+            <Field label="Delivery note / reference"><Input aria-label="Delivery reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. DN-1042" /></Field>
+            <div className="col-span-2"><Field label="Note"><Input aria-label="Delivery note" value={note} onChange={(e) => setNote(e.target.value)} /></Field></div>
+          </div>
+          <p className="text-xs text-muted">Recorded as confirmed by you, with the time, when you save.</p>
+        </>
+      )}
+      {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" disabled={saving || !entry || included.length === 0 || invalid} onClick={() => void save()}>{saving ? 'Saving…' : `Confirm delivery · ${fmt(total)} items`}</Button>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
+/** The Receive delivery panel. `orderId` opens it on that order (from an order's own Receive action); `focusKeys` offers only orders owing those materials. */
+export function ReceiveModal({ state, today, onClose, orderId, focusKeys, onNewOrder, inProject }: { state: TrackerState; today: string; onClose: () => void; orderId?: string; focusKeys?: string[]; onNewOrder?: () => void; inProject?: (orderId: string) => boolean }) {
+  const order = orderId ? (state.orders ?? []).find((o) => o.id === orderId) : undefined
+  return (
+    <Modal title={order ? `Receive delivery · ${orderTitle(state, order)}` : 'Receive delivery'} onClose={onClose} wide>
+      <ReceiveForm state={state} today={today} onClose={onClose} orderId={orderId} focusKeys={focusKeys} onNewOrder={onNewOrder} inProject={inProject} />
     </Modal>
   )
 }

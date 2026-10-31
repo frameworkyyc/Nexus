@@ -132,8 +132,8 @@ describe('requirements calculated from the anchorage library', () => {
     let { s, f, B1 } = world()
     let t = at(emptyTracker(), s)
     const bolts = find(t, 'Anchor bolt')
-    t = A.setOrdered(bolts.id, 150)(t, { construction: s, now: '2026-10-30T12:00:00Z' }).state!
-    t = A.addReceipt(bolts.id, { date: '2026-10-29', qty: 100, reference: 'DN-7', note: '' }, TODAY)(t, { construction: s, actor: 'sam@example.com', now: '2026-10-30T13:00:00Z' }).state!
+    t = A.legacySetOrdered(bolts.id, 150)(t, { construction: s, now: '2026-10-30T12:00:00Z' }).state!
+    t = A.legacyAddReceipt(bolts.id, { date: '2026-10-29', qty: 100, reference: 'DN-7', note: '' }, TODAY)(t, { construction: s, actor: 'sam@example.com', now: '2026-10-30T13:00:00Z' }).state!
     t = A.editMaterial(bolts.id, { supplierId: '', poRef: 'PO-55', notes: 'rush' })(t, { construction: s, actor: 'sam@example.com' }).state!
     // foundation quantity 12 → 20: 60 anchorages, 240 bolts
     s = apply(s, K.configureFoundation(f.id, { quantity: 20 }))
@@ -160,7 +160,7 @@ describe('requirements calculated from the anchorage library', () => {
     const t0 = emptyTracker() // nothing materialised yet, as on a first visit
     const display = at(t0, s)
     const target = find(display, 'Nut')
-    const done = A.addReceipt(target.id, { date: '2026-10-29', qty: 100, reference: '', note: '' }, TODAY)(t0, { construction: s, actor: 'a@example.com', now: '2026-10-30T10:00:00Z' })
+    const done = A.legacyAddReceipt(target.id, { date: '2026-10-29', qty: 100, reference: '', note: '' }, TODAY)(t0, { construction: s, actor: 'a@example.com', now: '2026-10-30T10:00:00Z' })
     expect(done.error).toBeUndefined()
     const saved = done.state!.manual.find((l) => l.id === target.id)!
     expect(saved.receipts[0]).toMatchObject({ qty: 100, by: 'a@example.com', at: '2026-10-30T10:00:00Z' }) // who and when
@@ -203,7 +203,7 @@ describe('quantities entered per anchorage, plinth or footing', () => {
     expect(m).toMatchObject({ requiredQty: 108, basis: 'per-anchorage', qtyEach: 3 }) // 3 × 36
     expect(m.calc.expression).toBe('3 per anchorage × 36 anchorages (A on OP-1) = 108')
     s = apply(s, K.configureFoundation(f.id, { quantity: 20 })) // 60 anchorages
-    t = A.setOrdered(m.id, 100)(t, { construction: s }).state!
+    t = A.legacySetOrdered(m.id, 100)(t, { construction: s }).state!
     expect(t.manual.find((l) => l.id === m.id)).toMatchObject({ requiredQty: 180, orderedQty: 100 })
     const bad = A.addMaterials([{ areaId: s.areas[0].id, foundationId: '', anchorageTypeId: '', category: 'other', name: 'X', description: '', specification: '', size: '', requiredQty: 3, basis: 'per-plinth', unit: 'ea', supplierId: '', poRef: '', expectedDate: '', claimedStatus: '', notes: '' }])(emptyTracker(), { construction: s })
     expect(bad.error).toMatch(/Choose the foundation/)

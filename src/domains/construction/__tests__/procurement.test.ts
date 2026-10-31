@@ -147,7 +147,7 @@ describe('procurement', () => {
     expect(fails(t, c, order({ date: '2027-01-01' }))).toMatch(/future/)
     t = run(t, c, order())
     expect(fails(t, c, order({ number: 'po-1' }))).toMatch(/already exists/)
-    expect(fails(t, c, A.recordDelivery({ date: TODAY, lines: [] }, TODAY))).toMatch(/at least one/)
+    expect(fails(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [] }, TODAY))).toMatch(/at least one/)
     expect(fails(t, c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: [{ key: rowOf(t, c, 'E-House', 'Nut').key, qty: 1 }] }, TODAY))).toMatch(/not on the purchase order/)
     expect(fails(t, c, A.addOrderLines(t.orders![0].id, [{ key: b.key, qty: 5 }]))).toMatch(/already on this order/)
   })
@@ -156,7 +156,7 @@ describe('procurement', () => {
     const { c, f1, f2 } = world()
     let t = tracked(c)
     const b = rowOf(t, c, 'E-House', 'Anchor bolt')
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: b.key, qty: 150 }] }, TODAY)) // received without a purchase order
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: b.key, qty: 150 }] }, TODAY)) // received without a purchase order
     expect(rowOf(t, c, 'E-House', 'Anchor bolt')).toMatchObject({ received: 150, allocated: 0, status: 'partial' })
     expect(fails(t, c, A.setAllocations(b.key, [{ foundationId: f1, qty: 130 }, { foundationId: f2, qty: 30 }]))).toMatch(/Only 150/)
     expect(fails(t, c, A.setAllocations(b.key, [{ foundationId: f2, qty: 100 }]))).toMatch(/cannot be allocated more than/) // OP-2 needs 4*2*4=32 of this designation (its 4×1 of type B is a separate requirement)
@@ -207,12 +207,12 @@ describe('procurement', () => {
     let t = tracked(c)
     t = run(t, c, A.addMaterials([{ areaId: eh, foundationId: f1, category: 'other', name: 'Grout', specification: 'Non-shrink', size: '', unit: 'bag', requiredQty: 20, basis: 'fixed' } as never]))
     const id = t.manual.find((l) => l.component === 'Grout')!.id
-    t = run(t, c, A.setOrdered(id, 20))
-    t = run(t, c, A.addReceipt(id, { date: TODAY, qty: 8, reference: 'old', note: '' }, TODAY))
+    t = run(t, c, A.legacySetOrdered(id, 20))
+    t = run(t, c, A.legacyAddReceipt(id, { date: TODAY, qty: 8, reference: 'old', note: '' }, TODAY))
     const g = procurementRows(t, c).find((r) => r.name === 'Grout')!
     expect(g).toMatchObject({ required: 20, ordered: 20, orderedOnLines: 20, received: 8, receivedOnLines: 8, allocated: 8, allocatedOnLines: 8, status: 'partial' })
     // A bulk delivery adds to it rather than replacing it.
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: g.key, qty: 12 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: g.key, qty: 12 }] }, TODAY))
     expect(procurementRows(t, c).find((r) => r.name === 'Grout')).toMatchObject({ received: 20, status: 'received', unallocated: 12 })
   })
 })
@@ -302,7 +302,7 @@ describe('quantity audit: footing quantity × anchorages per footing × quantity
     expect(notes).toHaveLength(1)
     expect(notes[0]).toMatchObject({ foundation: 'OP1-01-03', entered: 4, footings: 7, perFooting: 28, calculated: 28 })
     const id = entered.lines[0].id
-    t = run(t, c, A.setOrdered(id, 4))
+    t = run(t, c, A.legacySetOrdered(id, 4))
     t = run(t, c, A.editMaterial(id, { basis: 'per-footing', requiredQty: 4 }))
     const line = t.manual.find((l) => l.id === id)!
     expect(line).toMatchObject({ requiredQty: 28, basis: 'per-footing', qtyEach: 4, orderedQty: 4 })
@@ -431,7 +431,7 @@ describe('material status, installation and the overview', () => {
     const key = rowOf(t, c, 'E-House', 'Anchor bolt').key
     const inst = (qty: number, date = TODAY) => A.recordInstallation({ key, qty, date }, TODAY)
     expect(fails(t, c, inst(5))).toMatch(/Only 0 .* has been received/) // nothing has arrived yet
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key, qty: 100 }] }, TODAY), 'sam@example.com')
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key, qty: 100 }] }, TODAY), 'sam@example.com')
     expect(fails(t, c, inst(0))).toMatch(/whole number/)
     expect(fails(t, c, inst(101))).toMatch(/Only 100/)
     expect(fails(t, c, A.recordInstallation({ key, qty: 1, date: '2027-01-01' }, TODAY))).toMatch(/future/)
@@ -440,7 +440,7 @@ describe('material status, installation and the overview', () => {
     expect(row).toMatchObject({ installed: 40, received: 100, allocated: 0, stage: 'partially-installed', installable: 60 })
     expect(t.installations![0]).toMatchObject({ by: 'sam@example.com', at: NOW, qty: 40 })
     // never "Installed" until the full 176 are in
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key, qty: 76 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key, qty: 76 }] }, TODAY))
     t = run(t, c, inst(136))
     expect(rowOf(t, c, 'E-House', 'Anchor bolt').stage).toBe('installed')
     expect(fails(t, c, inst(1))).toMatch(/already installed/)
@@ -480,7 +480,7 @@ describe('material status, installation and the overview', () => {
     const bolt = rowOf(t, c, 'E-House', 'Anchor bolt'), nut = rowOf(t, c, 'E-House', 'Nut')
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-G', supplier: 'Nucor', date: TODAY, lines: [{ key: bolt.key, qty: 176 }, { key: nut.key, qty: 100 }] }, TODAY)) // nuts only partly ordered
     expect(progressCounts(rows())).toMatchObject({ total: 7, ordered: 1, delivered: 0, outstanding: 6 })
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 176 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 176 }] }, TODAY))
     t = run(t, c, A.setAllocations(bolt.key, [{ foundationId: c.foundations[0].id, qty: 144 }, { foundationId: c.foundations[1].id, qty: 16 }]))
     expect(progressCounts(rows())).toMatchObject({ total: 7, ordered: 1, delivered: 1, allocated: 0 }) // 160 of 176 allocated: not fully
     const p = progressCounts(rows())
@@ -513,7 +513,7 @@ describe('Area Overview materials gauge stays in step with the Materials tab', (
     expect(g.rows.find((r) => r.label === 'Delivered in full')!.value).toBe(`4 / ${total}`)
     expect(g.rows.find((r) => r.label === 'Not yet fully delivered')!.value).toBe(`${total - 4} / ${total}`)
     // a partial delivery on a fifth shows as partial, not as progress
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: rows[4].key, qty: 3 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: rows[4].key, qty: 3 }] }, TODAY))
     g = gauge(t, c, eh)
     expect(g.percent).toBe(Math.round((4 / total) * 100))
     expect(g.rows[0].note).toBe('1 partially delivered')
@@ -546,7 +546,7 @@ describe('Area Overview materials gauge stays in step with the Materials tab', (
     }
     for (const a of c.areas) check(a.id)
     const bolt = rowOf(t, c, 'E-House', 'Anchor bolt')
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 176 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 176 }] }, TODAY))
     check(eh)
     expect(gauge(t, c, eh).percent).toBe(14) // 1 of E-House's 7 requirements (A and B bolts, nuts, washers, A template)
     // the requirement grows: no longer fully delivered
@@ -564,7 +564,7 @@ describe('Area Overview materials gauge stays in step with the Materials tab', (
     t = refreshRequirements(t, c, { log: true, at: NOW })
     check(ms); expect(tab(t, c, ms).total).toBe(4)
     const b2 = rowOf(t, c, 'Mole Sieve', 'Anchor bolt')
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: b2.key, qty: 8 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: b2.key, qty: 8 }] }, TODAY))
     check(ms); expect(gauge(t, c, ms).percent).toBe(25)
   })
 })
@@ -695,7 +695,7 @@ describe('embed plates added directly to a foundation', () => {
     const row = () => procurementRows(t, c).find((r) => r.category === 'embed-plate')!
     expect(row().required).toBe(38)
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-EM', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 38 }] }, TODAY))
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 20 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: row().key, qty: 20 }] }, TODAY))
     c = build(c, K.configureFoundation(f.id, { quantity: 20 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
     expect(row()).toMatchObject({ required: 42, ordered: 38, received: 20, toOrder: 4 })
@@ -795,7 +795,7 @@ describe('embed plates created inside a foundation', () => {
     const row = () => procurementRows(t, c).find((r) => r.category === 'embed-plate' && /16 × 300 × 300 mm/.test(r.size) && /headed/.test(r.size))!
     expect(row().required).toBe(36)
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-CP', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 36 }] }, TODAY))
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 10 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: row().key, qty: 10 }] }, TODAY))
     c = build(c, K.configureFoundation(f.id, { quantity: 20 }))
     t = refreshRequirements(t, c, { log: true, at: NOW })
     expect(row()).toMatchObject({ required: 40, ordered: 36, received: 10, toOrder: 4 })
@@ -896,7 +896,7 @@ describe('footing anchor bolts: quantity method', () => {
     expect(procurementRows(t, c).map((r) => [r.key, r.required]).sort()).toEqual(consolidate(t, c).map((r) => [r.key, r.required]).sort())
     const row = () => procurementRows(t, c).find((r) => r.category === 'bolt' && r.designation === 'OP1-D2')!
     t = run(t, c, A.createPurchaseOrder({ number: 'PO-20', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 20 }] }, TODAY))
-    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: row().key, qty: 12 }] }, TODAY))
+    t = run(t, c, A.historicalUnlinkedDelivery({ date: TODAY, lines: [{ key: row().key, qty: 12 }] }, TODAY))
     c = build(c, K.configureFoundation(f, { bolts: [fb({ mode: 'total' })] })) // re-saving the same configuration changes nothing that was ordered or received
     t = refreshRequirements(t, c, { log: true, at: NOW })
     expect(row()).toMatchObject({ required: 20, ordered: 20, received: 12, toOrder: 0 })

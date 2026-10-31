@@ -26,7 +26,7 @@ function localFleet(): FleetState {
 async function localTracker(): Promise<TrackerState> {
   const parsed = await importWorkbookFile(sampleWorkbook())
   let t = run(emptyTracker(), T.importTracker(parsed, { fileName: 'tracker.xlsx', fileSize: 10, sha256: 'e'.repeat(64), importedAt: '2026-10-19T00:00:00Z' }))
-  t = run(t, T.addReceipt(t.lines[3].id, { date: '2026-10-10', qty: 5, reference: 'PS-1', note: '' }, TODAY))
+  t = run(t, T.legacyAddReceipt(t.lines[3].id, { date: '2026-10-10', qty: 5, reference: 'PS-1', note: '' }, TODAY))
   t = run(t, T.confirmNoReceipts(t.lines[4].id, true))
   return t
 }
