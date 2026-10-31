@@ -178,6 +178,18 @@ export interface AnchorageComponent {
   studLength?: number | null
 }
 
+/** One physical foundation (or a set sharing a label) within a foundation designation, such as A-1 within OP1-01-01. Optional. It inherits the designation's footing,
+ * anchorage configuration and quantity, and adds only its identifier and its own embed plates, chosen from the Anchorage Library. */
+export interface FoundationUnit {
+  id: string
+  foundationId: string
+  /** Identifier, unique within the designation (A-1, A-2, B-1…). */
+  label: string
+  notes: string
+  /** Embed plates this individual foundation needs: a library embed plate component and how many. Several allowed. */
+  embeds: { id: string; componentId: string; qty: number }[]
+}
+
 /** Anchor bolts installed directly in each footing of a foundation: no plinth or anchorage type involved. Quantities are per footing. */
 export interface FoundationBolt {
   id: string
@@ -432,6 +444,7 @@ export interface ConstructionState {
   /** Optional so older saved data and the demo still load; treat absent as empty. */
   anchorageGroups?: AnchorageGroup[]
   foundationBolts?: FoundationBolt[]
+  foundationUnits?: FoundationUnit[]
   /** Components and specifications of each anchorage type. Optional so older data still loads. */
   anchorageComponents?: AnchorageComponent[]
   pours?: Pour[]

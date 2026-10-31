@@ -665,5 +665,5 @@ export const archiveAnchorageType = (id: string, archived: boolean): Reducer => 
   return ok({ ...s, anchorageTypes: s.anchorageTypes.map((x) => (x.id === id ? { ...x, archived } : x)) })
 }
 
-export { configureFoundation, setAnchorageComponents, setPlinthDims } from './configActions'
+export { configureFoundation, setAnchorageComponents, setFoundationUnits, setPlinthDims } from './configActions'
 export { addPourItems, cancelPour, completePour, createPour, recordPour, recordPourOverride, removePourItem, setPourActual, updatePour } from './pourActions'

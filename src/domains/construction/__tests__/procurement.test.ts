@@ -560,3 +560,82 @@ describe('Area Overview materials gauge stays in step with the Materials tab', (
     check(ms); expect(gauge(t, c, ms).percent).toBe(25)
   })
 })
+
+describe('individual foundations within a designation', () => {
+  const embedComp = (c: ConstructionState) => c.anchorageComponents!.find((x) => x.kind === 'embed-plate')!
+  const unit = (label: string, qty?: number, componentId?: string) => ({ label, embeds: qty ? [{ componentId: componentId!, qty }] : [] })
+  const embedLine = (c: ConstructionState) => consolidate(tracked(c), c).find((g) => g.area === 'E-House' && g.category === 'embed-plate')!
+
+  it('A-1…B-n with one or two embed plates each: totals across all individual foundations, merged with the library specification', () => {
+    let { c } = staging()
+    const comp = embedComp(c)
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')! // 18 footings sharing OP1-D1
+    const list = [...['A-1', 'A-2', 'A-3', 'A-4', 'A-5', 'A-6'].map((l) => unit(l, 1, comp.id)), ...['B-1', 'B-2', 'B-3', 'B-4', 'B-5', 'B-6'].map((l) => unit(l, 2, comp.id))]
+    c = build(c, K.setFoundationUnits(f.id, list))
+    const g = embedLine(c)
+    // OP1-01-05: 2 footings × 1 (library, via OP1-D4) + 6 × 1 + 6 × 2 individual
+    expect(g.required).toBe(2 + 6 + 12)
+    expect(consolidate(tracked(c), c).filter((x) => x.area === 'E-House' && x.category === 'embed-plate')).toHaveLength(1)
+    const mine = g.contributions.filter((x) => x.foundationId === f.id)
+    expect(mine).toHaveLength(12)
+    expect(mine.find((x) => x.foundation === 'OP1-01-01 · B-3')).toMatchObject({ qty: 2, individual: true, anchorage: 'OP1-D4' })
+    expect(mine.reduce((a, x) => a + x.qty, 0)).toBe(18)
+    expect(g.contributions.reduce((a, x) => a + x.qty, 0)).toBe(g.required)
+    // the shared config is untouched
+    expect(c.foundations.find((x) => x.id === f.id)).toMatchObject({ quantity: 18 })
+    expect(c.plinths.filter((p) => p.foundationId === f.id)).toHaveLength(1)
+  })
+
+  it('individual embed plates replace the type\'s embed plates for those footings only, so nothing is counted twice', () => {
+    let { c } = staging()
+    const comp = embedComp(c)
+    const f = c.foundations.find((x) => x.number === 'OP1-01-05')! // 2 footings of OP1-D4 (1 embed plate each)
+    expect(embedLine(c).required).toBe(2)
+    c = build(c, K.setFoundationUnits(f.id, [unit('X-1', 3, comp.id)]))
+    expect(embedLine(c).required).toBe(1 + 3) // one footing keeps the type's plate, X-1 has its own 3
+    c = build(c, K.setFoundationUnits(f.id, [unit('X-1', 3, comp.id), unit('X-2', 1, comp.id)]))
+    expect(embedLine(c).required).toBe(3 + 1)
+    c = build(c, K.setFoundationUnits(f.id, [unit('X-1'), unit('X-2')])) // identifiers only: the type's plates still apply
+    expect(embedLine(c).required).toBe(2)
+    c = build(c, K.setFoundationUnits(f.id, []))
+    expect(embedLine(c).required).toBe(2)
+  })
+
+  it('an independent recount agrees, Procurement matches Materials, and orders survive changes', () => {
+    let { c } = staging()
+    const comp = embedComp(c)
+    const f = c.foundations.find((x) => x.number === 'OP1-01-01')!
+    c = build(c, K.setFoundationUnits(f.id, [unit('A-1', 1, comp.id), unit('A-2', 2, comp.id), unit('B-1')]))
+    let t = tracked(c)
+    const expected = expectedTotals(c)
+    for (const l of t.manual.filter((x) => x.origin === 'anchorage')) expect(l.requiredQty, l.component).toBe(expected.get(l.deriveKey!))
+    expect(procurementRows(t, c).map((r) => [r.key, r.required]).sort()).toEqual(consolidate(t, c).map((r) => [r.key, r.required]).sort())
+    const row = () => procurementRows(t, c).find((r) => r.category === 'embed-plate')!
+    expect(row().required).toBe(2 + 3)
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-EMB', supplier: 'Nucor', date: TODAY, lines: [{ key: row().key, qty: 5 }] }, TODAY))
+    c = build(c, K.setFoundationUnits(f.id, [unit('A-1', 1, comp.id), unit('A-2', 2, comp.id), unit('B-1', 2, comp.id)]))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    expect(row()).toMatchObject({ required: 7, ordered: 5, toOrder: 2 })
+    expect(t.orderLines).toHaveLength(1)
+  })
+
+  it('reconciles with the designation: never more than its quantity, validated against the library', () => {
+    let { c } = staging()
+    const comp = embedComp(c)
+    const f = c.foundations.find((x) => x.number === 'OP1-01-05')! // quantity 2
+    const err = (units: Parameters<typeof K.setFoundationUnits>[1]) => K.setFoundationUnits(f.id, units)(c, {}).error
+    expect(err([unit('A'), unit('B'), unit('C')])).toMatch(/at most 2/)
+    expect(err([unit('A'), unit('a')])).toMatch(/more than once/)
+    expect(err([unit('')])).toMatch(/identifier/)
+    expect(err([{ label: 'A', embeds: [{ componentId: 'nope', qty: 1 }] }])).toMatch(/Anchorage Library/)
+    expect(err([unit('A', 0.5 as never, comp.id)])).toMatch(/whole number/)
+    expect(err([{ label: 'A', embeds: [{ componentId: comp.id, qty: 1 }, { componentId: comp.id, qty: 1 }] }])).toMatch(/twice/)
+    c = build(c, K.setFoundationUnits(f.id, [unit('A', 1, comp.id), unit('B', 2, comp.id)]))
+    expect(K.configureFoundation(f.id, { quantity: 1 })(c, {}).error).toMatch(/cannot go below 2/)
+    expect(K.editFoundation(f.id, { quantity: 1 })(c, {}).error).toMatch(/cannot go below 2/)
+    const d4 = c.anchorageTypes.find((t) => t.code === 'OP1-D4')!
+    expect(K.setAnchorageComponents(d4.id, [])(c, {}).error).toMatch(/used by 2 individual foundations/)
+    expect(K.setAnchorageComponents(d4.id, [{ id: comp.id, kind: 'embed-plate', qty: 2, size: comp.size }])(c, {}).error).toBeUndefined() // editing it is fine
+    expect(c.foundationUnits!.find((u) => u.label === 'B')!.embeds[0].qty).toBe(2)
+  })
+})

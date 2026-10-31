@@ -18,6 +18,7 @@ import { useConstruction } from '../store'
 import { foundationConcrete, volumeLabel, type FoundationConcrete } from '../concrete'
 import { foundationQuantity, foundationTotals, plinthsPerFoundationFromGroups } from '../foundationQuantity'
 import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
+import { IndividualFoundations } from './IndividualFoundations'
 import { FoundationStateBadge, fraction } from '../ui'
 import type { Area, ConstructionState, Foundation, Plinth } from '../types'
 
@@ -239,6 +240,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                         <td />
                         <td colSpan={20} className="py-3 pr-5">
                           <RowSummary state={state} r={r} areaId={areaId} />
+                          <IndividualFoundations foundation={r.f} />
                           <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />
                         </td>
                       </tr>
@@ -388,6 +390,7 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
             <button type="button" onClick={() => toggleOpen(r.f.id)} aria-expanded={isOpen} className="flex h-11 w-full items-center justify-between text-[15px] text-muted">
               <span>Plinths ({r.plinths.length})</span><ChevronRight size={18} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
             </button>
+            {isOpen && <IndividualFoundations foundation={r.f} />}
             {isOpen && <PlinthDetail projectId={projectId} f={r.f} plinths={r.plinths} footingStatsLine={`Footing: ${r.step} · construction ${fraction(tallyCategory(idx, footingActivities(idx, r.f), 'construction'))}`} />}
           </li>
         )

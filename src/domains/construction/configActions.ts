@@ -1,7 +1,7 @@
 import { blankActivitiesFor } from './blankActivities'
 import { dimsProblem, hasAnyDim } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, FoundationBolt, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, ConstructionState, Dims, Foundation, FoundationBolt, FoundationUnit, Plinth } from './types'
 
 const fail = (error: string) => ({ error }) as const
 const ok = (state: ConstructionState) => ({ state }) as const
@@ -156,7 +156,9 @@ export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingB
 /** Quantity can only fall to the highest physical foundation that has no pour records. */
 export function quantityBelowPours(s: ConstructionState, foundationId: string, quantity: number): string | null {
   const top = Math.max(0, ...(s.pourItems ?? []).filter((i) => i.foundationId === foundationId).map((i) => i.unit))
-  return top > quantity ? `Foundation ${top} of this design already has pour records, so the quantity cannot go below ${top}.` : null
+  if (top > quantity) return `Foundation ${top} of this design already has pour records, so the quantity cannot go below ${top}.`
+  const listed = (s.foundationUnits ?? []).filter((u) => u.foundationId === foundationId).length
+  return listed > quantity ? `${listed} individual foundations are listed for this design, so the quantity cannot go below ${listed}. Remove some of them first.` : null
 }
 
 /**
@@ -270,6 +272,11 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
   if (!t) return fail('Anchorage type not found.')
   if (!Array.isArray(components) || components.length > MAX_COMPONENTS) return fail(`An anchorage type can have up to ${MAX_COMPONENTS} components.`)
   const mine = (s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId === anchorageTypeId)
+  for (const m of mine) {
+    if (components.some((c) => c.id === m.id && c.kind === 'embed-plate')) continue
+    const n = (s.foundationUnits ?? []).filter((u) => u.embeds.some((e) => e.componentId === m.id)).length
+    if (n > 0) return fail(`This ${m.kind === 'embed-plate' ? 'embed plate' : 'component'} is used by ${n} individual foundation${n === 1 ? '' : 's'}. Remove it from them first.`)
+  }
   const used = new Set((s.anchorageComponents ?? []).map((c) => c.id))
   const next: AnchorageComponent[] = []
   for (const [i, c] of components.entries()) {
@@ -289,4 +296,58 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
     })
   }
   return ok({ ...s, anchorageComponents: [...(s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId !== anchorageTypeId), ...next] })
+}
+
+/* ── Individual foundations ─────────────────────────────────────────────── */
+
+export interface UnitInput { id?: string; label: string; notes?: string; embeds?: { id?: string; componentId: string; qty: number }[] }
+export const MAX_UNITS = 500
+export const MAX_UNIT_EMBEDS = 10
+
+/** The library embed plates a foundation's individual foundations may use: embed plate components of this project's (non-archived) anchorage types. */
+export function embedChoices(s: ConstructionState, projectId: string | undefined) {
+  const types = new Map(s.anchorageTypes.filter((t) => !t.archived && (!t.projectId || t.projectId === projectId)).map((t) => [t.id, t]))
+  return (s.anchorageComponents ?? []).filter((c) => c.kind === 'embed-plate' && types.has(c.anchorageTypeId)).map((c) => ({ component: c, type: types.get(c.anchorageTypeId)! }))
+}
+
+/**
+ * Sets the individual foundations of one designation (A-1, A-2, B-1…) and the embed plates each needs, replacing the list. Optional: an empty list
+ * means the designation is tracked as a whole, as before. Individual foundations inherit the designation's footing and anchorage configuration, so
+ * they can never outnumber its quantity (the rest simply use the shared configuration). Ids are kept for entries edited in place.
+ */
+export const setFoundationUnits = (foundationId: string, units: UnitInput[]): Reducer => (s) => {
+  const f = s.foundations.find((x) => x.id === foundationId)
+  if (!f) return fail('Foundation not found.')
+  if (!Array.isArray(units)) return fail('Nothing to save.')
+  const quantity = f.quantity ?? 1
+  if (units.length > MAX_UNITS) return fail(`List up to ${MAX_UNITS} individual foundations.`)
+  if (units.length > quantity) return fail(`${f.number} has a quantity of ${quantity.toLocaleString('en-CA')}, so at most ${quantity.toLocaleString('en-CA')} individual foundations can be listed. Raise the quantity first.`)
+  const choices = new Map(embedChoices(s, s.areas.find((a) => a.id === f.areaId)?.projectId).map((x) => [x.component.id, x]))
+  const mine = (s.foundationUnits ?? []).filter((u) => u.foundationId === foundationId)
+  const taken = new Set((s.foundationUnits ?? []).map((u) => u.id))
+  const seen = new Set<string>()
+  const next: FoundationUnit[] = []
+  for (const [i, u] of units.entries()) {
+    const label = String(u?.label ?? '').trim().replace(/\s+/g, ' ')
+    if (!label || label.length > 30) return fail(`Individual foundation ${i + 1}: enter an identifier of 30 characters or fewer (for example A-1).`)
+    if (seen.has(label.toLowerCase())) return fail(`Identifier ${label} is used more than once.`)
+    seen.add(label.toLowerCase())
+    if (u.id && !mine.some((m) => m.id === u.id)) return fail(`${label} no longer exists. Reload and try again.`)
+    const embeds = u.embeds ?? []
+    if (embeds.length > MAX_UNIT_EMBEDS) return fail(`${label}: up to ${MAX_UNIT_EMBEDS} embed plate types.`)
+    const used = new Set<string>()
+    const old = u.id ? mine.find((m) => m.id === u.id) : undefined
+    for (const e of embeds) {
+      const ok = choices.get(e.componentId) ?? (old?.embeds.some((x) => x.componentId === e.componentId) ? { component: null } : null)
+      if (!ok) return fail(`${label}: choose an embed plate from the Anchorage Library.`)
+      if (!Number.isInteger(e.qty) || e.qty < 1 || e.qty > 100) return fail(`${label}: enter a whole number of embed plates from 1 to 100.`)
+      if (used.has(e.componentId)) return fail(`${label}: that embed plate is listed twice. Combine the quantities.`)
+      used.add(e.componentId)
+    }
+    let id = u.id ?? ''
+    if (!id) { let n = mine.length + i + 1; id = `${foundationId}-u${n}`; while (taken.has(id) || next.some((x) => x.id === id)) id = `${foundationId}-u${++n}` }
+    const kept = new Map((old?.embeds ?? []).map((e) => [e.componentId, e.id]))
+    next.push({ id, foundationId, label, notes: String(u.notes ?? '').trim().slice(0, 200), embeds: embeds.map((e, k) => ({ id: e.id ?? kept.get(e.componentId) ?? `${id}-e${k + 1}-${e.componentId.slice(-6)}`, componentId: e.componentId, qty: e.qty })) })
+  }
+  return ok({ ...s, foundationUnits: [...(s.foundationUnits ?? []).filter((u) => u.foundationId !== foundationId), ...next] })
 }

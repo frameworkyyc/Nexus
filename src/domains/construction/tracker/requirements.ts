@@ -8,7 +8,7 @@ import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, Requirement
  * anchorage, and a foundation design stands for `quantity` physical foundations, so a design with 3 plinths of type A and a quantity of 12
  * has 36 anchorages of type A. Totals are grouped by area and specification: the same item on many foundations is one requirement.
  */
-export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts'>>
+export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits'>>
 
 export interface Requirement {
   key: string
@@ -65,15 +65,25 @@ export function itemsOf(c: AnchorageComponent): Item[] {
 /** A footing bolt as the anchorage component it is equivalent to (no anchorage type), so nuts, washers and the specification come out the same way. */
 export const boltAsComponent = (b: FoundationBolt): AnchorageComponent => ({ ...b, anchorageTypeId: '', kind: 'bolt', label: '', size: '' })
 
+/**
+ * Footings of a foundation that have their own embed plates (an individual foundation with at least one embed plate from the library). For those
+ * footings the individual list replaces the anchorage type's embed plates, so nothing is counted twice; the other footings keep the type's.
+ */
+export function overriddenFootings(c: RefSource, foundationId: string): number {
+  const embeds = new Set((c.anchorageComponents ?? []).filter((x) => x.kind === 'embed-plate').map((x) => x.id))
+  return (c.foundationUnits ?? []).filter((u) => u.foundationId === foundationId && u.embeds.some((e) => embeds.has(e.componentId))).length
+}
+
 /** Physical anchorages of each type on each foundation: the foundation's quantity times its plinths of that type. */
 export function anchorageInstances(c: RefSource) {
-  const out: { foundationId: string; areaId: string; number: string; typeId: string; instances: number }[] = []
+  const out: { foundationId: string; areaId: string; number: string; typeId: string; instances: number; /** The same, for embed plates only: footings with their own individual embed plates are not counted. */ embedInstances: number }[] = []
   for (const f of c.foundations) {
     if (f.archived) continue
     const qty = f.quantity ?? 1
+    const embedQty = Math.max(0, qty - overriddenFootings(c, f.id))
     const byType = new Map<string, number>()
     for (const p of c.plinths) if (p.foundationId === f.id && p.anchorageTypeId) byType.set(p.anchorageTypeId, (byType.get(p.anchorageTypeId) ?? 0) + 1)
-    for (const [typeId, n] of byType) out.push({ foundationId: f.id, areaId: f.areaId, number: f.number, typeId, instances: qty * n })
+    for (const [typeId, n] of byType) out.push({ foundationId: f.id, areaId: f.areaId, number: f.number, typeId, instances: qty * n, embedInstances: embedQty * n })
   }
   return out
 }
@@ -84,14 +94,16 @@ export function deriveRequirements(c: RefSource): Requirement[] {
   const typeOf = new Map(c.anchorageTypes.map((t) => [t.id, t]))
   const areaOf = new Map(c.areas.map((a) => [a.id, a]))
   const groups = new Map<string, Requirement>()
-  const typeInstances = new Map<string, number>() // `${areaId}|${typeId}` → instances
-  for (const i of anchorageInstances(c)) typeInstances.set(`${i.areaId}|${i.typeId}`, (typeInstances.get(`${i.areaId}|${i.typeId}`) ?? 0) + i.instances)
-  for (const [ak, instances] of typeInstances) {
+  const typeInstances = new Map<string, { all: number; embed: number }>() // `${areaId}|${typeId}` → instances
+  for (const i of anchorageInstances(c)) { const k = `${i.areaId}|${i.typeId}`; const o = typeInstances.get(k) ?? { all: 0, embed: 0 }; typeInstances.set(k, { all: o.all + i.instances, embed: o.embed + i.embedInstances }) }
+  for (const [ak, counts] of typeInstances) {
     const [areaId, typeId] = ak.split('|')
     const area = areaOf.get(areaId)
     const type = typeOf.get(typeId)
     if (!area || !type) continue
     for (const comp of comps.filter((x) => x.anchorageTypeId === typeId)) {
+      const instances = comp.kind === 'embed-plate' ? counts.embed : counts.all
+      if (instances === 0) continue
       for (const it of itemsOf(comp)) {
         const key = `anchorage|${areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
         const g = groups.get(key) ?? { key, id: requirementId(key), areaId, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
@@ -118,10 +130,31 @@ export function deriveRequirements(c: RefSource): Requirement[] {
       groups.set(key, g)
     }
   }
+  // Embed plates chosen for individual foundations (A-1, A-2…): each is one footing needing that many of a library embed plate. They merge into the
+  // same requirement as an identical library embed plate, so a specification is never listed twice.
+  const compById = new Map(comps.map((x) => [x.id, x]))
+  for (const u of c.foundationUnits ?? []) {
+    const f = c.foundations.find((x) => x.id === u.foundationId)
+    const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
+    if (!f || !area) continue
+    for (const e of u.embeds) {
+      const comp = compById.get(e.componentId)
+      if (!comp || comp.kind !== 'embed-plate') continue
+      const code = typeOf.get(comp.anchorageTypeId)?.code ?? ''
+      for (const it of itemsOf({ ...comp, qty: e.qty })) {
+        const key = `anchorage|${area.id}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+        const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '' }
+        const part = g.parts.find((p) => p.anchorageTypeId === '#unit' && p.each === it.each && p.code === code)
+        if (part) part.instances += 1; else g.parts.push({ anchorageTypeId: '#unit', code, instances: 1, each: it.each })
+        g.required += it.each
+        groups.set(key, g)
+      }
+    }
+  }
   return [...groups.values()].map((g) => {
     g.parts.sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true }))
     g.anchorageCodes = g.parts.map((p) => p.code)
-    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
+    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
     return g
   }).sort((a, b) => a.areaName.localeCompare(b.areaName, 'en') || a.category.localeCompare(b.category) || a.name.localeCompare(b.name) || a.spec.localeCompare(b.spec))
 }
@@ -224,7 +257,7 @@ export function refreshRequirements(s: TrackerState, c: RefSource | undefined, o
       id: r.id, origin: 'anchorage', deriveKey: r.key, breakdown: r.parts, source: { sheet: 'Anchorage library', row: 0 }, area: r.areaName, footingType: '', anchorageType: r.anchorageCodes.join(', '), footings: 0, plinths: 0, bolts: 0,
       component: r.name, category: r.category, requiredQty: r.required, calc: { kind: 'derived', formula: null, expression: r.expression, recomputed: r.required }, sourceStatus: '', sourceNotes: [],
       orderedQty: null, receipts: [], confirmedNoReceipts: false, notes: '', description: '', specification: r.spec, size: r.size, unit: 'ea', poRef: '', expectedDate: null, archived: false,
-      areaId: r.areaId, foundationId: null, anchorageTypeId: r.parts.length === 1 ? r.parts[0].anchorageTypeId || null : null, supplierId: null, supplier: '', createdAt: at, createdBy: '',
+      areaId: r.areaId, foundationId: null, anchorageTypeId: r.parts.length === 1 && !r.parts[0].anchorageTypeId.startsWith('#') ? r.parts[0].anchorageTypeId || null : null, supplierId: null, supplier: '', createdAt: at, createdBy: '',
     }
     if (opts.log) log.push(entry(at, line, 'created', `Calculated from the anchorage library: ${r.required.toLocaleString('en-CA')} required (${r.expression})`))
     next.push(line)
@@ -242,12 +275,24 @@ export function expectedTotals(c: RefSource): Map<string, number> {
   for (const f of c.foundations) {
     if (f.archived) continue
     const footings = f.quantity ?? 1
+    const overridden = (c.foundationUnits ?? []).filter((u) => u.foundationId === f.id && u.embeds.some((e) => (c.anchorageComponents ?? []).some((x) => x.id === e.componentId && x.kind === 'embed-plate'))).length
     for (const p of c.plinths) {
       if (p.foundationId !== f.id || !p.anchorageTypeId) continue
       for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === p.anchorageTypeId)) {
+        const n = comp.kind === 'embed-plate' ? Math.max(0, footings - overridden) : footings
         for (const it of itemsOf(comp)) {
           const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
-          out.set(key, (out.get(key) ?? 0) + footings * 1 * it.each)
+          out.set(key, (out.get(key) ?? 0) + n * it.each)
+        }
+      }
+    }
+    for (const u of (c.foundationUnits ?? []).filter((x) => x.foundationId === f.id)) {
+      for (const e of u.embeds) {
+        const comp = (c.anchorageComponents ?? []).find((x) => x.id === e.componentId && x.kind === 'embed-plate')
+        if (!comp) continue
+        for (const it of itemsOf({ ...comp, qty: e.qty })) {
+          const key = `anchorage|${f.areaId}|${it.category}|${norm(it.name)}|${norm(it.spec)}|${norm(it.size)}`
+          out.set(key, (out.get(key) ?? 0) + it.each)
         }
       }
     }
