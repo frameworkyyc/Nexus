@@ -12,6 +12,10 @@ import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
 import { fmtMeter, lifespanOf, meterUnitOf } from '../meter'
 import { canReassign, canReview, canUpdate } from '../access'
+import { useBackend } from '@/lib/dataSource'
+
+/** Shown instead of a vehicle's VIN, plate and notes on the public view-only site. */
+const WITHHELD = <span className="text-muted">Not shown publicly</span>
 import { addDefect, reassignVehicle, removeDemoInspections, reopenDefect, resolveDefect, reviewOdometer } from '../commands'
 import { ServiceCell } from '../FleetTable'
 import {
@@ -67,6 +71,7 @@ export function VehicleDashboard() {
   const actor = useFleetActor()
   const { run } = useFleetCommand()
   const access = useAccess()
+  const { readOnly } = useBackend()
   const [target, setTarget] = useState<string | null>(null)
   const [modal, setModal] = useState<Modal>(null)
   const vehicle = state.vehicles.find((v) => v.id === vehicleId)
@@ -135,21 +140,21 @@ export function VehicleDashboard() {
         <dl className="border-t border-line">
           <Row label="Unit number">{vehicle.unitNumber}</Row>
           <Row label="Year / make / model">{vehicleTitle(vehicle)}</Row>
-          <Row label="VIN">{vehicle.vin ?? NOT_RECORDED}</Row>
-          <Row label="Licence plate">{vehicle.licencePlate ?? NOT_RECORDED}</Row>
-          <Row label="Assigned project">{project ? <Link to={`/projects/${project.id}`} className="underline-offset-4 hover:underline">{project.name} · Job {project.jobNumber}</Link> : current ? registry.name(current.projectId) : <span className="text-muted">Unassigned</span>}</Row>
+          <Row label="VIN">{readOnly ? WITHHELD : vehicle.vin ?? NOT_RECORDED}</Row>
+          <Row label="Licence plate">{readOnly ? WITHHELD : vehicle.licencePlate ?? NOT_RECORDED}</Row>
+          <Row label="Assigned project">{project ? <Link to={`/projects/${project.id}`} className="underline-offset-4 hover:underline">{project.name}{project.jobNumber ? ` · Job ${project.jobNumber}` : ''}</Link> : current ? registry.name(current.projectId) : <span className="text-muted">Unassigned</span>}</Row>
           <Row label="Assigned since">{current?.startDate ? formatDate(current.startDate) : NOT_RECORDED}</Row>
           <Row label="Estimated lifespan">{life.value !== null ? <>{km(life.value)}<span className="text-muted"> · {life.source === 'asset' ? 'set for this asset' : `${life.category?.name} default`} · planning estimate, not a condition rating</span></> : <span className="text-muted">Not set</span>}</Row>
           <Row label="Category">{life.category ? life.category.name : <span className="text-muted">None</span>}</Row>
           <Row label="Meter">{meterUnitOf(state, vehicle.id) === 'h' ? 'Operating hours' : 'Kilometres'}</Row>
           <Row label="Inspection interval">{vehicle.inspectionIntervalDays !== null ? `Every ${vehicle.inspectionIntervalDays} days` : <span className="text-muted">Weekly (default)</span>}</Row>
-          <Row label="Notes">{vehicle.notes || NOT_RECORDED}</Row>
+          <Row label="Notes">{readOnly ? WITHHELD : vehicle.notes || NOT_RECORDED}</Row>
         </dl>
-        {!projectId && canReassign(actor) && (
+        {!projectId && canReassign(actor) && access.can('data.edit') && (
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Select className="w-64" aria-label="Assign to project" value={selected} onChange={(e) => setTarget(e.target.value)}>
               <option value="">Unassigned</option>
-              {registry.projects.map((p) => <option key={p.id} value={p.id}>{p.name} · Job {p.jobNumber}</option>)}
+              {registry.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.jobNumber ? ` · Job ${p.jobNumber}` : ''}</option>)}
             </Select>
             <Button disabled={unchanged} onClick={() => run(reassignVehicle(vehicle.id, selected || null, registry.projects.map((p) => p.id), today), () => setTarget(null))}>Save assignment</Button>
           </div>

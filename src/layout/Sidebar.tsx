@@ -2,7 +2,7 @@ import { ChevronRight, Lock, MapPinned, X } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, useLocation, useMatch } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
-import { MODULES } from '@/app/modules'
+import { MODULES, useModules } from '@/app/modules'
 import { paths } from '@/domains/construction/paths'
 import { useConstruction } from '@/domains/construction/store'
 import { useBackend } from '@/lib/dataSource'
@@ -58,7 +58,8 @@ function AreasNav({ projectId, onClose }: { projectId: string; onClose: () => vo
 }
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { mode, environment } = useBackend()
+  const { mode, environment, readOnly } = useBackend()
+  const modules = useModules()
   const inProject = useMatch('/projects/:projectId/*')?.params.projectId
   return (
     <>
@@ -77,7 +78,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Primary">
           <ul className="space-y-0.5">
-            {MODULES.map(({ id, label, icon: Icon, path }) =>
+            {modules.map(({ id, label, icon: Icon, path }) =>
               path ? (
                 <li key={id}>
                   <NavLink
@@ -99,7 +100,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             )}
           </ul>
         </nav>
-        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'}</div>
+        <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{readOnly ? 'View only · live project data' : mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'}</div>
       </aside>
     </>
   )

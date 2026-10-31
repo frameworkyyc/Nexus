@@ -11,7 +11,9 @@ export function DataGate({ children }: { children: ReactNode }) {
     // Another device may have saved changes while this tab was in the background.
     const onVisible = () => { if (document.visibilityState === 'visible' && getBackend().mode === 'server') void reloadAll().catch(() => {}) }
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+    // The public view-only site has no way to be told about a change made elsewhere, so it asks again every minute while the tab is open.
+    const poll = window.setInterval(() => { if (document.visibilityState === 'visible' && getBackend().readOnly) void reloadAll().catch(() => {}) }, 60_000)
+    return () => { document.removeEventListener('visibilitychange', onVisible); window.clearInterval(poll) }
   }, [])
   if (backend.mode === 'checking') return <p className="py-24 text-center text-[13px] text-muted" role="status">Loading your data…</p>
   if (backend.mode === 'blocked') {

@@ -8,6 +8,7 @@ import { cancelPurchaseOrder, deletePurchaseOrder, voidDelivery } from '../track
 import { specText } from '../tracker/consolidate'
 import { orderProgress, orderTitle } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
+import { useBackend } from '@/lib/dataSource'
 import type { Delivery, PurchaseOrder, TrackerState } from '../tracker/types'
 import { fmt, when, who } from './Dialogs'
 
@@ -31,6 +32,7 @@ export interface OrdersTabProps {
 
 /** One delivery's lines, with who confirmed it and when, and Void for those allowed to. */
 function DeliveryList({ state, deliveries, perms, act }: { state: TrackerState; deliveries: Delivery[]; perms: OrdersTabProps['perms']; act: OrdersTabProps['act'] }) {
+  const { readOnly } = useBackend()
   return (
     <ul className="divide-y divide-line border-y border-line text-[13px]" aria-label="Deliveries">
       {deliveries.map((d) => {
@@ -38,7 +40,7 @@ function DeliveryList({ state, deliveries, perms, act }: { state: TrackerState; 
         return (
           <li key={d.id} className="py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span><span className="font-medium">{formatDate(d.date)}</span>{d.reference && <span className="text-muted"> · {d.reference}</span>}<span className="text-muted"> · {fmt(lines.reduce((a, l) => a + l.qty, 0))} items · {who(d.by)}{d.at ? `, ${when(d.at)}` : ''}</span></span>
+              <span><span className="font-medium">{formatDate(d.date)}</span>{d.reference && <span className="text-muted"> · {d.reference}</span>}<span className="text-muted"> · {fmt(lines.reduce((a, l) => a + l.qty, 0))} items{readOnly ? '' : ` · ${who(d.by)}${d.at ? `, ${when(d.at)}` : ''}`}</span></span>
               {perms.void && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm('Void this delivery? It is removed from the received totals and stays in the history.')) void act(() => trackerStore.run(voidDelivery(d.id))) }}>Void</Button>}
             </div>
             <ul className="mt-1 space-y-0.5 text-xs text-muted">{lines.map((l) => <li key={l.id} className="flex justify-between gap-3"><span>{l.area} · {l.designation ? `${l.designation} ` : ''}{l.name}{specText(l) ? ` · ${specText(l)}` : ''}</span><span className="tabular-nums">{fmt(l.qty)} {l.unit}</span></li>)}</ul>
@@ -52,6 +54,7 @@ function DeliveryList({ state, deliveries, perms, act }: { state: TrackerState; 
 
 /** Orders: each purchase order with its materials, deliveries and details in one place, plus any delivery that arrived with no order. */
 export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMaterials, onEdit, act }: OrdersTabProps) {
+  const { readOnly } = useBackend() // the public view-only site does not show suppliers or PO numbers
   const [open, setOpen] = useState<Set<string>>(new Set())
   const toggle = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const loose = deliveries.filter((d) => !d.orderId)
@@ -76,7 +79,7 @@ export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMa
                     <td><button type="button" aria-expanded={isOpen} aria-label={`${isOpen ? 'Close' : 'Open'} ${title}`} onClick={() => toggle(o.id)} className="grid h-8 w-8 place-items-center text-muted hover:text-ink"><ChevronRight size={14} strokeWidth={1.5} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} /></button></td>
                     <td data-wrap>
                       <button type="button" onClick={() => toggle(o.id)} className="block text-left"><span className="font-medium">{title}</span></button>
-                      <span className="block text-xs text-muted">PO {o.number || 'Not Assigned'} · {o.supplier || 'Supplier Not Assigned'} · {formatDate(o.date)}</span>
+                      <span className="block text-xs text-muted">{readOnly ? '' : `PO ${o.number || 'Not Assigned'} · ${o.supplier || 'Supplier Not Assigned'} · `}{formatDate(o.date)}</span>
                     </td>
                     <td className="text-right">{p.lines.length}</td><td className="text-right">{fmt(p.ordered)}</td><td className="text-right">{fmt(p.received)}</td>
                     <td><StatusBadge tone={TONE[st]} label={st} /></td>
@@ -87,8 +90,8 @@ export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMa
                       <div className="max-w-4xl space-y-5">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <dl className="grid grid-cols-2 gap-x-8 gap-y-2 text-[13px] sm:grid-cols-4">
-                            <div><dt className="t-label">PO number</dt><dd className="mt-0.5">{o.number || <span className="text-muted">Not Assigned</span>}</dd></div>
-                            <div><dt className="t-label">Supplier</dt><dd className="mt-0.5">{o.supplier || <span className="text-muted">Not Assigned</span>}</dd></div>
+                            {!readOnly && <div><dt className="t-label">PO number</dt><dd className="mt-0.5">{o.number || <span className="text-muted">Not Assigned</span>}</dd></div>}
+                            {!readOnly && <div><dt className="t-label">Supplier</dt><dd className="mt-0.5">{o.supplier || <span className="text-muted">Not Assigned</span>}</dd></div>}
                             <div><dt className="t-label">Ordered</dt><dd className="mt-0.5">{formatDate(o.date)}</dd></div>
                             <div><dt className="t-label">Expected</dt><dd className="mt-0.5">{o.expectedDate ? formatDate(o.expectedDate) : <span className="text-muted">—</span>}</dd></div>
                           </dl>

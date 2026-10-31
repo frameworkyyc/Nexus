@@ -17,7 +17,7 @@ import type { ModuleName } from '@/shared/registry'
  * unavailable — the application bundle has no database / Access to talk to. Nothing is shown or kept in this browser instead.
  */
 export type Mode = 'checking' | 'server' | 'demo' | 'blocked' | 'unavailable'
-export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string }
+export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string; /** The public view-only site: no sign-in, no editing. Decided by the server, never by the browser. */ readOnly?: boolean }
 
 let backend: BackendState = { mode: 'checking', serverAvailable: false }
 const backendListeners = new Set<() => void>()
@@ -47,8 +47,8 @@ export async function startBackend(): Promise<void> {
     return
   }
   try {
-    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string }>('GET', '/api/session')
-    setBackend({ mode: 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion })
+    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string; readOnly?: boolean }>('GET', '/api/session')
+    setBackend({ mode: 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion, ...(s.readOnly ? { readOnly: true } : {}) })
     await Promise.all(stores.map((m) => m.load()))
   } catch (e) {
     if (e instanceof ApiError && e.authRequired) setBackend({ mode: 'blocked', serverAvailable: true, reason: e.message })
@@ -119,12 +119,14 @@ export function createModuleStore<S>(module: ModuleName, local: PersistedStore<S
     },
     run(reducer: Reducer<S>) {
       if (!isServer()) {
+        if (backend.readOnly) { const msg = 'This site is view only. Nothing can be changed here.'; notify(msg); return Promise.resolve(msg) }
         if (backend.mode !== 'demo') { const msg = 'Saved data is not available, so nothing was changed.'; notify(msg); return Promise.resolve(msg) }
         const result = reducer(local.get(), contexts.get(module)?.())
         if (result.error !== undefined) { notify(result.error); return Promise.resolve(result.error) }
         local.set(result.state as S)
         return Promise.resolve(null)
       }
+      if (backend.readOnly) { const msg = 'This site is view only. Nothing can be changed here.'; notify(msg); return Promise.resolve(msg) }
       const meta = commandOf(reducer)
       if (!meta || meta.module !== module) {
         const msg = 'This action is not available with saved data yet.'

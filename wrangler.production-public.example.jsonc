@@ -1,0 +1,14 @@
+{
+  // EXAMPLE ONLY — NOT APPLIED. What `wrangler.jsonc` would change for production to become the public, view-only site (docs/PUBLIC_READONLY.md).
+  // Nothing here has been deployed; production still serves the demo until this is approved and merged to main.
+  //
+  //   "vars": { "NEXUS_ENV": "public" },
+  //   // The same database as staging, so staging edits appear here with no synchronisation. The public Worker can only SELECT: see src/worker/publicApi.ts.
+  //   "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150" }]
+  //
+  // No Cloudflare Access application may cover the production hostname (nexus.frameworktools.ca); staging.nexus.frameworktools.ca keeps its own.
+  // Do NOT set ACCESS_TEAM_DOMAIN, ACCESS_AUD, INITIAL_ADMIN_EMAIL or DEV_BYPASS_AUTH on production: the public API never reads them.
+  // Build the application bundle (NEXUS_BUNDLE unset), not the demo bundle.
+  "vars": { "NEXUS_ENV": "public" },
+  "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150" }]
+}

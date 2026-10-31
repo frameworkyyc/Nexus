@@ -98,7 +98,7 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
                 <tr key={r.project.id} onClick={() => navigate(paths.project(r.project.id))} className="cursor-pointer border-b border-line transition-colors hover:bg-hover">
                   <td className="py-3.5 pr-5 text-[13px]">
                     <Link to={paths.project(r.project.id)} onClick={(e) => e.stopPropagation()} className="font-medium underline-offset-4 hover:underline">{r.project.name}</Link>
-                    <span className="block text-xs text-muted"><span className="sm:hidden">Job {r.project.jobNumber} · </span>{r.project.client}</span>
+                    <span className="block text-xs text-muted">{r.project.jobNumber && <span className="sm:hidden">Job {r.project.jobNumber} · </span>}{r.project.client}</span>
                   </td>
                   <td className="hidden py-3.5 pr-5 font-mono text-xs text-muted sm:table-cell">{r.project.jobNumber}</td>
                   <td className="py-3.5 pr-5">{r.project.tracking === 'detailed' && !hasFoundations(r.project.id) ? <span className="text-xs text-muted">Not tracked yet</span> : <ProgressBar value={r.progress} width="w-16 sm:w-28" />}</td>

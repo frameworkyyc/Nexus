@@ -9,10 +9,11 @@ import { currentAssignment } from './selectors'
  * are not security until server-side authentication and authorization exist.
  */
 export type FleetRole = 'fleet-manager' | 'project-supervisor' | 'project-user'
-export interface FleetActor { id: string; name: string; role: FleetRole; projectIds: string[] }
+export interface FleetActor { id: string; name: string; role: FleetRole; projectIds: string[]; /** The public view-only site: may see everything the server sends, may change nothing. */ readOnly?: boolean }
 
 export const ACCESS_ENFORCED = false
 export const DEMO_ACTOR: FleetActor = { id: 'demo-user', name: 'Demo fleet manager', role: 'fleet-manager', projectIds: [] }
+export const PUBLIC_ACTOR: FleetActor = { id: 'public', name: 'Public visitor', role: 'fleet-manager', projectIds: [], readOnly: true }
 
 const assignedTo = (state: FleetState, actor: FleetActor, vehicleId: string) => {
   const a = currentAssignment(state, vehicleId)
@@ -24,10 +25,10 @@ export const canView = (state: FleetState, actor: FleetActor, vehicleId: string)
 
 /** Managers and supervisors update records; other project users are view-only until that is made configurable. */
 export const canUpdate = (state: FleetState, actor: FleetActor, vehicleId: string) =>
-  actor.role === 'fleet-manager' || (actor.role === 'project-supervisor' && assignedTo(state, actor, vehicleId))
+  !actor.readOnly && (actor.role === 'fleet-manager' || (actor.role === 'project-supervisor' && assignedTo(state, actor, vehicleId)))
 
 /** Moving a vehicle between projects is an organization-level decision. */
-export const canReassign = (actor: FleetActor) => actor.role === 'fleet-manager'
+export const canReassign = (actor: FleetActor) => !actor.readOnly && actor.role === 'fleet-manager'
 export const canReview = (state: FleetState, actor: FleetActor, vehicleId: string) => canUpdate(state, actor, vehicleId)
 
 export const visibleVehicles = (state: FleetState, actor: FleetActor) => state.vehicles.filter((v) => canView(state, actor, v.id))

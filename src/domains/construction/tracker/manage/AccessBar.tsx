@@ -4,12 +4,15 @@ import { Input, Select } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { useAccess, setSimulatedRole } from '@/lib/access'
 import { api } from '@/lib/api'
+import { useBackend } from '@/lib/dataSource'
 import { ROLES, ROLE_LABEL, ROLE_SUMMARY, isRole, type Role } from '@/shared/rbac'
 
 /** Shows who is acting and in what role. In the browser-only demo it is a clearly labelled simulation; with saved data it reflects the server. */
 export function AccessBar() {
   const a = useAccess()
+  const { readOnly } = useBackend()
   const [manage, setManage] = useState(false)
+  if (readOnly) return null // the public view-only site has no sign-in, roles or access management
   if (a.simulated) {
     return (
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-nx border border-dashed border-line px-3 py-2 text-xs text-muted" data-compact>

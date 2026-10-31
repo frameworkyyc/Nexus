@@ -5,6 +5,7 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
+import { useBackend } from '@/lib/dataSource'
 import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, editPurchaseOrder } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
 import { orderProgress, orderTitle, PROC_LABEL, type ProcRow } from '../tracker/procurement'
@@ -164,6 +165,7 @@ export function ReceiveModal({ rows, initialKeys, state, today, onClose, order }
 
 /** One consolidated material: its quantities, the orders and deliveries behind them, and how what has arrived is allocated to foundations. */
 export function RowModal({ row, state, foundationName, onClose, onOrder, onReceive }: { row: ProcRow; state: TrackerState; foundationName: (id: string) => string; onClose: () => void; onOrder: () => void; onReceive: () => void }) {
+  const { readOnly } = useBackend()
   const access = useAccess()
   const orders = new Map((state.orders ?? []).map((o) => [o.id, o]))
   const deliveries = new Map((state.deliveries ?? []).map((d) => [d.id, d]))
@@ -213,7 +215,7 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
           <h3 className="t-label mb-2">Deliveries</h3>
           {row.deliveryLines.length === 0 && row.receivedOnLines === 0 ? <p className="text-muted">Nothing received yet.</p> : (
             <ul className="divide-y divide-line border-y border-line">
-              {row.deliveryLines.map((l) => { const d = deliveries.get(l.deliveryId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{formatDate(d?.date)}{d?.reference ? ` · ${d.reference}` : ''} · confirmed by {who(d?.by ?? '')}{d?.at ? ` on ${when(d.at)}` : ''}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
+              {row.deliveryLines.map((l) => { const d = deliveries.get(l.deliveryId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{formatDate(d?.date)}{d?.reference ? ` · ${d.reference}` : ''}{readOnly ? '' : ` · confirmed by ${who(d?.by ?? '')}${d?.at ? ` on ${when(d.at)}` : ''}`}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
               {row.receivedOnLines > 0 && <li className="flex flex-wrap justify-between gap-2 py-2 text-muted"><span>Received on individual material lines (earlier records)</span><span className="tabular-nums">{fmt(row.receivedOnLines)} {row.unit}</span></li>}
             </ul>
           )}

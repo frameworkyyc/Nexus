@@ -9,6 +9,7 @@ export interface NexusModule {
 }
 
 /** Single source of truth for navigation; enable a module by giving it a path and a route. */
+import { useBackend } from '@/lib/dataSource'
 import { IS_PUBLIC_DEMO } from './bundle'
 
 export const MODULES: NexusModule[] = [
@@ -25,3 +26,9 @@ export const MODULES: NexusModule[] = [
   // Saved-data tools (backups, moving browser data to a server) mean nothing in the public demo.
   ...(IS_PUBLIC_DEMO ? [] : [{ id: 'data', label: 'Data & backups', icon: Database, path: '/data' }]),
 ]
+
+/** The navigation this visitor sees: the saved-data tools (backups, restore) are not offered on the public view-only site. */
+export function useModules(): NexusModule[] {
+  const { readOnly } = useBackend()
+  return readOnly ? MODULES.filter((m) => m.id !== 'data') : MODULES
+}

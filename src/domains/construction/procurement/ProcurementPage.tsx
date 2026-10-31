@@ -105,7 +105,7 @@ export function ProcurementPage() {
           )}
           {shown.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">No materials match.</p> : (
             <RequirementsView rows={shown} layout={layout} picked={picked} onPick={(keys, on) => setPicked((p) => { const n = new Set(p); for (const k of keys) { if (on) n.add(k); else n.delete(k) } return n })}
-              onOpen={(key) => setDialog({ kind: 'row', key })} showArea={!areaFilter && areas.length > 1} expandAll={!!status || !!search.trim()} />
+              onOpen={(key) => setDialog({ kind: 'row', key })} showArea={!areaFilter && areas.length > 1} expandAll={!!status || !!search.trim()} selectable={canOrder || canReceive} />
           )}
         </div>
       )}

@@ -2,11 +2,11 @@ import { identity } from '@/app/identity'
 import { useMemo } from 'react'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { createEphemeralStore, createPersistedStore } from '@/lib/createPersistedStore'
-import { createModuleStore, useSaver } from '@/lib/dataSource'
+import { createModuleStore, useBackend, useSaver } from '@/lib/dataSource'
 import { notify } from '@/lib/notify'
 import { todayISO } from '@/lib/date'
 import { useConstruction } from '@/domains/construction/store'
-import { DEMO_ACTOR } from './access'
+import { DEMO_ACTOR, PUBLIC_ACTOR } from './access'
 import { applyVerifiedT6010, buildFleetSeed } from './seed'
 import type { FleetState, InspectionRecord, OdometerReading, RatedCondition } from './types'
 
@@ -83,4 +83,4 @@ export function useProjectRegistry() {
 }
 
 /** The acting user. Placeholder until authentication exists: everyone is the demo fleet manager and nothing is enforced. */
-export const useFleetActor = () => DEMO_ACTOR
+export const useFleetActor = () => (useBackend().readOnly ? PUBLIC_ACTOR : DEMO_ACTOR)

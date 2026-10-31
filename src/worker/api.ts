@@ -1,4 +1,5 @@
 import { authenticate, AuthError, type AuthEnv } from './auth'
+import { handlePublicApi } from './publicApi'
 import type { D1 } from './db'
 import { applyMigration, previewMigration, type MigrationBundle } from './migrate'
 import { checkIntegrity, createBackup, HttpError, readModule, runCommand, systemClock, versions, type Clock } from './service'
@@ -8,7 +9,7 @@ import { MODULE_NAMES, type ModuleName } from '@/shared/registry'
 
 export interface Env extends AuthEnv, RoleEnv {
   DB?: D1
-  NEXUS_ENV?: string // "demo" (public, API off) | "staging" | "production"
+  NEXUS_ENV?: string // "demo" (public, API off) | "public" (public, view only) | "staging" | "production"
 }
 
 const MAX_BODY = 4_000_000
@@ -33,6 +34,8 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
     // The public demo deployment has no saved data at all: the API is switched off before authentication, bindings or the database
     // are even considered, so nothing a visitor sends can reach a record.
     if (env.NEXUS_ENV === 'demo') return json({ error: 'This is the public demo. It has no server API; sample data stays in your browser.', code: 'demo' }, 404)
+    // The public view-only site has its own small API: it never reaches authentication, roles or any write path.
+    if (env.NEXUS_ENV === 'public') return handlePublicApi(request, env, clock)
     if (path === '/api/health') {
       return json({ ok: true, environment: env.NEXUS_ENV ?? 'unknown', database: !!env.DB, access: !!(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) || env.DEV_BYPASS_AUTH === 'true' })
     }

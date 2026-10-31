@@ -25,6 +25,8 @@ export interface RequirementsViewProps {
   onOpen: (key: string) => void
   /** Show which area each requirement belongs to (project-wide view). */
   showArea: boolean
+  /** Selecting requirements is only for ordering and receiving; without those permissions the checkboxes are not shown. */
+  selectable: boolean
   /** Open every category (a search or status filter is active, so matches are not hidden behind a collapsed heading). */
   expandAll: boolean
 }
@@ -33,7 +35,7 @@ export interface RequirementsViewProps {
  * The requirements grouped by material category. Categories start collapsed and show how many requirements they hold and how much is still
  * outstanding; opening one shows its requirements as list rows or as cards. Both layouts read the same rows and offer the same selection and actions.
  */
-export function RequirementsView({ rows, layout, picked, onPick, onOpen, showArea, expandAll }: RequirementsViewProps) {
+export function RequirementsView({ rows, layout, picked, onPick, onOpen, showArea, expandAll, selectable }: RequirementsViewProps) {
   const [openCats, setOpenCats] = useState<Set<string>>(new Set())
   const cats = groupByCategory(rows)
   const toggle = (c: string) => setOpenCats((s) => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n })
@@ -46,7 +48,7 @@ export function RequirementsView({ rows, layout, picked, onPick, onOpen, showAre
         return (
           <section key={cat} aria-label={CATEGORY_TITLE[cat]}>
             <h3 className="flex items-center gap-3 py-3">
-              <input type="checkbox" aria-label={`Select all ${CATEGORY_TITLE[cat]}`} checked={all} ref={(el) => { if (el) el.indeterminate = some && !all }} onChange={(e) => onPick(keys, e.target.checked)} />
+              {selectable && <input type="checkbox" aria-label={`Select all ${CATEGORY_TITLE[cat]}`} checked={all} ref={(el) => { if (el) el.indeterminate = some && !all }} onChange={(e) => onPick(keys, e.target.checked)} />}
               <button type="button" aria-expanded={isOpen} onClick={() => toggle(cat)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                 <ChevronRight size={14} strokeWidth={1.5} className={`shrink-0 text-muted transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3">
@@ -55,7 +57,7 @@ export function RequirementsView({ rows, layout, picked, onPick, onOpen, showAre
                 </span>
               </button>
             </h3>
-            {isOpen && (layout === 'list' ? <ListRows items={items} picked={picked} onPick={onPick} onOpen={onOpen} showArea={showArea} /> : <Cards items={items} picked={picked} onPick={onPick} onOpen={onOpen} showArea={showArea} />)}
+            {isOpen && (layout === 'list' ? <ListRows items={items} picked={picked} onPick={onPick} onOpen={onOpen} showArea={showArea} selectable={selectable} /> : <Cards items={items} picked={picked} onPick={onPick} onOpen={onOpen} showArea={showArea} selectable={selectable} />)}
           </section>
         )
       })}
@@ -63,20 +65,20 @@ export function RequirementsView({ rows, layout, picked, onPick, onOpen, showAre
   )
 }
 
-type Part = Pick<RequirementsViewProps, 'picked' | 'onPick' | 'onOpen' | 'showArea'> & { items: ProcRow[] }
+type Part = Pick<RequirementsViewProps, 'picked' | 'onPick' | 'onOpen' | 'showArea' | 'selectable'> & { items: ProcRow[] }
 
-function ListRows({ items, picked, onPick, onOpen, showArea }: Part) {
+function ListRows({ items, picked, onPick, onOpen, showArea, selectable }: Part) {
   return (
     <table className="card-table mb-4 w-full text-left text-[13px]" aria-label="Requirements">
       <thead><tr className="border-b border-line">
-        <th scope="col" className="w-8"><span className="sr-only">Select</span></th><th scope="col" className="t-label font-medium">Material</th>
+        {selectable && <th scope="col" className="w-8"><span className="sr-only">Select</span></th>}<th scope="col" className="t-label font-medium">Material</th>
         <th scope="col" className="t-label text-right font-medium">Required</th><th scope="col" className="t-label text-right font-medium">Ordered</th><th scope="col" className="t-label text-right font-medium">Received</th>
         <th scope="col" className="t-label text-right font-medium">Outstanding</th><th scope="col" className="t-label text-right font-medium">Allocated</th><th scope="col" className="t-label font-medium">Status</th>
       </tr></thead>
       <tbody>
         {items.map((r) => (
           <tr key={r.key} className={`border-b border-line transition-colors hover:bg-hover ${r.orphan ? 'opacity-70' : ''}`}>
-            <td><input type="checkbox" aria-label={`Select ${displayName(r)} ${specText(r)}`} checked={picked.has(r.key)} onChange={(e) => onPick([r.key], e.target.checked)} /></td>
+            {selectable && <td><input type="checkbox" aria-label={`Select ${displayName(r)} ${specText(r)}`} checked={picked.has(r.key)} onChange={(e) => onPick([r.key], e.target.checked)} /></td>}
             <td data-wrap>
               <button type="button" onClick={() => onOpen(r.key)} className="block text-left"><span className="font-medium underline-offset-4 hover:underline">{displayName(r)}</span>{r.orphan && <span className="ml-2 text-xs text-warn">No longer required</span>}<span className="block text-xs text-muted" title={specText(r)}>{[showArea ? r.area : '', specText(r) || r.unit].filter(Boolean).join(' · ')}</span></button>
             </td>
@@ -91,7 +93,7 @@ function ListRows({ items, picked, onPick, onOpen, showArea }: Part) {
 }
 
 /** Essential figures as a card, in the square card style of the Foundations blocks; opening one shows the full details and actions. */
-function Cards({ items, picked, onPick, onOpen, showArea }: Part) {
+function Cards({ items, picked, onPick, onOpen, showArea, selectable }: Part) {
   return (
     <ul className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Requirements">
       {items.map((r) => {
@@ -99,7 +101,7 @@ function Cards({ items, picked, onPick, onOpen, showArea }: Part) {
         return (
           <li key={r.key} className={`relative border border-line bg-surface p-3 transition-colors hover:border-ink ${r.orphan ? 'opacity-70' : ''}`}>
             <div className="flex items-start gap-2">
-              <input type="checkbox" className="mt-1" aria-label={`Select ${displayName(r)} ${specText(r)}`} checked={picked.has(r.key)} onChange={(e) => onPick([r.key], e.target.checked)} />
+              {selectable && <input type="checkbox" className="mt-1" aria-label={`Select ${displayName(r)} ${specText(r)}`} checked={picked.has(r.key)} onChange={(e) => onPick([r.key], e.target.checked)} />}
               <button type="button" onClick={() => onOpen(r.key)} className="min-w-0 flex-1 text-left" aria-label={`Open ${displayName(r)} ${specText(r)}`}>
                 <span className="block text-[14px] font-medium leading-snug">{displayName(r)}</span>
                 <span className="mt-0.5 block text-xs text-muted">{[showArea ? r.area : '', specText(r) || r.unit].filter(Boolean).join(' · ')}</span>

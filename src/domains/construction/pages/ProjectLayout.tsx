@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ChipTabs } from '@/components/mobile/Cards'
 import { paths } from '../paths'
-import { useIsServer } from '@/lib/dataSource'
+import { useBackend, useIsServer } from '@/lib/dataSource'
 import { resetDemoData, useConstruction } from '../store'
 
 export function ResetDemoButton() {
@@ -33,6 +33,7 @@ export function ProjectLayout() {
   const { projectId = '' } = useParams()
   const { state } = useConstruction()
   const server = useIsServer()
+  const { readOnly } = useBackend()
   const { pathname } = useLocation()
   const project = state.projects.find((p) => p.id === projectId)
   if (!project) return <EmptyState title="Project not found" />
@@ -94,7 +95,7 @@ export function ProjectLayout() {
         <Outlet />
       </div>
       <footer className="mt-16 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-        {server ? <p className="text-xs text-muted">Saved project data. Changes are stored on the server and shown on every device.</p> : <p className="text-xs text-muted">Demonstration data — fictional records, not for construction.</p>}
+        {readOnly ? <p className="text-xs text-muted">View only. This page shows the live project data and cannot be changed here.</p> : server ? <p className="text-xs text-muted">Saved project data. Changes are stored on the server and shown on every device.</p> : <p className="text-xs text-muted">Demonstration data — fictional records, not for construction.</p>}
         {!server && <ResetDemoButton />}
       </footer>
     </>
