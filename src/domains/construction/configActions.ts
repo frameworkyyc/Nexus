@@ -296,6 +296,8 @@ export interface ComponentInput {
   nutSize?: string
   washerSize?: string
   centerHole?: number | null
+  thickness?: number | null
+  width?: number | null
   studCount?: number | null
   studDiameter?: number | null
   studLength?: number | null
@@ -308,11 +310,18 @@ export const MAX_COMPONENTS = 20
 /** Why a component cannot be saved, or null. Not every anchorage has bolts: an anchorage of embed plates alone is fine. */
 export function componentProblem(c: ComponentInput, n: number): string | null {
   const at = `Component ${n}`
-  if (!['bolt', 'sole-plate', 'template', 'embed-plate'].includes(c.kind)) return `${at}: choose bolts, a sole plate, a template or an embed plate.`
+  if (!['bolt', 'sole-plate', 'top-plate', 'template', 'embed-plate'].includes(c.kind)) return `${at}: choose bolts, a sole plate, a top plate, a template or an embed plate.`
   if (!Number.isInteger(c.qty) || c.qty < 1 || c.qty > 1000) return `${at}: enter a whole number of 1 to 1,000 per anchorage.`
   if (c.kind === 'sole-plate') {
     if (c.centerHole !== null && c.centerHole !== undefined && !pos(c.centerHole)) return `${at}: enter the centre hole diameter as a number above 0, or leave it empty.`
     if (c.lengthUnit !== undefined && c.lengthUnit !== 'mm' && c.lengthUnit !== 'in') return `${at}: choose mm or inches for the centre hole.`
+  }
+  if (c.kind === 'top-plate') {
+    // A top plate is a plain plate: thickness, width and length, and no centre hole.
+    if (!pos(c.thickness)) return `${at}: enter the top plate thickness as a number above 0.`
+    if (!pos(c.width)) return `${at}: enter the top plate width as a number above 0.`
+    if (!pos(c.length)) return `${at}: enter the top plate length as a number above 0.`
+    if (c.lengthUnit !== undefined && c.lengthUnit !== 'mm' && c.lengthUnit !== 'in') return `${at}: choose mm or inches for the top plate dimensions.`
   }
   if (c.kind === 'embed-plate') {
     const any = [c.studCount, c.studDiameter, c.studLength].some((v) => v !== null && v !== undefined)
@@ -361,12 +370,15 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
     let id = c.id ?? ''
     if (!id) { let n = mine.length + i + 1; id = `ac-${anchorageTypeId}-${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `ac-${anchorageTypeId}-${++n}` }
     const bolt = c.kind === 'bolt'
+    const top = c.kind === 'top-plate'
+    const unit = c.lengthUnit === 'in' ? 'in' : 'mm'
     next.push({
-      id, anchorageTypeId, kind: c.kind, qty: c.qty, label: text(c.label, 60), spec: text(c.spec, 120), size: text(c.size, 80),
-      diameter: bolt ? text(c.diameter, 30) : '', length: bolt ? (c.length as number) : null, lengthUnit: c.lengthUnit === 'in' ? 'in' : 'mm',
+      id, anchorageTypeId, kind: c.kind, qty: c.qty, label: text(c.label, 60), spec: text(c.spec, 120), size: top ? `${c.thickness} × ${c.width} × ${c.length} ${unit}` : text(c.size, 80),
+      diameter: bolt ? text(c.diameter, 30) : '', length: bolt || top ? (c.length as number) : null, lengthUnit: unit,
       thread: bolt ? (c.thread as 'both-ends' | 'all-thread') : null, topThread: bolt && c.thread === 'both-ends' ? (c.topThread as number) : null, bottomThread: bolt && c.thread === 'both-ends' ? (c.bottomThread as number) : null,
       nutsPerBolt: bolt ? c.nutsPerBolt ?? 0 : 0, washersPerBolt: bolt ? c.washersPerBolt ?? 0 : 0, nutSize: bolt ? text(c.nutSize, 30) : '', washerSize: bolt ? text(c.washerSize, 30) : '',
       centerHole: c.kind === 'sole-plate' && pos(c.centerHole) ? (c.centerHole as number) : null,
+      thickness: top ? (c.thickness as number) : null, width: top ? (c.width as number) : null,
       studCount: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studCount as number) : null, studDiameter: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studDiameter as number) : null, studLength: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studLength as number) : null,
     })
   }

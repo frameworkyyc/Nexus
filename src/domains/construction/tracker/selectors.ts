@@ -7,9 +7,9 @@ export { allLines }
 export const activeLines = (s: TrackerState) => allLines(s).filter((l) => !l.archived)
 
 export const CATEGORY_LABEL: Record<ComponentCategory, string> = {
-  bolt: 'Anchor bolts', nut: 'Nuts', washer: 'Washers', 'sole-plate': 'Sole plates', template: 'Plywood templates', 'embed-plate': 'Embed plates', other: 'Other',
+  bolt: 'Anchor bolts', nut: 'Nuts', washer: 'Washers', 'sole-plate': 'Sole plates', 'top-plate': 'Top plates', template: 'Plywood templates', 'embed-plate': 'Embed plates', other: 'Other',
 }
-export const CATEGORY_ORDER: ComponentCategory[] = ['bolt', 'nut', 'washer', 'sole-plate', 'template', 'embed-plate', 'other']
+export const CATEGORY_ORDER: ComponentCategory[] = ['bolt', 'nut', 'washer', 'sole-plate', 'top-plate', 'template', 'embed-plate', 'other']
 
 /* ── Delivery: a delivery is a confirmed receipt ────────────────────────── */
 // Delivered means the material was physically received, checked and confirmed. Confirming a delivery records a receipt (how much, when it

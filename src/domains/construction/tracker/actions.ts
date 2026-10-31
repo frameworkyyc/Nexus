@@ -294,7 +294,7 @@ export const archiveSupplier = (id: string, archived: boolean): Reducer => (s, c
 
 /** Sets (or clears, with null) the supplier suggested for a category. Suggestions only: no existing material is changed. */
 export const setPreferredSupplier = (category: ComponentCategory, supplier: string | null): Reducer => (s, ctx) => {
-  if (!['bolt', 'nut', 'washer', 'sole-plate', 'template', 'embed-plate', 'other'].includes(category)) return { error: 'Unknown category.' }
+  if (!['bolt', 'nut', 'washer', 'sole-plate', 'top-plate', 'template', 'embed-plate', 'other'].includes(category)) return { error: 'Unknown category.' }
   const rec = supplier ? (s.suppliers ?? []).find((x) => x.id === supplier) : null
   if (supplier && (!rec || rec.archived)) return { error: 'Choose a supplier from the directory.' }
   const prefs = { ...(s.preferredSuppliers ?? {}) }

@@ -146,7 +146,7 @@ export interface PourItem {
 }
 
 /** What an anchorage type is made of. Quantities are per anchorage (per plinth that uses the type); materials requirements are calculated from them. */
-export type AnchorageComponentKind = 'bolt' | 'sole-plate' | 'template' | 'embed-plate'
+export type AnchorageComponentKind = 'bolt' | 'sole-plate' | 'top-plate' | 'template' | 'embed-plate'
 export interface AnchorageComponent {
   id: string
   anchorageTypeId: string
@@ -172,6 +172,9 @@ export interface AnchorageComponent {
   washerSize: string
   // Sole plates only: optional centre hole diameter, in lengthUnit (mm or in)
   centerHole?: number | null
+  // Top plates only: thickness and width, in lengthUnit (the plate's length is `length`). A top plate has no centre hole.
+  thickness?: number | null
+  width?: number | null
   // Embed plates only: optional headed studs (per plate), diameter and length in lengthUnit
   studCount?: number | null
   studDiameter?: number | null

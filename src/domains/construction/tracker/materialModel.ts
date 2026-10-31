@@ -9,7 +9,7 @@ export const clean = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/
 export const key = (area: string, location: string, name: string, spec: string, size: string) => [area, location, name, spec, size].map((x) => x.trim().toLowerCase().replace(/\s+/g, ' ')).join('|')
 const MAX_TEXT = 500
 
-export const CATEGORIES: ComponentCategory[] = ['bolt', 'nut', 'washer', 'sole-plate', 'template', 'embed-plate', 'other']
+export const CATEGORIES: ComponentCategory[] = ['bolt', 'nut', 'washer', 'sole-plate', 'top-plate', 'template', 'embed-plate', 'other']
 export const CLAIMED_STATUSES = ['', 'Pending', 'Delivered'] as const
 export const QTY_BASES: QtyBasis[] = ['fixed', 'per-anchorage', 'per-plinth', 'per-footing']
 

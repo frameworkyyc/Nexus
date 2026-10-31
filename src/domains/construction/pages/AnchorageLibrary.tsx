@@ -130,6 +130,6 @@ function componentsSummary(all: import('../types').AnchorageComponent[], typeId:
   const mine = all.filter((c) => c.anchorageTypeId === typeId)
   if (mine.length === 0) return 'Not configured'
   const parts: string[] = []
-  for (const c of mine) for (const it of itemsOf(c)) if (it.category === 'bolt' || it.category === 'sole-plate' || it.category === 'template' || it.category === 'embed-plate') parts.push(`${it.each} × ${it.category === 'bolt' ? `${it.spec.split(',')[0]} bolt${it.each === 1 ? '' : 's'}` : it.name.toLowerCase()}`)
+  for (const c of mine) for (const it of itemsOf(c)) if (it.category === 'bolt' || it.category === 'sole-plate' || it.category === 'top-plate' || it.category === 'template' || it.category === 'embed-plate') parts.push(`${it.each} × ${it.category === 'bolt' ? `${it.spec.split(',')[0]} bolt${it.each === 1 ? '' : 's'}` : it.name.toLowerCase()}`)
   return parts.join(' · ')
 }

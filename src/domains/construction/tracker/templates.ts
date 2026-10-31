@@ -8,6 +8,7 @@ export const MATERIAL_TEMPLATES: MaterialTemplate[] = [
   { id: 'washer', label: 'Washer', category: 'washer', unit: 'ea', name: 'Plate washer ', specification: 'ASTM F436' },
   { id: 'template', label: 'Plywood template', category: 'template', unit: 'ea', name: 'Plywood template', specification: '' },
   { id: 'sole-plate', label: 'Sole plate', category: 'sole-plate', unit: 'ea', name: 'Sole plate ', specification: '' },
+  { id: 'top-plate', label: 'Top plate', category: 'top-plate', unit: 'ea', name: 'Top plate ', specification: '' },
   { id: 'embed-plate', label: 'Embed plate', category: 'embed-plate', unit: 'ea', name: 'Embed plate ', specification: '' },
 ]
 export const UNITS = ['ea', 'set', 'pair', 'bag', 'm', 'kg', 'L', 'box']

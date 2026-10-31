@@ -8,7 +8,7 @@ import type { SupplierRecord } from './suppliers'
  */
 export interface SourceRef { sheet: string; row: number }
 
-export type ComponentCategory = 'bolt' | 'nut' | 'washer' | 'sole-plate' | 'template' | 'embed-plate' | 'other'
+export type ComponentCategory = 'bolt' | 'nut' | 'washer' | 'sole-plate' | 'top-plate' | 'template' | 'embed-plate' | 'other'
 
 /** How the workbook arrived at the required quantity. `expression` is the readable formula, `formula` the original text. */
 export interface QuantityCalc {

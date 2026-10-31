@@ -68,11 +68,13 @@ export function itemsOf(c: AnchorageComponent): Item[] {
     if (c.washersPerBolt > 0) out.push({ category: 'washer', name: 'Washer', spec: washerSize, size: '', each: c.qty * c.washersPerBolt })
     return out
   }
-  const category: ComponentCategory = c.kind === 'sole-plate' ? 'sole-plate' : c.kind === 'template' ? 'template' : 'embed-plate'
-  const base = c.kind === 'sole-plate' ? 'Sole plate' : c.kind === 'template' ? 'Plywood template' : 'Embed plate'
+  const category: ComponentCategory = c.kind === 'sole-plate' ? 'sole-plate' : c.kind === 'top-plate' ? 'top-plate' : c.kind === 'template' ? 'template' : 'embed-plate'
+  const base = c.kind === 'sole-plate' ? 'Sole plate' : c.kind === 'top-plate' ? 'Top plate' : c.kind === 'template' ? 'Plywood template' : 'Embed plate'
+  // A top plate's size comes from its thickness, width and length (thickness × width × length), in its own unit.
+  const size = c.kind === 'top-plate' && c.thickness && c.width && c.length ? `${num(c.thickness)} × ${num(c.width)} × ${num(c.length)} ${c.lengthUnit}` : c.size.trim()
   const hole = c.kind === 'sole-plate' && c.centerHole ? `centre hole Ø${num(c.centerHole)} ${c.lengthUnit}` : ''
   const studs = c.kind === 'embed-plate' && c.studCount && c.studDiameter && c.studLength ? `${c.studCount} headed stud${c.studCount === 1 ? '' : 's'} Ø${num(c.studDiameter)} × ${num(c.studLength)} ${c.lengthUnit}` : ''
-  return [{ category, name: c.label.trim() || base, spec: [c.spec.trim(), hole, studs].filter(Boolean).join(', '), size: c.size.trim(), each: c.qty }]
+  return [{ category, name: c.label.trim() || base, spec: [c.spec.trim(), hole, studs].filter(Boolean).join(', '), size, each: c.qty }]
 }
 
 /** A footing bolt as the anchorage component it is equivalent to (no anchorage type), so nuts, washers and the specification come out the same way. */

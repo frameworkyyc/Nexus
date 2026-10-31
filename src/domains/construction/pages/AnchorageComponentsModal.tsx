@@ -9,16 +9,16 @@ import { constructionStore, useConstruction } from '../store'
 import { anchorageInstances, itemsOf } from '../tracker/requirements'
 import type { AnchorageComponent, AnchorageComponentKind, AnchorageType } from '../types'
 
-const KIND_LABEL: Record<AnchorageComponentKind, string> = { bolt: 'Anchor bolts', 'sole-plate': 'Sole plate', template: 'Plywood template', 'embed-plate': 'Embed plate' }
+const KIND_LABEL: Record<AnchorageComponentKind, string> = { bolt: 'Anchor bolts', 'sole-plate': 'Sole plate', 'top-plate': 'Top plate', template: 'Plywood template', 'embed-plate': 'Embed plate' }
 
 interface Draft {
   id?: string; kind: AnchorageComponentKind; qty: string; label: string; spec: string; size: string
-  diameter: string; length: string; lengthUnit: 'mm' | 'in'; thread: 'both-ends' | 'all-thread'; topThread: string; bottomThread: string; nutsPerBolt: string; washersPerBolt: string; nutSize: string; washerSize: string; centerHole: string; studCount: string; studDiameter: string; studLength: string
+  diameter: string; length: string; lengthUnit: 'mm' | 'in'; thread: 'both-ends' | 'all-thread'; topThread: string; bottomThread: string; nutsPerBolt: string; washersPerBolt: string; nutSize: string; washerSize: string; centerHole: string; thickness: string; width: string; studCount: string; studDiameter: string; studLength: string
 }
-const blank = (kind: AnchorageComponentKind): Draft => ({ kind, qty: '1', label: '', spec: '', size: '', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', nutsPerBolt: '2', washersPerBolt: '2', nutSize: '', washerSize: '', centerHole: '', studCount: '', studDiameter: '', studLength: '' })
+const blank = (kind: AnchorageComponentKind): Draft => ({ kind, qty: '1', label: '', spec: '', size: '', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', nutsPerBolt: '2', washersPerBolt: '2', nutSize: '', washerSize: '', centerHole: '', thickness: '', width: '', studCount: '', studDiameter: '', studLength: '' })
 const fromComponent = (c: AnchorageComponent): Draft => ({
   id: c.id, kind: c.kind, qty: String(c.qty), label: c.label, spec: c.spec, size: c.size, diameter: c.diameter, length: c.length === null ? '' : String(c.length), lengthUnit: c.lengthUnit, thread: c.thread ?? 'both-ends',
-  topThread: c.topThread === null ? '' : String(c.topThread), bottomThread: c.bottomThread === null ? '' : String(c.bottomThread), nutsPerBolt: String(c.nutsPerBolt), washersPerBolt: String(c.washersPerBolt), nutSize: c.nutSize, washerSize: c.washerSize, centerHole: c.centerHole ? String(c.centerHole) : '',
+  topThread: c.topThread === null ? '' : String(c.topThread), bottomThread: c.bottomThread === null ? '' : String(c.bottomThread), nutsPerBolt: String(c.nutsPerBolt), washersPerBolt: String(c.washersPerBolt), nutSize: c.nutSize, washerSize: c.washerSize, centerHole: c.centerHole ? String(c.centerHole) : '', thickness: c.thickness ? String(c.thickness) : '', width: c.width ? String(c.width) : '',
   studCount: c.studCount ? String(c.studCount) : '', studDiameter: c.studDiameter ? String(c.studDiameter) : '', studLength: c.studLength ? String(c.studLength) : '',
 })
 const num = (t: string) => (t.trim() === '' ? null : Number(t))
@@ -26,11 +26,12 @@ const toInput = (d: Draft): ComponentInput => ({
   id: d.id, kind: d.kind, qty: Number(d.qty), label: d.label, spec: d.spec, size: d.size,
   ...(d.kind === 'bolt' ? { diameter: d.diameter, length: num(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? num(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? num(d.bottomThread) : null, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize } : {}),
   ...(d.kind === 'sole-plate' ? { centerHole: num(d.centerHole), lengthUnit: d.lengthUnit } : {}),
+  ...(d.kind === 'top-plate' ? { thickness: num(d.thickness), width: num(d.width), length: num(d.length), lengthUnit: d.lengthUnit } : {}),
   ...(d.kind === 'embed-plate' ? { studCount: num(d.studCount), studDiameter: num(d.studDiameter), studLength: num(d.studLength), lengthUnit: d.lengthUnit } : {}),
 })
 const asComponent = (d: Draft, typeId: string): AnchorageComponent => ({
   id: d.id ?? 'draft', anchorageTypeId: typeId, kind: d.kind, qty: Number(d.qty) || 0, label: d.label, spec: d.spec, size: d.size, diameter: d.diameter, length: num(d.length), lengthUnit: d.lengthUnit,
-  thread: d.kind === 'bolt' ? d.thread : null, topThread: num(d.topThread), bottomThread: num(d.bottomThread), nutsPerBolt: Number(d.nutsPerBolt) || 0, washersPerBolt: Number(d.washersPerBolt) || 0, nutSize: d.nutSize, washerSize: d.washerSize, centerHole: d.kind === 'sole-plate' ? num(d.centerHole) : null,
+  thread: d.kind === 'bolt' ? d.thread : null, topThread: num(d.topThread), bottomThread: num(d.bottomThread), nutsPerBolt: Number(d.nutsPerBolt) || 0, washersPerBolt: Number(d.washersPerBolt) || 0, nutSize: d.nutSize, washerSize: d.washerSize, centerHole: d.kind === 'sole-plate' ? num(d.centerHole) : null, thickness: d.kind === 'top-plate' ? num(d.thickness) : null, width: d.kind === 'top-plate' ? num(d.width) : null,
   studCount: d.kind === 'embed-plate' ? num(d.studCount) : null, studDiameter: d.kind === 'embed-plate' ? num(d.studDiameter) : null, studLength: d.kind === 'embed-plate' ? num(d.studLength) : null,
 })
 
@@ -86,6 +87,20 @@ export function AnchorageComponentsModal({ type, onClose }: { type: AnchorageTyp
                   <Field label="Nut size"><Input aria-label={`Nut size ${i + 1}`} value={d.nutSize} onChange={(e) => set(i, { nutSize: e.target.value })} placeholder={d.diameter || 'Same as the bolt'} /></Field>
                   <Field label="Washers per bolt"><Input aria-label={`Washers per bolt ${i + 1}`} inputMode="numeric" value={d.washersPerBolt} onChange={(e) => set(i, { washersPerBolt: e.target.value })} /></Field>
                   <Field label="Washer size"><Input aria-label={`Washer size ${i + 1}`} value={d.washerSize} onChange={(e) => set(i, { washerSize: e.target.value })} placeholder={d.diameter || 'Same as the bolt'} /></Field>
+                </div>
+              </>
+            ) : d.kind === 'top-plate' ? (
+              <>
+                <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-4">
+                  <Field label="Quantity per anchorage *"><Input aria-label={`Quantity ${i + 1}`} inputMode="numeric" value={d.qty} onChange={(e) => set(i, { qty: e.target.value })} /></Field>
+                  <Field label="Name (optional)"><Input aria-label={`Name ${i + 1}`} value={d.label} onChange={(e) => set(i, { label: e.target.value })} placeholder={KIND_LABEL[d.kind]} /></Field>
+                  <Field label="Specification"><Input aria-label={`Specification ${i + 1}`} value={d.spec} onChange={(e) => set(i, { spec: e.target.value })} placeholder="e.g. CSA G40.21 350W" /></Field>
+                </div>
+                <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-4">
+                  <Field label={`Thickness (${d.lengthUnit}) *`}><Input aria-label={`Top plate thickness ${i + 1}`} inputMode="decimal" value={d.thickness} onChange={(e) => set(i, { thickness: e.target.value })} placeholder="e.g. 12" /></Field>
+                  <Field label={`Width (${d.lengthUnit}) *`}><Input aria-label={`Top plate width ${i + 1}`} inputMode="decimal" value={d.width} onChange={(e) => set(i, { width: e.target.value })} placeholder="e.g. 300" /></Field>
+                  <Field label={`Length (${d.lengthUnit}) *`}><Input aria-label={`Top plate length ${i + 1}`} inputMode="decimal" value={d.length} onChange={(e) => set(i, { length: e.target.value })} placeholder="e.g. 400" /></Field>
+                  <Field label="Unit"><Select aria-label={`Top plate unit ${i + 1}`} value={d.lengthUnit} onChange={(e) => set(i, { lengthUnit: e.target.value as 'mm' | 'in' })}><option value="mm">mm</option><option value="in">inches</option></Select></Field>
                 </div>
               </>
             ) : (
