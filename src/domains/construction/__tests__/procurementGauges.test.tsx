@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -6,7 +7,7 @@ import { procurementRows } from '../tracker/procurement'
 import type { TrackerState } from '../tracker/types'
 import { getIndex } from '../selectors'
 import { isOverdue, procurementSummary } from '../procurement/summary'
-import { liveRows, run, tracked, TODAY, world } from './materialsFixtures'
+import { fails, liveRows, run, tracked, TODAY, world } from './materialsFixtures'
 
 const s = (() => { const w = world(); const t0 = tracked(w.c); return { ...w, t0, rows: liveRows(t0, w.c) } })()
 const [r1, r2] = s.rows
@@ -59,6 +60,27 @@ describe('Procurement summary (the four gauges)', () => {
     expect(summary(cancelled).overdue).toBe(0)
   })
 
+  it('an expected date can be added, changed and cleared on an existing order, and the Overdue figure follows at once', () => {
+    let t = order(s.t0, [{ key: r1.key, qty: 10 }])
+    const id = t.orders![0].id
+    expect(summary(t)).toMatchObject({ overdue: 0, overdueOrders: 0 })
+    t = run(t, s.c, A.editPurchaseOrder(id, { expectedDate: '2026-10-01' }))
+    expect(t.orders![0].expectedDate).toBe('2026-10-01')
+    expect(summary(t)).toMatchObject({ overdue: 10, overdueOrders: 1 })
+    t = run(t, s.c, A.editPurchaseOrder(id, { expectedDate: '2026-12-31' }))
+    expect(summary(t).overdue).toBe(0)
+    t = run(t, s.c, A.editPurchaseOrder(id, { expectedDate: '2026-10-02' }))
+    t = run(t, s.c, A.editPurchaseOrder(id, { expectedDate: null }))
+    expect(t.orders![0].expectedDate).toBeNull()
+    expect(summary(t).overdue).toBe(0)
+    expect(t.history!.filter((h) => /Expected delivery/.test(h.summary)).length).toBe(4) // every change is in the history
+    expect(fails(t, s.c, A.editPurchaseOrder(id, { expectedDate: 'soon' }))).toMatch(/valid expected delivery date/)
+    // editing something else leaves the date alone, and the order's lines and deliveries are untouched
+    const kept = run(run(t, s.c, A.editPurchaseOrder(id, { expectedDate: '2026-10-05' })), s.c, A.editPurchaseOrder(id, { name: 'Renamed' }))
+    expect(kept.orders![0].expectedDate).toBe('2026-10-05')
+    expect(kept.orderLines).toEqual(t.orderLines)
+  })
+
   it('orders placed without an expected date are unaffected (the field stays optional)', () => {
     const t = order(s.t0, [{ key: r1.key, qty: 5 }])
     expect(t.orders![0].expectedDate).toBeNull()
@@ -100,6 +122,20 @@ describe('the gauges on the page', () => {
     expect(html).toMatch(/Filters Materials to those still to order/)
     expect(html).toMatch(/Shows orders past their expected delivery date/)
     expect(m.overdue).toBe(10)
+  })
+
+  it('the Delivered gauge filters Materials by any received quantity, partial deliveries included', () => {
+    const src = readFileSync('src/domains/construction/procurement/ProcurementPage.tsx', 'utf8')
+    expect(src).toContain("status === 'any-received' ? r.received > 0 : r.status === status")
+    expect(src).toContain("setStatus(k === 'pending' ? 'pending' : 'any-received')")
+    expect(src).toContain('Any quantity received')
+    // the rule itself, on real rows: a partly delivered requirement counts, a fully delivered one counts, an undelivered one does not
+    let t = order(s.t0, [{ key: r1.key, qty: r1.required }, { key: r2.key, qty: r2.required }])
+    const id = t.orders![0].id
+    t = run(t, s.c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: r1.key, qty: 1 }, { key: r2.key, qty: r2.required }] }, TODAY))
+    const got = procurementRows(t, s.c).filter((r) => r.received > 0).map((r) => ({ key: r.key, status: r.status }))
+    expect(got).toEqual(expect.arrayContaining([{ key: r1.key, status: 'partial' }, { key: r2.key, status: 'received' }]))
+    expect(got).toHaveLength(2)
   })
 
   it('the old status counters are gone; the tabs, New order and Receive delivery are unchanged', () => {

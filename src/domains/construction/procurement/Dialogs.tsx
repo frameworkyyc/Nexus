@@ -415,6 +415,7 @@ export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOr
   const progress = orderProgress(state, order.id)
   const [orderName, setOrderName] = useState(order.name ?? '')
   const [number, setNumber] = useState(order.number)
+  const [expected, setExpected] = useState(order.expectedDate ?? '')
   const listed = order.supplierId && suppliers.some((s) => s.id === order.supplierId)
   const [supplierId, setSupplierId] = useState(listed ? order.supplierId! : order.supplier ? '__other' : '')
   const [other, setOther] = useState(listed ? '' : order.supplier)
@@ -425,7 +426,7 @@ export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOr
   const save = async () => {
     setSaving(true); setError('')
     const e = await trackerStore.run(editPurchaseOrder(order.id, {
-      name: orderName, number, supplierId: supplierId && supplierId !== '__other' ? supplierId : null, supplier: supplierId === '__other' ? other : '',
+      name: orderName, number, expectedDate: expected || null, supplierId: supplierId && supplierId !== '__other' ? supplierId : null, supplier: supplierId === '__other' ? other : '',
       quantities: progress.lines.map(({ line }) => ({ lineId: line.id, qty: toQty(qty[line.id]) })),
     }))
     setSaving(false)
@@ -446,6 +447,7 @@ export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOr
             </Select>
           </Field>
           {supplierId === '__other' && <Field label="Supplier name"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
+          <Field label="Expected delivery"><Input aria-label="Expected delivery" type="date" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
         </div>
         <section aria-label="Materials on this order">
           <h3 className="t-label mb-2">Materials · {fmt(total)} items</h3>

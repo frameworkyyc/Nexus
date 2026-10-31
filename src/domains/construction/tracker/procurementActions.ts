@@ -119,6 +119,8 @@ export const setPurchaseOrderNumber = (orderId: string, numberText: string): Red
 export interface OrderEdit {
   name?: string
   number?: string
+  /** Expected delivery date; an empty string or null clears it. Left out = unchanged. */
+  expectedDate?: string | null
   supplierId?: string | null
   supplier?: string
   /** New quantity for existing order lines, by line id. Lines not listed keep theirs. */
@@ -157,14 +159,17 @@ export const editPurchaseOrder = (orderId: string, edit: OrderEdit): Reducer => 
     if (e.supplierId && !listed) return { error: 'That supplier is not available. Choose another.' }
     supplier = listed?.name ?? clip(e.supplier, 80); supplierId = listed?.id ?? null
   }
+  if (e.expectedDate && !validDate(e.expectedDate)) return { error: 'Enter a valid expected delivery date.' }
+  const expected = e.expectedDate === undefined ? (o.expectedDate ?? null) : e.expectedDate || null
   const changes: AuditEntry['changes'] = []
   const show = (t: string) => t || 'Not Assigned'
+  if (expected !== (o.expectedDate ?? null)) changes.push({ field: 'Expected delivery', from: o.expectedDate || 'Not set', to: expected || 'Not set' })
   if (name !== (o.name ?? '')) changes.push({ field: 'Order name', from: o.name || 'Default name', to: name || 'Default name' })
   if (number !== o.number) changes.push({ field: 'PO number', from: show(o.number), to: show(number) })
   if (supplier !== o.supplier || supplierId !== (o.supplierId ?? null)) changes.push({ field: 'Supplier', from: show(o.supplier), to: show(supplier) })
   const title = orderTitle(s, o)
   if (changes.length > 0) {
-    next = { ...next, orders: (next.orders ?? []).map((x) => { if (x.id !== orderId) return x; const { name: _n, ...rest } = x; void _n; return { ...rest, ...(name ? { name } : {}), number, supplier, supplierId } }) }
+    next = { ...next, orders: (next.orders ?? []).map((x) => { if (x.id !== orderId) return x; const { name: _n, ...rest } = x; void _n; return { ...rest, ...(name ? { name } : {}), number, supplier, supplierId, expectedDate: expected } }) }
     notes.push(note(ctx, 'order', number || name || 'Order', `Order details changed on ${title}: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join('; ')}`, changes))
   }
   // quantities

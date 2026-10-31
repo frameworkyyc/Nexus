@@ -57,7 +57,7 @@ export function ProcurementPage() {
   const toast = useToast()
   const [tab, setTab] = useState<Tab>(params.get('tab') === 'orders' ? 'orders' : 'materials')
   const [layout, setLayout] = usePersistentChoice<RequirementsLayout>('nexus.procurement.view', ['list', 'blocks'], 'list')
-  const [status, setStatus] = useState<ProcStatus | ''>('')
+  const [status, setStatus] = useState<ProcStatus | 'any-received' | ''>('')
   const [orderFilter, setOrderFilter] = useState<'' | 'awaiting' | 'overdue'>('')
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string } | { kind: 'po'; order: string } | { kind: 'correct'; delivery: string }>(null)
@@ -68,15 +68,15 @@ export function ProcurementPage() {
     return procurementRows(state, construction).filter((r) => (r.areaId ? mine.has(r.areaId) : true))
   }, [state, construction, projectId])
   const areas = useMemo(() => { const m = new Map<string, string>(); for (const r of rows) m.set(r.areaId ?? `t:${r.area}`, r.area); return [...m] }, [rows])
-  const shown = rows.filter((r) => (!areaFilter || (r.areaId ?? `t:${r.area}`) === areaFilter) && (!status || r.status === status) && (!search.trim() || `${r.name} ${specText(r)} ${r.area}`.toLowerCase().includes(search.trim().toLowerCase())))
+  const shown = rows.filter((r) => (!areaFilter || (r.areaId ?? `t:${r.area}`) === areaFilter) && (!status || (status === 'any-received' ? r.received > 0 : r.status === status)) && (!search.trim() || `${r.name} ${specText(r)} ${r.area}`.toLowerCase().includes(search.trim().toLowerCase())))
   const foundationName = (id: string) => construction.foundations.find((f) => f.id === id)?.number ?? id
   const canOrder = access.can('materials.edit'), canReceive = access.can('materials.receive'), canVoid = access.can('materials.void-receipt')
   const orders = (state.orders ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number))
   const projectOrder = (o: { id: string }) => (state.orderLines ?? []).some((l) => l.orderId === o.id && (!l.areaId || rows.some((r) => r.key === l.key) || areas.some(([id]) => id === l.areaId)))
   const summary = useMemo(() => procurementSummary(rows, state, orders.filter(projectOrder), today), [rows, state, orders, today]) // eslint-disable-line react-hooks/exhaustive-deps
-  const gauge: GaugeKey | null = tab === 'materials' ? (status === 'pending' ? 'pending' : status === 'received' ? 'delivered' : null) : orderFilter === 'awaiting' ? 'awaiting' : orderFilter === 'overdue' ? 'overdue' : null
+  const gauge: GaugeKey | null = tab === 'materials' ? (status === 'pending' ? 'pending' : status === 'any-received' ? 'delivered' : null) : orderFilter === 'awaiting' ? 'awaiting' : orderFilter === 'overdue' ? 'overdue' : null
   const pickGauge = (k: GaugeKey) => {
-    if (k === 'pending' || k === 'delivered') { setTab('materials'); setStatus(k === 'pending' ? 'pending' : 'received'); setSearch(''); setOrderFilter('') } else { setTab('orders'); setOrderFilter(k); setStatus('') }
+    if (k === 'pending' || k === 'delivered') { setTab('materials'); setStatus(k === 'pending' ? 'pending' : 'any-received'); setSearch(''); setOrderFilter('') } else { setTab('orders'); setOrderFilter(k); setStatus('') }
   }
   const shownOrders = orders.filter(projectOrder).filter((o) => !orderFilter || (orderFilter === 'overdue' ? isOverdue(state, o, today) : !o.cancelled && orderProgress(state, o.id).due > 0))
   const deliveries = (state.deliveries ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at))
@@ -109,8 +109,8 @@ export function ProcurementPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3" data-compact>
             <Input aria-label="Search materials" className="!w-64" placeholder="Search material, specification, area" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <Select aria-label="Status" className="!w-auto" value={status} onChange={(e) => setStatus(e.target.value as ProcStatus | '')}>
-              <option value="">Any status</option>{(Object.keys(PROC_LABEL) as ProcStatus[]).map((s) => <option key={s} value={s}>{PROC_LABEL[s]}</option>)}
+            <Select aria-label="Status" className="!w-auto" value={status} onChange={(e) => setStatus(e.target.value as ProcStatus | 'any-received' | '')}>
+              <option value="">Any status</option>{(Object.keys(PROC_LABEL) as ProcStatus[]).map((s) => <option key={s} value={s}>{PROC_LABEL[s]}</option>)}<option value="any-received">Any quantity received</option>
             </Select>
             <span className="text-xs text-muted">{shown.length} of {rows.length} materials</span>
             <span className="grow" />

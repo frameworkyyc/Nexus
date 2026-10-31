@@ -16,7 +16,7 @@ export function ProcurementGauges({ summary, onPick, active }: { summary: Procur
   const items: { key: GaugeKey; title: string; qty: number; line: string; note: string; percent: number | null }[] = [
     { key: 'pending', title: 'Pending', qty: summary.pending, line: 'Required, not yet ordered', note: 'Filters Materials to those still to order', percent: summary.percent.pending },
     { key: 'awaiting', title: 'Ordered', qty: summary.awaiting, line: 'Ordered, awaiting delivery', note: 'Shows orders still owed material', percent: summary.percent.awaiting },
-    { key: 'delivered', title: 'Delivered', qty: summary.delivered, line: 'Received', note: 'Filters Materials to those received in full', percent: summary.percent.delivered },
+    { key: 'delivered', title: 'Delivered', qty: summary.delivered, line: 'Received', note: 'Filters Materials to those with any quantity received', percent: summary.percent.delivered },
     { key: 'overdue', title: 'Overdue', qty: summary.overdue, line: `Undelivered, past expected date${summary.overdueOrders ? ` · ${summary.overdueOrders} order${summary.overdueOrders === 1 ? '' : 's'}` : ''}`, note: 'Shows orders past their expected delivery date', percent: summary.percent.overdue },
   ]
   const foot = (i: (typeof items)[number]) => (
