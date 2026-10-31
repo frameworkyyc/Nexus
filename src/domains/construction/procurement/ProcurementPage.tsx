@@ -1,27 +1,28 @@
 import { ChevronRight } from 'lucide-react'
-import { Fragment, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Input, Select } from '@/components/ui/Field'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Stat } from '@/components/ui/Stat'
-import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { Tabs } from '@/components/ui/Tabs'
 import { useAccess } from '@/lib/access'
 import { AccessBar } from '../tracker/manage/AccessBar'
 import { Chips } from '../tracker/manage/MaterialsByArea'
-import { displayName, specText } from '../tracker/consolidate'
+import { specText } from '../tracker/consolidate'
 import { procurementRows, PROC_LABEL, type ProcRow, type ProcStatus } from '../tracker/procurement'
 import { useTracker } from '../tracker/store'
 import { useToast } from '@/components/ui/Toast'
 import { paths } from '../paths'
 import { useConstruction } from '../store'
-import { fmt, OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
+import { OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
 import { OrdersTab } from './OrdersTab'
+import { RequirementsView, type RequirementsLayout } from './RequirementsView'
+import { ViewToggle } from '@/components/ui/Toolbar'
+import { usePersistentChoice } from '@/lib/usePersistentChoice'
 
 type Tab = 'requirements' | 'orders'
-const TONE: Record<ProcStatus, Tone> = { pending: 'muted', ordered: 'info', partial: 'warn', received: 'ok' }
 
 /**
  * Procurement: the central place to order and receive the materials that Materials says are required. It reads the same consolidated
@@ -36,6 +37,7 @@ export function ProcurementPage() {
   const access = useAccess()
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('requirements')
+  const [layout, setLayout] = usePersistentChoice<RequirementsLayout>('nexus.procurement.view', ['list', 'blocks'], 'list')
   const [status, setStatus] = useState<ProcStatus | ''>('')
   const [search, setSearch] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
@@ -48,10 +50,8 @@ export function ProcurementPage() {
   }, [state, construction, projectId])
   const areas = useMemo(() => { const m = new Map<string, string>(); for (const r of rows) m.set(r.areaId ?? `t:${r.area}`, r.area); return [...m] }, [rows])
   const shown = rows.filter((r) => (!areaFilter || (r.areaId ?? `t:${r.area}`) === areaFilter) && (!status || r.status === status) && (!search.trim() || `${r.name} ${specText(r)} ${r.area}`.toLowerCase().includes(search.trim().toLowerCase())))
-  const byArea = [...new Set(shown.map((r) => r.area))].map((a) => ({ area: a, rows: shown.filter((r) => r.area === a) }))
   const counts = (s: ProcStatus) => rows.filter((r) => r.status === s && r.required > 0).length
   const foundationName = (id: string) => construction.foundations.find((f) => f.id === id)?.number ?? id
-  const toggle = (set: Set<string>, k: string) => { const n = new Set(set); if (n.has(k)) n.delete(k); else n.add(k); return n }
   const canOrder = access.can('materials.edit'), canReceive = access.can('materials.receive'), canVoid = access.can('materials.void-receipt')
   const orders = (state.orders ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number))
   const projectOrder = (o: { id: string }) => (state.orderLines ?? []).some((l) => l.orderId === o.id && (!l.areaId || rows.some((r) => r.key === l.key) || areas.some(([id]) => id === l.areaId)))
@@ -91,6 +91,7 @@ export function ProcurementPage() {
             </Select>
             <span className="text-xs text-muted">{shown.length} of {rows.length} materials</span>
             <span className="grow" />
+            <ViewToggle label="Requirements view" value={layout} onChange={setLayout} items={[{ id: 'list', label: 'List' }, { id: 'blocks', label: 'Blocks' }]} />
             {canOrder && <Button onClick={() => setDialog({ kind: 'order', keys: [] })}>New order</Button>}
             {canReceive && <Button onClick={() => setDialog({ kind: 'receive', keys: [] })}>Receive delivery</Button>}
           </div>
@@ -103,31 +104,8 @@ export function ProcurementPage() {
             </div>
           )}
           {shown.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">No materials match.</p> : (
-            <table className="card-table w-full text-left text-[13px]">
-              <thead><tr className="border-b border-line">
-                <th scope="col" className="w-8"><span className="sr-only">Select</span></th><th scope="col" className="t-label font-medium">Material</th>
-                <th scope="col" className="t-label text-right font-medium">Required</th><th scope="col" className="t-label text-right font-medium">Ordered</th><th scope="col" className="t-label text-right font-medium">Received</th>
-                <th scope="col" className="t-label text-right font-medium">Outstanding</th><th scope="col" className="t-label text-right font-medium">Allocated</th><th scope="col" className="t-label font-medium">Status</th>
-              </tr></thead>
-              <tbody>
-                {byArea.map((g) => (
-                  <Fragment key={g.area}>
-                    <tr data-wide><td colSpan={8} className="border-b border-line bg-hover px-2 py-2 text-xs font-medium">
-                      <label className="flex items-center gap-2"><input type="checkbox" aria-label={`Select all in ${g.area}`} checked={g.rows.every((r) => picked.has(r.key))} onChange={(e) => setPicked((p) => { const n = new Set(p); for (const r of g.rows) { if (e.target.checked) n.add(r.key); else n.delete(r.key) } return n })} />{g.area} <span className="font-normal text-muted">· {g.rows.length} material{g.rows.length === 1 ? '' : 's'}</span></label>
-                    </td></tr>
-                    {g.rows.map((r) => (
-                      <tr key={r.key} className={`border-b border-line transition-colors hover:bg-hover ${r.orphan ? 'opacity-70' : ''}`}>
-                        <td><input type="checkbox" aria-label={`Select ${displayName(r)} ${specText(r)}`} checked={picked.has(r.key)} onChange={() => setPicked(toggle(picked, r.key))} /></td>
-                        <td><button type="button" onClick={() => setDialog({ kind: 'row', key: r.key })} className="block text-left"><span className="font-medium underline-offset-4 hover:underline">{displayName(r)}</span>{r.orphan && <span className="ml-2 text-xs text-warn">No longer required</span>}<span className="block text-xs text-muted" title={specText(r)}>{specText(r) || r.unit}</span></button></td>
-                        <td className="text-right font-medium">{fmt(r.required)}</td><td className="text-right">{fmt(r.ordered)}</td><td className="text-right">{fmt(r.received)}</td>
-                        <td className="text-right">{fmt(r.outstanding)}</td><td className="text-right" title={`${fmt(r.unallocated)} received and not yet allocated`}>{fmt(r.allocated)}</td>
-                        <td><StatusBadge tone={TONE[r.status]} label={PROC_LABEL[r.status]} /></td>
-                      </tr>
-                    ))}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
+            <RequirementsView rows={shown} layout={layout} picked={picked} onPick={(keys, on) => setPicked((p) => { const n = new Set(p); for (const k of keys) { if (on) n.add(k); else n.delete(k) } return n })}
+              onOpen={(key) => setDialog({ kind: 'row', key })} showArea={!areaFilter && areas.length > 1} expandAll={!!status || !!search.trim()} />
           )}
         </div>
       )}
