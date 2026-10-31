@@ -163,3 +163,18 @@ export function progressCounts(rows: { required: number; ordered: number; receiv
   const ordered = live.filter((r) => r.ordered >= r.required).length
   return { total: live.length, ordered, delivered: live.filter((r) => r.received >= r.required).length, allocated: live.filter((r) => r.allocated >= r.required).length, outstanding: live.length - ordered }
 }
+
+/**
+ * One area's materials summary, from the same consolidated requirements as the Materials tab and Procurement (so every page agrees). Counted in
+ * requirements, and based on what has been delivered in full, never on what was only ordered. `percent` is the share fully delivered.
+ */
+export function areaMaterialsSummary(s: TrackerState, c: ConsolidationSource, areaId: string) {
+  const rows = procurementRows(s, c).filter((r) => r.areaId === areaId && r.required > 0)
+  const counts = progressCounts(rows)
+  return {
+    rows, counts,
+    partlyDelivered: rows.filter((r) => r.received > 0 && r.received < r.required).length,
+    notFullyDelivered: counts.total - counts.delivered,
+    percent: counts.total === 0 ? null : Math.round((counts.delivered / counts.total) * 100),
+  }
+}

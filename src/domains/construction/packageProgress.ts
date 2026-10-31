@@ -1,7 +1,6 @@
-import { identity } from '@/app/identity'
 import { getDef, isConstructionCategory } from './config'
 import { effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
-import { linesForArea, materialsProgress } from './tracker/selectors'
+import { areaMaterialsSummary } from './tracker/procurement'
 import type { TrackerState } from './tracker/types'
 import type { Activity } from './types'
 
@@ -32,19 +31,18 @@ function areaActivities(idx: Index, areaId: string): { act: Activity; status: Re
 const doneOf = (xs: { status: string }[]) => xs.filter((x) => x.status === 'complete' || x.status === 'approved').length
 
 export function materialsIndicator(idx: Index, areaId: string, tracker: TrackerState): PackageIndicator {
-  const lines = linesForArea(tracker, idx.state.areas, areaId).filter((l) => !l.archived)
-  const basis = 'Delivered quantity against required quantity, averaged across the area’s material lines. A delivery counts once it has been physically received, checked and confirmed in Nexus; a status in the workbook is shown but does not raise the percentage.'
-  if (!lines.length) {
-    return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material tracker', value: tracker.meta ? 'No lines for this area' : 'Not imported' }], gaps: [`Import the ${identity.trackerName} material tracker workbook to track materials. Demonstration material data is not counted.`] }
+  const basis = 'Material requirements fully delivered, out of all of the area’s requirements (the same requirements, and the same figures, as the Materials tab and Procurement). Only a delivery confirmed in Nexus counts, and only when the whole required quantity has arrived: ordering, a partial delivery or a workbook status does not raise the percentage.'
+  const m = areaMaterialsSummary(tracker, idx.state, areaId)
+  if (m.counts.total === 0) {
+    return { key: 'materials', title: 'Materials', basis, percent: null, rows: [{ label: 'Material requirements', value: 'None yet' }], gaps: ['Materials appear here once anchorage types are assigned to this area’s foundations, footing anchor bolts are added, or materials are entered.'] }
   }
-  const p = materialsProgress(lines)
   return {
-    key: 'materials', title: 'Materials', basis, percent: p.percent,
+    key: 'materials', title: 'Materials', basis, percent: m.percent,
     rows: [
-      { label: 'Delivered in full', value: `${p.receivedInFull} / ${p.lines}`, note: p.partial ? `${p.partial} partially delivered` : undefined },
-      { label: 'Not yet delivered', value: String(p.nothingReceived) },
+      { label: 'Delivered in full', value: `${m.counts.delivered} / ${m.counts.total}`, note: m.partlyDelivered ? `${m.partlyDelivered} partially delivered` : undefined },
+      { label: 'Not yet fully delivered', value: `${m.notFullyDelivered} / ${m.counts.total}` },
     ],
-    gaps: p.percent === null ? ['Nothing to measure yet.'] : [],
+    gaps: [],
   }
 }
 

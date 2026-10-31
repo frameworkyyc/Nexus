@@ -5,7 +5,7 @@ import { buildSeed } from '../seed'
 import { getIndex } from '../selectors'
 import * as A from '../tracker/actions'
 import { importWorkbookFile } from '../tracker/import'
-import { areaIdFor, areaSummary, deliveryState, filterLines, materialsProgress, receivedOf, reconcileSummary, remainingOf } from '../tracker/selectors'
+import { areaIdFor, areaSummary, deliveryState, filterLines, receivedOf, reconcileSummary, remainingOf } from '../tracker/selectors'
 import { emptyTracker, type TrackerState } from '../tracker/types'
 import { readWorkbook } from '@/lib/xlsx'
 import { buildWorkbook, sampleWorkbook } from './xlsxBuilder'
@@ -155,31 +155,10 @@ describe('deliveries: workbook status is not a receipt', () => {
 
 describe('materials progress indicator', () => {
   const idx = getIndex(buildSeed(TODAY))
-  const withAreaNames = (s: TrackerState) => ({ ...s, lines: s.lines.map((l) => ({ ...l, area: l.area === 'North Area' ? 'Mole Sieve' : l.area })) })
-
-  it('is zero until a delivery is confirmed, however many lines say Delivered in the workbook', async () => {
-    const s = withAreaNames(await loaded())
-    expect(materialsProgress(s.lines.filter((l) => l.area === 'Mole Sieve')).percent).toBe(0)
-    const ind = materialsIndicator(idx, 'mole-sieve', s)
-    expect(ind.percent).toBe(0)
-    expect(ind.rows.find((r) => r.label === 'Not yet delivered')!.value).toBe('10')
-  })
-
-  it('counts confirmed deliveries only: ordered quantities and workbook statuses do not move it', async () => {
-    let s = withAreaNames(await loaded())
-    s = apply(s, A.setOrdered(line(s, 4).id, 24))
-    expect(materialsIndicator(idx, 'mole-sieve', s).percent).toBe(0)
-    s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-10', qty: 24, reference: '', note: '' }, TODAY))
-    const p = materialsIndicator(idx, 'mole-sieve', s).percent
-    expect(p).toBe(Math.round((1 / 10) * 100)) // 1 of the area's 10 lines fully received
-    s = apply(s, A.addReceipt(line(s, 4).id, { date: '2026-10-11', qty: 500, reference: '', note: '' }, TODAY))
-    expect(materialsIndicator(idx, 'mole-sieve', s).percent).toBe(p) // over-receipt is capped per line
-  })
-
-  it('does not use the fictional demo materials, and says so when nothing is imported', () => {
+  it('says so when there are no material requirements for the area', () => {
     const ind = materialsIndicator(idx, 'mole-sieve', emptyTracker())
     expect(ind.percent).toBeNull()
-    expect(ind.rows[0].value).toBe('Not imported')
+    expect(ind.rows[0].value).toBe('None yet')
   })
 })
 

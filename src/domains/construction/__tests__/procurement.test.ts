@@ -6,6 +6,8 @@ import { emptyConstruction } from '../empty'
 import { areaTree, consolidate, entryNotes, materialLabel } from '../tracker/consolidate'
 import { materialStatus, mergeAcrossAreas, procurementRows, procStatus, progressCounts } from '../tracker/procurement'
 import { expectedTotals, refreshRequirements } from '../tracker/requirements'
+import { materialsIndicator } from '../packageProgress'
+import { getIndex } from '../selectors'
 import { emptyTracker, type TrackerState } from '../tracker/types'
 import type { ConstructionState } from '../types'
 
@@ -475,5 +477,86 @@ describe('material status, installation and the overview', () => {
     expect(progressCounts(rows())).toMatchObject({ total: 4, ordered: 1, delivered: 1, allocated: 0 }) // 176 of 184 allocated: not fully
     const p = progressCounts(rows())
     expect(p.ordered + p.outstanding).toBe(p.total)
+  })
+})
+
+describe('Area Overview materials gauge stays in step with the Materials tab', () => {
+  const entered = (area: string, n: number) => Array.from({ length: n }, (_, i) => ({ areaId: area, foundationId: '', category: 'other', name: `Item ${i + 1}`, specification: `Spec ${i + 1}`, size: '', unit: 'ea', requiredQty: 10, basis: 'fixed' }) as never)
+  const gauge = (t: TrackerState, c: ConstructionState, areaId: string) => materialsIndicator(getIndex(c), areaId, t)
+  const tab = (t: TrackerState, c: ConstructionState, areaId: string) => progressCounts(procurementRows(t, c).filter((r) => r.areaId === areaId && r.required > 0))
+
+  it('18 requirements, 4 ordered and 4 delivered in full: 22%, 4/18 delivered, 14/18 not yet fully delivered', () => {
+    const { c, eh } = world()
+    let t = run(emptyTracker(), c, A.addMaterials(entered(eh, 18)))
+    const rows = procurementRows(t, c).filter((r) => r.areaId === eh && r.name.startsWith('Item'))
+    expect(rows).toHaveLength(18)
+    // order 4 in full; ordering alone does not move the gauge
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-A', supplier: 'Nucor', date: TODAY, lines: rows.slice(0, 4).map((r) => ({ key: r.key, qty: 10 })) }, TODAY))
+    let g = gauge(t, c, eh)
+    expect(tab(t, c, eh)).toMatchObject({ ordered: 4 })
+    expect(g.percent).toBe(0)
+    expect(g.rows.find((r) => r.label === 'Delivered in full')!.value).toBe(`0 / ${tab(t, c, eh).total}`)
+    // the same four delivered in full
+    t = run(t, c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: rows.slice(0, 4).map((r) => ({ key: r.key, qty: 10 })) }, TODAY))
+    g = gauge(t, c, eh)
+    const total = tab(t, c, eh).total
+    expect(tab(t, c, eh)).toMatchObject({ ordered: 4, delivered: 4 })
+    expect(g.percent).toBe(Math.round((4 / total) * 100))
+    expect(g.rows.find((r) => r.label === 'Delivered in full')!.value).toBe(`4 / ${total}`)
+    expect(g.rows.find((r) => r.label === 'Not yet fully delivered')!.value).toBe(`${total - 4} / ${total}`)
+    // a partial delivery on a fifth shows as partial, not as progress
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: rows[4].key, qty: 3 }] }, TODAY))
+    g = gauge(t, c, eh)
+    expect(g.percent).toBe(Math.round((4 / total) * 100))
+    expect(g.rows[0].note).toBe('1 partially delivered')
+  })
+
+  it('the reported case exactly: 18 requirements, 4 delivered in full → 22%, 4 / 18 and 14 / 18', () => {
+    let { c } = world()
+    c = build(c, K.createArea(c.projects[0].id, 'Clean Area', []))
+    const area = c.areas.find((a) => a.name === 'Clean Area')!.id
+    let t = run(emptyTracker(), c, A.addMaterials(entered(area, 18)))
+    const items = procurementRows(t, c).filter((r) => r.areaId === area)
+    expect(items).toHaveLength(18)
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-R', supplier: 'Nucor', date: TODAY, lines: items.slice(0, 4).map((r) => ({ key: r.key, qty: 10 })) }, TODAY))
+    expect(gauge(t, c, area).percent).toBe(0) // ordered 4/18 does not count as delivered
+    expect(tab(t, c, area)).toMatchObject({ total: 18, ordered: 4, delivered: 0, outstanding: 14 })
+    t = run(t, c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: items.slice(0, 4).map((r) => ({ key: r.key, qty: 10 })) }, TODAY))
+    const g = gauge(t, c, area)
+    expect(g.percent).toBe(22)
+    expect(g.rows.map((r) => [r.label, r.value])).toEqual([['Delivered in full', '4 / 18'], ['Not yet fully delivered', '14 / 18']])
+    expect(tab(t, c, area)).toMatchObject({ total: 18, ordered: 4, delivered: 4 })
+  })
+
+  it('follows requirement changes, voids, and every area including a new one, using the same figures as the Materials tab', () => {
+    let { c, A1, eh } = world()
+    let t = tracked(c)
+    const check = (areaId: string) => {
+      const g = gauge(t, c, areaId); const m = tab(t, c, areaId)
+      expect(g.percent).toBe(m.total === 0 ? null : Math.round((m.delivered / m.total) * 100))
+      if (m.total) { expect(g.rows[0].value).toBe(`${m.delivered} / ${m.total}`); expect(g.rows[1].value).toBe(`${m.total - m.delivered} / ${m.total}`) }
+    }
+    for (const a of c.areas) check(a.id)
+    const bolt = rowOf(t, c, 'E-House', 'Anchor bolt')
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: bolt.key, qty: 184 }] }, TODAY))
+    check(eh)
+    expect(gauge(t, c, eh).percent).toBe(25)
+    // the requirement grows: no longer fully delivered
+    c = build(c, K.configureFoundation(c.foundations[0].id, { quantity: 20 }))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    check(eh); expect(gauge(t, c, eh).percent).toBe(0)
+    // voiding the delivery
+    t = run(t, c, A.voidDelivery(t.deliveries![0].id))
+    check(eh)
+    // a new area gets the same behaviour
+    c = build(c, K.createArea(c.projects[0].id, 'Mole Sieve', []))
+    const ms = c.areas.find((a) => a.name === 'Mole Sieve')!.id
+    expect(gauge(t, c, ms).percent).toBeNull()
+    c = build(c, K.createFoundation(ms, 'MS-1', '', null, 2, { groups: [{ anchorageTypeId: A1, count: 1 }] }))
+    t = refreshRequirements(t, c, { log: true, at: NOW })
+    check(ms); expect(tab(t, c, ms).total).toBe(4)
+    const b2 = rowOf(t, c, 'Mole Sieve', 'Anchor bolt')
+    t = run(t, c, A.recordDelivery({ date: TODAY, lines: [{ key: b2.key, qty: 8 }] }, TODAY))
+    check(ms); expect(gauge(t, c, ms).percent).toBe(25)
   })
 })
