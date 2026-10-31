@@ -37,12 +37,18 @@ describe('sidebar contents', () => {
     expect(out).toContain('NEXUS')
   })
 
-  it('expands Project Status to the project overview and each Area, and nothing else', () => {
-    const out = html('/projects/reef/progress')
-    expect(out).toContain('>Project Overview<')
-    expect(out).toContain('>E-House<')
-    expect(out).toContain('>Mole Sieve<')
-    expect(out).not.toContain('>Materials<') // no separate Materials page in Project Status
+  it('Project Status is one permanent link to its overview: no dropdown, no submenu, no area entries', () => {
+    for (const path of ['/projects/reef/progress', '/projects/reef/progress/a1', '/projects/reef/manage/survey']) {
+      const out = html(path)
+      expect(out).toContain('href="/projects/reef/progress"')
+      expect(out).not.toContain('aria-label="Expand Project Status"')
+      expect(out).not.toContain('aria-label="Collapse Project Status"')
+      expect(out).not.toContain('aria-label="Project Status"') // no nested list
+      expect(out).not.toContain('>Project Overview<')
+      expect(out).not.toContain('title="E-House"')
+    }
+    // it stays highlighted on the overview and on any area page (areas live inside Project Status)
+    expect(html('/projects/reef/progress/a1')).toMatch(/bg-white\/10[^>]*>.{0,700}Project Status/)
   })
 
   it('makes every discipline a direct link, with Civil marked as future development', () => {
@@ -94,7 +100,7 @@ describe('sidebar contents', () => {
 describe('sidebar links', () => {
   it('every link goes to a real page, never to a redirect or Not found', () => {
     const all = [...flat(primarySections('reef', AREAS)), ...flat(toolNodes('reef', false))]
-    expect(all.length).toBeGreaterThan(25)
+    expect(all.length).toBeGreaterThan(20)
     for (const n of all) {
       const leaf = matchRoutes(routes, n.to.split('?')[0])?.at(-1)
       expect(leaf, n.to).toBeTruthy()

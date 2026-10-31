@@ -36,7 +36,7 @@ export function operationalNodes(projectId: string | null): NavSection[] {
 }
 
 /**
- * The primary entries, top to bottom: Project Status (expands to the project overview and each Area), the operational pages, Foundation Overview
+ * The primary entries, top to bottom: Project Status (one link to its overview; the areas are reached from that page), the operational pages, Foundation Overview
  * and Fleet. Without a project the project entries open the project list.
  */
 export function primarySections(projectId: string | null, areas: AreaRef[]): NavSection[] {
@@ -45,10 +45,6 @@ export function primarySections(projectId: string | null, areas: AreaRef[]): Nav
   return [
     {
       section: 'progress', id: 'status', label: 'Project Status', icon: BarChart3, to: to(paths.progress),
-      children: p ? [
-        { id: 'status-overview', label: 'Project Overview', to: paths.progress(p) },
-        ...areas.map((a) => ({ id: `status-${a.id}`, label: a.name, to: paths.area(p, a.id), prefix: true })),
-      ] : undefined,
     },
     ...operationalNodes(projectId),
     {
