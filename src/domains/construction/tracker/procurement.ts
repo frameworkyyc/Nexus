@@ -181,6 +181,19 @@ export function orderProgress(s: TrackerState, orderId: string) {
 }
 
 /**
+ * How much of a requirement is already covered, for ordering: what is on live orders (a cancelled order keeps only what had arrived, so its
+ * undelivered part is released), plus anything received with no order (a historical delivery or receipt on a line), which has already arrived and
+ * must not be ordered again. Received quantities that came through an order are inside the order's own quantity, so nothing is counted twice.
+ */
+export function coveredQty(r: Pick<ProcRow, 'ordered' | 'orderedOnLines' | 'receivedOnLines' | 'deliveryLines'>): number {
+  const unlinked = sum(r.deliveryLines.filter((l) => !l.orderLineId).map((l) => l.qty)) + Math.max(0, r.receivedOnLines - r.orderedOnLines)
+  return r.ordered + unlinked
+}
+
+/** What can still be put on a new order: the requirement less what is already covered, never below zero. The one figure the New order panel and the server both use. */
+export const availableToOrder = (r: Pick<ProcRow, 'required' | 'ordered' | 'orderedOnLines' | 'receivedOnLines' | 'deliveryLines'>): number => Math.max(0, r.required - coveredQty(r))
+
+/**
  * The purchase orders a new delivery can be recorded against: not cancelled (a deleted order is simply gone) and with something still outstanding.
  * Given material keys, only orders that still owe at least one of those materials. Each comes with its progress (its lines, received and due).
  */

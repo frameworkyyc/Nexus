@@ -237,8 +237,10 @@ describe('deliveries recorded without an order (the case found on staging)', () 
     const { c, t: t0, all } = stagingLike()
     let t = t0
     const did = t.deliveries![0].id
-    const small = run(t, c, A.createPurchaseOrder({ number: '', supplier: '', date: TODAY, name: 'Only washers', lines: all.filter((r) => r.category === 'washer').slice(0, 1).map((r) => ({ key: r.key, qty: 1 })) }, TODAY))
-    const smallId = small.orders!.find((o) => o.name === 'Only washers')!.id
+    // every requirement is already fully ordered here, so the one-line order is built directly (new orders cannot exceed what is still to order)
+    const washerLine = t.orderLines!.find((l) => l.key === all.find((r) => r.category === 'washer')!.key)!
+    const smallId = 'po-only-washers'
+    const small = { ...t, orders: [...t.orders!, { ...t.orders![0], id: smallId, name: 'Only washers', number: '' }], orderLines: [...t.orderLines!, { ...washerLine, id: 'pol-only-washers', orderId: smallId, qty: 1 }] }
     expect(fails(small, c, A.correctDelivery(did, { orderId: smallId }, TODAY))).toMatch(/is not on Only washers/)
     expect(fails(t, c, A.correctDelivery(did, { orderId: 'nope' }, TODAY))).toMatch(/not available/)
     t = run(t, c, A.cancelPurchaseOrder(t.orders![0].id))

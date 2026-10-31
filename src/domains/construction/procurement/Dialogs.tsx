@@ -7,15 +7,17 @@ import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
 import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, correctDelivery, editPurchaseOrder } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
-import { orderProgress, orderTitle, PROC_LABEL, receivableOrders, type ProcRow } from '../tracker/procurement'
+import { areaChoices, categoryChoices, materialChoices, mergeLines, orderFigures, quantityProblem } from './orderSelection'
+import { availableToOrder, orderProgress, orderTitle, PROC_LABEL, receivableOrders, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
-import type { Delivery, PurchaseOrder, TrackerState } from '../tracker/types'
+import type { ComponentCategory, Delivery, PurchaseOrder, TrackerState } from '../tracker/types'
 import { CATEGORY_LABEL } from '../tracker/selectors'
 
 export const fmt = (n: number) => n.toLocaleString('en-CA')
 export const when = (at: string) => (at ? new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '')
 export const who = (by: string) => by || 'user not recorded'
 const name = (r: { name: string; designation?: string; specification: string; size: string }) => `${displayName(r)}${specText(r) ? ` · ${specText(r)}` : ''}`
+const materialName = name // (the order form has a field called `name` of its own)
 
 /** One row of "material, quantity" in an order or delivery form. */
 function LineList({ rows, lines, set, hint, label }: { rows: Map<string, { area: string; name: string; specification: string; size: string; unit: string }>; lines: { key: string; qty: string }[]; set: (l: { key: string; qty: string }[]) => void; hint: (key: string) => string; label: string }) {
@@ -36,25 +38,96 @@ function LineList({ rows, lines, set, hint, label }: { rows: Map<string, { area:
   )
 }
 
-function AddMaterial({ rows, taken, onAdd, label, qtyOf }: { rows: ProcRow[]; taken: Set<string>; onAdd: (key: string, qty: number) => void; label: string; qtyOf: (r: ProcRow) => number }) {
-  const left = rows.filter((r) => !taken.has(r.key))
-  const areas = [...new Set(left.map((r) => r.area))]
-  if (left.length === 0) return null
+/**
+ * Adds one order line at a time in three steps: area, material category, then the material (searchable). Only requirements that can still be ordered
+ * are offered, so the lists stay short. Lines already on the order are left out, and the order itself is never limited to one area or category:
+ * pick another area, category and material and add again.
+ */
+export function MaterialPicker({ rows, areas, taken, onAdd }: { rows: ProcRow[]; areas: { id: string; name: string }[]; taken: Set<string>; onAdd: (key: string, qty: number) => void }) {
+  const [area, setArea] = useState('')
+  const [category, setCategory] = useState('')
+  const [search, setSearch] = useState('')
+  const [key, setKey] = useState('')
+  const [qty, setQty] = useState('')
+  const [err, setErr] = useState('')
+  const areaList = areaChoices(rows, areas, taken)
+  const cats = area ? categoryChoices(rows, area, taken) : []
+  const mats = area && category ? materialChoices(rows, area, category as ComponentCategory, search, taken) : []
+  const picked = key ? rows.find((r) => r.key === key) : undefined
+  const chooseArea = (v: string) => { setArea(v); setCategory(''); setSearch(''); setKey(''); setErr('') }
+  const chooseCategory = (v: string) => { setCategory(v); setSearch(''); setKey(''); setErr('') }
+  const choose = (r: ProcRow) => { setKey(r.key); setQty(String(orderFigures(r).available)); setErr('') }
+  const add = () => {
+    const problem = quantityProblem(picked, toQty(qty))
+    if (problem) { setErr(problem); return }
+    onAdd(picked!.key, toQty(qty))
+    setKey(''); setQty(''); setSearch(''); setErr('')
+    // stay on the same area and category for the next line, unless nothing is left in it
+    if (category && materialChoices(rows, area, category as ComponentCategory, '', new Set([...taken, picked!.key])).length === 0) setCategory('')
+  }
+  const fig = picked ? orderFigures(picked) : null
   return (
-    <Field label={label}>
-      <Select aria-label={label} value="" onChange={(e) => { const r = rows.find((x) => x.key === e.target.value); if (r) onAdd(r.key, qtyOf(r)) }}>
-        <option value="">Choose a material…</option>
-        {areas.map((a) => <optgroup key={a} label={a}>{left.filter((r) => r.area === a).map((r) => <option key={r.key} value={r.key}>{name(r)} ({PROC_LABEL[r.status].toLowerCase()})</option>)}</optgroup>)}
-      </Select>
-    </Field>
+    <section role="group" aria-label="Add a material" className="space-y-3 rounded-nx border border-line p-3">
+      <h3 className="t-label">Add a material</h3>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="1 · Area">
+          <Select aria-label="Area" value={area} onChange={(e) => chooseArea(e.target.value)}>
+            <option value="">Choose an area…</option>
+            {areaList.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.count === 0 ? 'nothing left to order' : `${a.count} to order`})</option>)}
+          </Select>
+        </Field>
+        <Field label="2 · Material category">
+          <Select aria-label="Material category" value={category} disabled={!area || cats.length === 0} onChange={(e) => chooseCategory(e.target.value)}>
+            <option value="">{area ? 'Choose a category…' : 'Choose an area first'}</option>
+            {cats.map((c) => <option key={c.category} value={c.category}>{c.label} ({c.count})</option>)}
+          </Select>
+        </Field>
+      </div>
+      {area && cats.length === 0 && <p role="status" className="border-l-2 border-line pl-3 text-muted">Everything required in {areaList.find((a) => a.id === area)?.name ?? 'this area'} is already on an order{[...taken].length ? ' or on this one' : ''}. Choose another area.</p>}
+      {area && category && (
+        <div className="space-y-2">
+          <p className="t-label">3 · Material</p>
+          <Input aria-label="Search this category" placeholder={`Search ${CATEGORY_LABEL[category as ComponentCategory].toLowerCase()}`} value={search} onChange={(e) => setSearch(e.target.value)} />
+          {mats.length === 0 ? <p className="text-muted">{search.trim() ? 'No material matches that search.' : 'Nothing left to order in this category.'}</p> : (
+            <ul aria-label="Materials to order" className="max-h-56 divide-y divide-line overflow-y-auto rounded-nx border border-line">
+              {mats.map((r) => (
+                <li key={r.key}>
+                  <button type="button" aria-pressed={r.key === key} onClick={() => choose(r)} className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-hover ${r.key === key ? 'bg-hover' : ''}`}>
+                    <span className="min-w-0"><span className="block truncate font-medium">{displayName(r)}</span>{specText(r) && <span className="block truncate text-xs text-muted">{specText(r)}</span>}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted">{fmt(orderFigures(r).available)} to order</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {picked && fig && (
+        <div className="space-y-3 rounded-nx bg-hover p-3" aria-label="Selected material">
+          <div><p className="font-medium">{name(picked)}</p><p className="text-xs text-muted">{picked.area} · {CATEGORY_LABEL[picked.category]}</p></div>
+          <dl className="grid grid-cols-3 gap-2 text-xs">
+            <div><dt className="text-muted">Required</dt><dd className="tabular-nums">{fmt(fig.required)}</dd></div>
+            <div><dt className="text-muted">Already ordered or received</dt><dd className="tabular-nums">{fmt(fig.covered)}</dd></div>
+            <div><dt className="text-muted">Available to order</dt><dd className="tabular-nums font-medium">{fmt(fig.available)}</dd></div>
+          </dl>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="Quantity to order"><Input aria-label="Quantity to add" inputMode="numeric" className="!w-32" value={qty} onChange={(e) => { setQty(e.target.value); setErr('') }} /></Field>
+            <Button variant="primary" onClick={add}>Add to order</Button>
+            <Button variant="ghost" onClick={() => { setKey(''); setErr('') }}>Cancel</Button>
+          </div>
+          {err && <p role="alert" className="text-xs text-bad">{err}</p>}
+        </div>
+      )}
+    </section>
   )
 }
 
 const toQty = (t: string) => (t.trim() === '' ? NaN : Number(t))
 
 /** Places one purchase order covering any number of materials, in one area or several. */
-export function OrderModal({ rows, initialKeys, state, today, onClose, order }: { rows: ProcRow[]; initialKeys: string[]; state: TrackerState; today: string; onClose: () => void; order?: PurchaseOrder }) {
+export function OrderModal({ rows, areas, initialKeys, state, today, onClose, order }: { rows: ProcRow[]; areas?: { id: string; name: string }[]; initialKeys: string[]; state: TrackerState; today: string; onClose: () => void; order?: PurchaseOrder }) {
   const byKey = new Map(rows.map((r) => [r.key, r]))
+  const areaList = areas ?? [...new Map(rows.map((r) => [r.areaId ?? `t:${r.area}`, r.area])).entries()].map(([id, n]) => ({ id, name: n }))
   const first = byKey.get(initialKeys[0])
   const preferred = first ? state.preferredSuppliers?.[first.category] : undefined
   const suppliers = (state.suppliers ?? []).filter((s) => !s.archived)
@@ -65,13 +138,18 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
   const [date, setDate] = useState(today)
   const [expected, setExpected] = useState('')
   const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState(initialKeys.filter((k) => byKey.has(k)).map((k) => ({ key: k, qty: String(Math.max(1, byKey.get(k)!.toOrder)) })))
+  const [lines, setLines] = useState(initialKeys.filter((k) => byKey.has(k) && availableToOrder(byKey.get(k)!) > 0).map((k) => ({ key: k, qty: String(availableToOrder(byKey.get(k)!)) })))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const total = lines.reduce((a, l) => a + (Number.isFinite(toQty(l.qty)) ? toQty(l.qty) : 0), 0)
+  // what is already on the order being added to (or being built) is never offered again
+  const taken = new Set(lines.map((l) => l.key).concat(order ? (state.orderLines ?? []).filter((l) => l.orderId === order.id).map((l) => l.key) : []))
+  // each line checked against what is still available; the server checks again when saving
+  const problems = lines.flatMap((l) => { const t = quantityProblem(byKey.get(l.key), toQty(l.qty)); return t ? [{ key: l.key, text: `${materialName(byKey.get(l.key) ?? { name: l.key, specification: '', size: '' })}: ${t}` }] : [] })
   const save = async () => {
     setSaving(true); setError('')
-    const payload = lines.map((l) => ({ key: l.key, qty: toQty(l.qty) }))
+    // two entries for the same requirement are combined into one line, then checked against what is available
+    const payload = mergeLines(lines.map((l) => ({ key: l.key, qty: toQty(l.qty) })))
     const e = await trackerStore.run(order ? addOrderLines(order.id, payload) : createPurchaseOrder({ name, number, supplierId: supplierId && supplierId !== '__other' ? supplierId : null, supplier: supplierId === '__other' ? other : '', date, expectedDate: expected || null, notes, lines: payload }, today))
     setSaving(false)
     if (e) setError(e); else onClose()
@@ -95,15 +173,16 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
             {supplierId === '__other' && <Field label="Supplier name"><Input aria-label="Supplier name" value={other} onChange={(e) => setOther(e.target.value)} /></Field>}
           </div>
         )}
-        <p className="text-muted">{order ? 'Add materials to this order.' : 'One order can cover several materials and areas. Quantities start at what is still to be ordered.'}</p>
-        {lines.length === 0 ? <p className="border-l-2 border-line pl-3 text-muted">No materials yet. Choose one below.</p> : (
-          <LineList rows={byKey} lines={lines} set={setLines} label="Quantity to order" hint={(k) => { const r = byKey.get(k)!; return `required ${fmt(r.required)} · ordered ${fmt(r.ordered)} · still to order ${fmt(r.toOrder)}` }} />
+        <p className="text-muted">{order ? 'Add materials to this order.' : 'One order can cover several materials, categories and areas: add as many lines as you need. Quantities start at what is still available to order.'}</p>
+        {lines.length === 0 ? <p className="border-l-2 border-line pl-3 text-muted">No materials yet. Choose an area, a category and a material below.</p> : (
+          <LineList rows={byKey} lines={lines} set={setLines} label="Quantity to order" hint={(k) => { const f = orderFigures(byKey.get(k)!); return `required ${fmt(f.required)} · already ordered or received ${fmt(f.covered)} · available ${fmt(f.available)}` }} />
         )}
-        <AddMaterial rows={rows} taken={new Set(lines.map((l) => l.key).concat(order ? (state.orderLines ?? []).filter((l) => l.orderId === order.id).map((l) => l.key) : []))} label="Add a material" qtyOf={(r) => Math.max(1, r.toOrder)} onAdd={(key, qty) => setLines([...lines, { key, qty: String(qty) }])} />
+        {problems.length > 0 && <ul role="alert" className="space-y-0.5 border-l-2 border-bad pl-3 text-xs">{problems.map((p) => <li key={p.key}>{p.text}</li>)}</ul>}
+        <MaterialPicker rows={rows} areas={areaList} taken={taken} onAdd={(key, qty) => setLines((l) => mergeLines([...l, { key, qty: String(qty) }].map((x) => ({ ...x, qty: toQty(x.qty) }))).map((x) => ({ key: x.key, qty: String(x.qty) })))} />
         {!order && <Field label="Notes"><Textarea aria-label="Notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>}
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" disabled={saving || lines.length === 0} onClick={() => void save()}>{saving ? 'Saving…' : order ? 'Add to order' : `Place order · ${fmt(total)} items`}</Button>
+          <Button variant="primary" disabled={saving || lines.length === 0 || problems.length > 0} onClick={() => void save()}>{saving ? 'Saving…' : order ? 'Add to order' : `Place order · ${fmt(total)} items`}</Button>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </div>

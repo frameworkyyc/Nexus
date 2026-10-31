@@ -1,7 +1,7 @@
 import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
 import { consolidate, type ConsolidationSource } from './consolidate'
-import { deliveredByLine, keyAliases, orderProgress, orderTitle, procurementRows } from './procurement'
+import { availableToOrder, coveredQty, deliveredByLine, keyAliases, orderProgress, orderTitle, procurementRows } from './procurement'
 import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 import type { Result, Reducer } from './actions'
 
@@ -42,6 +42,11 @@ function resolveLines(s: TrackerState, ctx: Ctx | undefined, lines: { key: strin
     if (!g) return { error: 'One of the materials is no longer required. Reload and try again.' }
     if (!whole(l.qty)) return { error: `${label(g)}: enter a whole number of 1 or more to order.` }
     if (seen.has(l.key) || taken.has(l.key)) return { error: `${label(g)} is already on this order.` }
+    // Checked against the records as they stand now, so an order placed by someone else while this form was open is accounted for.
+    const room = availableToOrder(g), covered = coveredQty(g)
+    if (g.required === 0) return { error: `${label(g)} is no longer required, so it cannot be ordered.` }
+    if (room === 0) return { error: `${label(g)} is already fully ordered (required ${fmt(g.required)}, ordered or received ${fmt(covered)}). Nothing more can be ordered.` }
+    if (l.qty > room) return { error: `${label(g)}: only ${fmt(room)} is still available to order (required ${fmt(g.required)}, already ordered or received ${fmt(covered)}). Enter ${fmt(room)} or less.` }
     seen.add(l.key); ok.push({ g, qty: l.qty })
   }
   return { ok }
@@ -172,6 +177,12 @@ export const editPurchaseOrder = (orderId: string, edit: OrderEdit): Reducer => 
     if (!whole(q.qty)) return { error: `${label(line)}: enter a whole number of 1 or more.` }
     const delivered = (s.deliveryLines ?? []).filter((d) => d.orderLineId === line.id).reduce((a, d) => a + d.qty, 0)
     if (q.qty < delivered) return { error: `${label(line)}: ${fmt(delivered)} has already been delivered against this order, so it cannot be reduced below that.` }
+    if (q.qty > line.qty) {
+      // Raising a quantity orders more of the requirement, so it is limited by what is still available to order.
+      const c = source(ctx)
+      const row = c ? procurementRows(s, c).find((r) => r.key === alias(s, c)(line.key)) : undefined
+      if (row && q.qty - line.qty > availableToOrder(row)) return { error: `${label(line)}: only ${fmt(availableToOrder(row))} more is available to order (required ${fmt(row.required)}, already ordered or received ${fmt(coveredQty(row))}).` }
+    }
     if (q.qty !== line.qty) wanted.set(line.id, q.qty)
   }
   if (wanted.size > 0) {

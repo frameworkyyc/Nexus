@@ -129,7 +129,7 @@ export function ProcurementPage() {
         </>
       )}
 
-      {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} areas={construction.areas.filter((a) => a.projectId === projectId && !a.archived).sort((x, y) => x.sequence - y.sequence).map((a) => ({ id: a.id, name: a.name }))} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'po' && (state.orders ?? []).some((o) => o.id === dialog.order) && <OrderDetailsModal order={(state.orders ?? []).find((o) => o.id === dialog.order)!} state={state} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'correct' && (state.deliveries ?? []).some((d) => d.id === dialog.delivery) && <CorrectDeliveryModal delivery={(state.deliveries ?? []).find((d) => d.id === dialog.delivery)!} state={state} today={today} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'receive' && <ReceiveModal state={state} today={today} orderId={dialog.order} focusKeys={dialog.keys} inProject={(id) => projectOrder({ id })} onNewOrder={canOrder ? () => setDialog({ kind: 'order', keys: [] }) : undefined} onClose={() => setDialog(null)} />}

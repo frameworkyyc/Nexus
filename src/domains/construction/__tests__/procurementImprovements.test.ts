@@ -191,7 +191,7 @@ describe('PO numbers are optional and editable', () => {
     const { c } = world()
     let t = tracked(c)
     const [d2, d3] = rowsOf(t, c, 'Plywood template')
-    t = run(t, c, order(d2.key))
+    t = run(t, c, order(d2.key, { lines: [{ key: d2.key, qty: 3 }] }))
     t = run(t, c, order(d3.key, { lines: [{ key: d3.key, qty: 3 }] }))
     expect(t.orders).toHaveLength(2)
     t = run(t, c, order(d2.key, { number: 'PO-7', lines: [{ key: d2.key, qty: 1 }] }))
@@ -472,7 +472,8 @@ describe('editing and deleting orders', () => {
     const lid = lineOf(t, d2.key).id
     expect(fails(t, c, A.editPurchaseOrder(id, { quantities: [{ lineId: lid, qty: 3 }] }))).toMatch(/5 has been allocated .* more than the 3 that would remain ordered/)
     expect(fails(t, c, A.editPurchaseOrder(id, { quantities: [{ lineId: lid, qty: 5 }] }))).toBeUndefined()
-    expect(fails(t, c, A.editPurchaseOrder(id, { quantities: [{ lineId: lid, qty: 8 }] }))).toBeUndefined()
+    // raising it past the requirement (5 required; 5 on the order and 5 already received without an order) would over-order, so it is refused
+    expect(fails(t, c, A.editPurchaseOrder(id, { quantities: [{ lineId: lid, qty: 8 }] }))).toMatch(/available to order/)
   })
 
   it('deleting an order removes it from the calculations at once, keeps a full record in the history, and the requirements read as still to order', () => {
@@ -649,7 +650,10 @@ describe('cancelling orders that have deliveries, and correcting deliveries', ()
   })
 
   it('leaves unrelated orders and their deliveries untouched', () => {
-    const { c, t: t0, d2, d3, id } = setup3()
+    const { c, t: t1, d2, d3, id } = setup3()
+    // free 3 of the 10 ordered for D3 so a second order for it is allowed
+    const d3Line = t1.orderLines!.find((l) => l.orderId === id && l.key === d3.key)!
+    const t0 = run(t1, c, A.editPurchaseOrder(id, { quantities: [{ lineId: d3Line.id, qty: 7 }] }))
     let t = run(t0, c, place([{ key: d3.key, qty: 3 }], { name: 'Other', number: 'PO-2' }))
     const other = t.orders!.find((o) => o.number === 'PO-2')!.id
     t = run(t, c, A.recordDelivery({ orderId: other, date: TODAY, lines: [{ key: d3.key, qty: 3 }] }, TODAY))

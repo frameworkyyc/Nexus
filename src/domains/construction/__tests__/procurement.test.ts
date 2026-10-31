@@ -194,12 +194,12 @@ describe('procurement', () => {
     let { c, A1, B1 } = world()
     let t = tracked(c)
     const tpl = rowOf(t, c, 'E-House', 'Plywood template')
-    t = run(t, c, A.createPurchaseOrder({ number: 'PO-T', supplier: 'Demo Lumber', date: TODAY, lines: [{ key: tpl.key, qty: 48 }] }, TODAY))
+    t = run(t, c, A.createPurchaseOrder({ number: 'PO-T', supplier: 'Demo Lumber', date: TODAY, lines: [{ key: tpl.key, qty: tpl.required }] }, TODAY))
     c = build(c, K.setAnchorageComponents(A1, []))
     c = build(c, K.setAnchorageComponents(B1, []))
     t = refreshRequirements(t, c, { log: true, at: NOW })
     const gone = procurementRows(t, c).find((r) => r.key === tpl.key)!
-    expect(gone).toMatchObject({ required: 0, ordered: 48, orphan: true })
+    expect(gone).toMatchObject({ required: 0, ordered: tpl.required, orphan: true })
   })
 
   it('keeps existing per-line orders and receipts counting toward the same totals', () => {
