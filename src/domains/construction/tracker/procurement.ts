@@ -1,4 +1,5 @@
-import { consolidate, type ConsolidationSource, type Consolidated } from './consolidate'
+import { CATEGORY_TITLE, consolidate, type ConsolidationSource, type Consolidated } from './consolidate'
+import { formatDate } from '@/lib/format'
 import type { Allocation, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 
 /**
@@ -198,4 +199,18 @@ export function areaMaterialsSummary(s: TrackerState, c: ConsolidationSource, ar
     notFullyDelivered: counts.total - counts.delivered,
     percent: counts.total === 0 ? null : Math.round((counts.delivered / counts.total) * 100),
   }
+}
+
+/**
+ * What an order is called in lists: its custom name, or, when it has none, a default worked out from what it covers ("E-House Anchor bolts",
+ * "E-House materials", "Anchor bolts · 2 areas"), falling back to its date. Nothing is stored for the default, so existing orders are unchanged.
+ */
+export function orderTitle(s: Pick<TrackerState, 'orderLines'>, o: PurchaseOrder): string {
+  if (o.name?.trim()) return o.name.trim()
+  const lines = (s.orderLines ?? []).filter((l) => l.orderId === o.id)
+  if (lines.length === 0) return `Order of ${formatDate(o.date)}`
+  const areas = [...new Set(lines.map((l) => l.area))], cats = [...new Set(lines.map((l) => l.category))]
+  const what = cats.length === 1 ? CATEGORY_TITLE[cats[0]] : 'materials'
+  if (areas.length === 1) return `${areas[0]} ${what}`
+  return `${what === 'materials' ? 'Materials' : what} · ${areas.length} areas`
 }

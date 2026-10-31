@@ -27,7 +27,7 @@ const note = (ctx: Ctx | undefined, action: AuditEntry['action'], labelText: str
   ({ id: id('au-pr'), at: ctx?.now ?? new Date().toISOString(), by: ctx?.actor ?? '', action, materialId: '', label: labelText, summary, changes })
 const withHistory = (s: TrackerState, e: AuditEntry): TrackerState => ({ ...s, history: [...(s.history ?? []), e] })
 
-export interface OrderInput { number: string; supplierId?: string | null; supplier?: string; date: ISODate; expectedDate?: string | null; notes?: string; lines: { key: string; qty: number }[] }
+export interface OrderInput { name?: string; number: string; supplierId?: string | null; supplier?: string; date: ISODate; expectedDate?: string | null; notes?: string; lines: { key: string; qty: number }[] }
 
 /** Validates order lines against the consolidated requirements (the only things that can be ordered). */
 function resolveLines(s: TrackerState, ctx: Ctx | undefined, lines: { key: string; qty: number }[], taken: Set<string>): { ok: { g: GroupRef; qty: number }[] } | { error: string } {
@@ -58,7 +58,7 @@ export const createPurchaseOrder = (input: OrderInput, today: ISODate): Reducer 
   const name = supplier?.name ?? clip(input.supplier, 80)
   const r = resolveLines(s, ctx, input.lines, new Set())
   if ('error' in r) return r
-  const order: PurchaseOrder = { id: id('po'), number, supplierId: supplier?.id ?? null, supplier: name, date: input.date, expectedDate: input.expectedDate || null, notes: clip(input.notes, 500), createdAt: ctx?.now ?? new Date().toISOString(), createdBy: ctx?.actor ?? '' }
+  const order: PurchaseOrder = { id: id('po'), ...(clip(input.name, 80) ? { name: clip(input.name, 80) } : {}), number, supplierId: supplier?.id ?? null, supplier: name, date: input.date, expectedDate: input.expectedDate || null, notes: clip(input.notes, 500), createdAt: ctx?.now ?? new Date().toISOString(), createdBy: ctx?.actor ?? '' }
   const lines: OrderLine[] = r.ok.map(({ g, qty }) => ({ ...ref(g), id: id('pol'), orderId: order.id, qty }))
   const total = lines.reduce((a, l) => a + l.qty, 0)
   const areas = [...new Set(lines.map((l) => l.area))]
@@ -72,6 +72,16 @@ export const addOrderLines = (orderId: string, lines: { key: string; qty: number
   if ('error' in r) return r
   const add: OrderLine[] = r.ok.map(({ g, qty }) => ({ ...ref(g), id: id('pol'), orderId, qty }))
   return { state: withHistory({ ...s, orderLines: [...(s.orderLines ?? []), ...add] }, note(ctx, 'order', o.number || 'No PO number', `Added to ${poName(o)}: ${add.map((l) => `${fmt(l.qty)} × ${label(l)}`).join('; ')}`)) }
+})
+
+/** Gives an order a custom name, renames it, or clears it (the order then shows its default name). Nothing else about the order changes. */
+export const setPurchaseOrderName = (orderId: string, nameText: string): Reducer => audited((s, ctx): Result => {
+  const o = (s.orders ?? []).find((x) => x.id === orderId)
+  if (!o) return { error: 'That purchase order is not available.' }
+  const name = clip(nameText, 80)
+  if (name === (o.name ?? '')) return { state: s }
+  const was = o.name || 'Default name', now = name || 'Default name'
+  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => { if (x.id !== orderId) return x; const { name: _n, ...rest } = x; void _n; return name ? { ...rest, name } : rest }) }, note(ctx, 'order', o.number || o.name || 'Order', `Order name ${o.name ? 'changed' : 'added'}: ${was} → ${now}${o.number ? ` (${o.number})` : ''}`, [{ field: 'Order name', from: was, to: now }])) }
 })
 
 /** Adds, changes or clears who an order is placed with (a listed supplier or free text). The order's lines, deliveries and allocations are untouched. */

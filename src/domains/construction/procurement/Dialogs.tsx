@@ -5,9 +5,9 @@ import { Field, Input, Select, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
-import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, setPurchaseOrderNumber, setPurchaseOrderSupplier } from '../tracker/commands'
+import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, setPurchaseOrderName, setPurchaseOrderNumber, setPurchaseOrderSupplier } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
-import { orderProgress, PROC_LABEL, type ProcRow } from '../tracker/procurement'
+import { orderProgress, orderTitle, PROC_LABEL, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
 import type { GroupRef, PurchaseOrder, TrackerState } from '../tracker/types'
 import { CATEGORY_LABEL } from '../tracker/selectors'
@@ -60,6 +60,7 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
   const first = byKey.get(initialKeys[0])
   const preferred = first ? state.preferredSuppliers?.[first.category] : undefined
   const suppliers = (state.suppliers ?? []).filter((s) => !s.archived)
+  const [name, setName] = useState('')
   const [number, setNumber] = useState('')
   const [supplierId, setSupplierId] = useState(order?.supplierId ?? (preferred && suppliers.some((s) => s.id === preferred) ? preferred : ''))
   const [other, setOther] = useState('')
@@ -73,15 +74,16 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
   const save = async () => {
     setSaving(true); setError('')
     const payload = lines.map((l) => ({ key: l.key, qty: toQty(l.qty) }))
-    const e = await trackerStore.run(order ? addOrderLines(order.id, payload) : createPurchaseOrder({ number, supplierId: supplierId && supplierId !== '__other' ? supplierId : null, supplier: supplierId === '__other' ? other : '', date, expectedDate: expected || null, notes, lines: payload }, today))
+    const e = await trackerStore.run(order ? addOrderLines(order.id, payload) : createPurchaseOrder({ name, number, supplierId: supplierId && supplierId !== '__other' ? supplierId : null, supplier: supplierId === '__other' ? other : '', date, expectedDate: expected || null, notes, lines: payload }, today))
     setSaving(false)
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title={order ? `Add materials to ${poLabel(order)}` : 'New purchase order'} onClose={onClose} wide>
+    <Modal title={order ? `Add materials to ${orderTitle(state, order)}` : 'New order'} onClose={onClose} wide>
       <div className="space-y-5 p-6 text-[13px]">
         {!order && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="col-span-2 sm:col-span-4"><Field label="Order name"><Input aria-label="Order name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="A short name for this order (optional)" /></Field></div>
             <Field label="PO number (optional)"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Add later if not yet known" /></Field>
             <Field label="Supplier">
               <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
@@ -137,7 +139,7 @@ export function ReceiveModal({ rows, initialKeys, state, today, onClose, order }
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title={order ? `Receive delivery · ${poLabel(order)}` : 'Receive delivery'} onClose={onClose} wide>
+    <Modal title={order ? `Receive delivery · ${orderTitle(state, order)}` : 'Receive delivery'} onClose={onClose} wide>
       <div className="space-y-5 p-6 text-[13px]">
         <p className="text-muted">Enter what was physically received and checked. It is recorded once for the area’s material, not against each foundation. Partial deliveries are fine: record the rest when it arrives.</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -201,7 +203,7 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
           <h3 className="t-label mb-2">Orders</h3>
           {row.orderLines.length === 0 && row.orderedOnLines === 0 ? <p className="text-muted">Not ordered yet.</p> : (
             <ul className="divide-y divide-line border-y border-line">
-              {row.orderLines.map((l) => { const o = orders.get(l.orderId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{o ? poLabel(o) : ''} · {o?.supplier || 'Not Assigned'} · {formatDate(o?.date)}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
+              {row.orderLines.map((l) => { const o = orders.get(l.orderId); return <li key={l.id} className="flex flex-wrap justify-between gap-2 py-2"><span>{o ? orderTitle(state, o) : ''}{o?.number ? ` · PO ${o.number}` : ''} · {formatDate(o?.date)}</span><span className="tabular-nums">{fmt(l.qty)} {row.unit}</span></li> })}
               {row.orderedOnLines > 0 && <li className="flex flex-wrap justify-between gap-2 py-2 text-muted"><span>Ordered on individual material lines (earlier records)</span><span className="tabular-nums">{fmt(row.orderedOnLines)} {row.unit}</span></li>}
             </ul>
           )}
@@ -248,6 +250,7 @@ export function RowModal({ row, state, foundationName, onClose, onOrder, onRecei
 /** Adds, corrects or clears an order's PO number and supplier. The order's materials, deliveries and allocations are not touched. */
 export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOrder; state: TrackerState; onClose: () => void }) {
   const suppliers = (state.suppliers ?? []).filter((s) => !s.archived)
+  const [name, setName] = useState(order.name ?? '')
   const [number, setNumber] = useState(order.number)
   const listed = order.supplierId && suppliers.some((s) => s.id === order.supplierId)
   const [supplierId, setSupplierId] = useState(listed ? order.supplierId! : order.supplier ? '__other' : '')
@@ -257,16 +260,18 @@ export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOr
   const save = async () => {
     setSaving(true); setError('')
     let e: string | null | undefined = null
-    if (number.trim() !== order.number) e = await trackerStore.run(setPurchaseOrderNumber(order.id, number))
+    if (name.trim() !== (order.name ?? '')) e = await trackerStore.run(setPurchaseOrderName(order.id, name))
+    if (!e && number.trim() !== order.number) e = await trackerStore.run(setPurchaseOrderNumber(order.id, number))
     if (!e) e = await trackerStore.run(setPurchaseOrderSupplier(order.id, supplierId && supplierId !== '__other' ? supplierId : null, supplierId === '__other' ? other : ''))
     setSaving(false)
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title="Order details" onClose={onClose}>
+    <Modal title="Edit order" onClose={onClose}>
       <div className="space-y-4 p-6 text-[13px]">
         <p className="text-muted">Ordered {formatDate(order.date)}. Changing these does not change the order&apos;s materials, deliveries or allocations.</p>
-        <Field label="PO number"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Leave empty if not yet assigned" autoFocus /></Field>
+        <Field label="Order name"><Input aria-label="Order name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={orderTitle(state, { ...order, name: '' })} autoFocus /></Field>
+        <Field label="PO number"><Input aria-label="PO number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Leave empty if not yet assigned" /></Field>
         <Field label="Supplier">
           <Select aria-label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
             <option value="">Not assigned</option>

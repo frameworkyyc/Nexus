@@ -18,6 +18,7 @@ export const archiveMaterials = tagged.archiveMaterials
 export const createPurchaseOrder = tagged.createPurchaseOrder
 export const setPurchaseOrderNumber = tagged.setPurchaseOrderNumber
 export const setPurchaseOrderSupplier = tagged.setPurchaseOrderSupplier
+export const setPurchaseOrderName = tagged.setPurchaseOrderName
 export const addOrderLines = tagged.addOrderLines
 export const cancelPurchaseOrder = tagged.cancelPurchaseOrder
 export const recordDelivery = tagged.recordDelivery

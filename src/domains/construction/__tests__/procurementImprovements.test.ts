@@ -4,7 +4,7 @@ import * as K from '../actions'
 import * as A from '../tracker/actions'
 import { emptyConstruction } from '../empty'
 import { consolidate, displayName, materialLabel } from '../tracker/consolidate'
-import { mergeAcrossAreas, procurementRows } from '../tracker/procurement'
+import { mergeAcrossAreas, orderProgress, orderTitle, procurementRows } from '../tracker/procurement'
 import { refreshRequirements } from '../tracker/requirements'
 import { emptyTracker, type TrackerState } from '../tracker/types'
 import type { ConstructionState } from '../types'
@@ -346,5 +346,63 @@ describe('supplier is optional and can be added or changed afterwards', () => {
     const notes = t.history.filter((h) => h.action === 'order' && /^Supplier /.test(h.summary)).map((h) => h.summary.replace(/ \(ordered.*/, ''))
     expect(notes).toEqual(['Supplier added on PO-1: Not Assigned → Local Lumber', 'Supplier changed on PO-1: Local Lumber → Nucor', 'Supplier changed on PO-1: Nucor → Not Assigned'])
     expect(run(t, c, A.setPurchaseOrderSupplier(id, null, '')).history).toHaveLength(t.history.length) // unchanged: no noise
+  })
+})
+
+describe('order names', () => {
+  const place = (key: string, o: Partial<Parameters<typeof A.createPurchaseOrder>[0]> = {}) => A.createPurchaseOrder({ number: '', supplier: '', date: TODAY, lines: [{ key, qty: 5 }], ...o }, TODAY)
+
+  it('an order can be named when created, renamed afterwards and cleared, in place, with PO number and supplier kept separate', () => {
+    const { c } = world()
+    const t0 = tracked(c)
+    const [d2] = rowsOf(t0, c, 'Plywood template')
+    let t = run(t0, c, place(d2.key, { name: '  E-House   Formwork Materials ', number: 'PO-1', supplier: 'Nucor' }))
+    const id = t.orders![0].id
+    expect(t.orders![0]).toMatchObject({ name: 'E-House Formwork Materials', number: 'PO-1', supplier: 'Nucor' })
+    expect(orderTitle(t, t.orders![0])).toBe('E-House Formwork Materials')
+    const frozen = { lines: t.orderLines, row: rowsOf(t, c, 'Plywood template')[0], number: t.orders![0].number, supplier: t.orders![0].supplier }
+    t = run(t, c, A.setPurchaseOrderName(id, 'Site Templates'))
+    expect(orderTitle(t, t.orders![0])).toBe('Site Templates')
+    expect(t.orders).toHaveLength(1)
+    t = run(t, c, A.setPurchaseOrderName(id, ''))
+    expect(t.orders![0].name).toBeUndefined()
+    expect(orderTitle(t, t.orders![0])).toBe('E-House Plywood templates') // back to the default
+    expect({ lines: t.orderLines, row: rowsOf(t, c, 'Plywood template')[0], number: t.orders![0].number, supplier: t.orders![0].supplier }).toEqual(frozen)
+    expect(t.history.filter((h) => /^Order name/.test(h.summary)).map((h) => h.summary)).toEqual(['Order name changed: E-House Formwork Materials → Site Templates (PO-1)', 'Order name changed: Site Templates → Default name (PO-1)'])
+    expect(run(t, c, A.setPurchaseOrderName(id, '')).history).toHaveLength(t.history.length)
+    expect(fails(t, c, A.setPurchaseOrderName('nope', 'X'))).toMatch(/not available/)
+  })
+
+  it('an order without a name gets a default from its lines, without the record changing', () => {
+    let { c } = world()
+    c = build(c, K.createArea(c.projects[0].id, 'Pipe Rack', []))
+    c = build(c, K.createFoundation(c.areas[1].id, 'PR-1', '', null, 2, { groups: [{ anchorageTypeId: c.anchorageTypes[0].id, count: 1 }] }))
+    const t0 = tracked(c)
+    const tpl = rowsOf(t0, c, 'Plywood template'), bolt = rowsOf(t0, c, 'Anchor bolt')
+    const eh = tpl.find((r) => r.area === 'E-House')!, pr = tpl.find((r) => r.area === 'Pipe Rack')!
+    const one = run(t0, c, place(eh.key))
+    expect(orderTitle(one, one.orders![0])).toBe('E-House Plywood templates')
+    const mixed = run(t0, c, place(eh.key, { lines: [{ key: eh.key, qty: 1 }, { key: bolt.find((r) => r.area === 'E-House')!.key, qty: 1 }] }))
+    expect(orderTitle(mixed, mixed.orders![0])).toBe('E-House materials')
+    const areas = run(t0, c, place(eh.key, { lines: [{ key: eh.key, qty: 1 }, { key: pr.key, qty: 1 }] }))
+    expect(orderTitle(areas, areas.orders![0])).toBe('Plywood templates · 2 areas')
+    expect(orderTitle({ orderLines: [] }, { ...one.orders![0], date: TODAY })).toMatch(/^Order of /)
+    expect(one.orders![0].name).toBeUndefined() // nothing stored for the default
+  })
+
+  it('naming, PO number and supplier do not affect status, quantities or deliveries', () => {
+    const { c } = world()
+    const t0 = tracked(c)
+    const [d2] = rowsOf(t0, c, 'Plywood template')
+    const plain = run(t0, c, place(d2.key))
+    const full = run(t0, c, place(d2.key, { name: 'Named', number: 'PO-9', supplier: 'Nucor' }))
+    const view = (t: TrackerState) => { const o = t.orders![0]; const p = orderProgress(t, o.id); return { p: [p.ordered, p.received, p.due], row: rowsOf(t, c, 'Plywood template')[0].status } }
+    expect(view(plain)).toEqual(view(full))
+    for (const t of [plain, full]) {
+      const part = run(t, c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: [{ key: d2.key, qty: 2 }] }, TODAY))
+      expect(orderProgress(part, part.orders![0].id)).toMatchObject({ ordered: 5, received: 2, due: 3 })
+      const rest = run(part, c, A.recordDelivery({ orderId: part.orders![0].id, date: TODAY, lines: [{ key: d2.key, qty: 3 }] }, TODAY))
+      expect(orderProgress(rest, rest.orders![0].id)).toMatchObject({ ordered: 5, received: 5, due: 0 })
+    }
   })
 })

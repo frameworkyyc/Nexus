@@ -47,6 +47,7 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
   createPurchaseOrder: 'materials.edit',
   setPurchaseOrderNumber: 'materials.edit',
   setPurchaseOrderSupplier: 'materials.edit',
+  setPurchaseOrderName: 'materials.edit',
   addOrderLines: 'materials.edit',
   cancelPurchaseOrder: 'materials.void-receipt',
   recordDelivery: 'materials.receive',

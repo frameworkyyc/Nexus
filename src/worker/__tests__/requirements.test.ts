@@ -558,3 +558,35 @@ describe('optional supplier on the server', () => {
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
   })
 })
+
+describe('order names on the server', () => {
+  it('an order is saved with a name, renamed later with permissions and history, and an unnamed one stays unnamed', async () => {
+    const { db } = await setup()
+    const m = await get(db, 'materials'); const c = await get(db, 'construction')
+    const bolts = procurementRows(refreshRequirements(m, c, { log: false }), c).find((r) => r.name === 'Anchor bolt')!
+    const order = (name: string) => ({ name, number: '', supplier: '', date: '2026-10-20', lines: [{ key: bolts.key, qty: 10 }] })
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [order('E-House Anchor Bolts'), TODAY])).status).toBe(200)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [order(''), TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT name FROM purchase_orders ORDER BY seq').all()).toEqual([{ name: 'E-House Anchor Bolts' }, { name: '' }])
+    expect((await get(db, 'materials')).orders.map((o: { name?: string }) => o.name)).toEqual(['E-House Anchor Bolts', undefined])
+    const id = (db.raw.prepare('SELECT id FROM purchase_orders ORDER BY seq DESC').get() as { id: string }).id
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'setPurchaseOrderName', [id, 'Site Supplies'])).status).toBe(403)
+    expect((await cmd(db, 'editor@example.com', 'materials', 'setPurchaseOrderName', [id, 'Site Supplies'])).status).toBe(200)
+    expect(db.raw.prepare('SELECT name FROM purchase_orders WHERE id = ?').get(id)).toEqual({ name: 'Site Supplies' })
+    expect(count(db, 'purchase_orders')).toBe(2)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/backup')).body.tables.purchase_orders.map((r: { name: string }) => r.name)).toContain('Site Supplies')
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+})
+
+describe('migration 0023', () => {
+  it('adds the order name column without changing existing orders', () => {
+    const db = createTestDb({ migrate: false })
+    for (const f of readdirSync('migrations').filter((x) => x < '0023').sort()) applyMigrationFile(db.raw, f)
+    db.raw.exec("INSERT INTO purchase_orders (id, po_number, supplier, order_date, notes, cancelled, created_at, created_by, seq) VALUES ('po1', 'PO-1', 'Nucor', '2026-10-20', 'n', 0, '2026-10-20T00:00:00Z', 'x', 0)")
+    const before = db.raw.prepare('SELECT * FROM purchase_orders').get()
+    applyMigrationFile(db.raw, '0023_purchase_order_names.sql')
+    expect(db.raw.prepare('SELECT * FROM purchase_orders').get()).toEqual({ ...(before as object), name: '' })
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '23' })
+  })
+})
