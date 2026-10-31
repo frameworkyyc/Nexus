@@ -21,7 +21,7 @@ const html = (path: string, rail = false, overlay = false) => {
   )
 }
 
-const PRIMARY = ['Project Status', 'Materials &amp; Procurement', 'Construction / Installation', 'Survey', 'QA/QC', 'Civil / Earthworks', 'Foundation Overview', 'Fleet']
+const PRIMARY = ['Project Status', 'Procurement', 'Construction / Installation', 'Survey', 'QA/QC', 'Civil / Earthworks', 'Foundation Overview', 'Fleet']
 
 describe('sidebar contents', () => {
   it('lists Project Status, the operational pages, Foundation Overview and Fleet in order, then Tools; there is no Project Management parent', () => {
@@ -47,10 +47,10 @@ describe('sidebar contents', () => {
 
   it('makes every discipline a direct link, with Civil marked as future development', () => {
     const out = html('/projects/reef/manage/materials')
-    for (const [label, href] of [['Materials &amp; Procurement', '/projects/reef/manage/materials'], ['Construction / Installation', '/projects/reef/manage/construction'], ['Survey', '/projects/reef/manage/survey'], ['QA/QC', '/projects/reef/manage/qaqc'], ['Civil / Earthworks', '/projects/reef/manage/civil']])
+    for (const [label, href] of [['Procurement', '/projects/reef/manage/materials'], ['Construction / Installation', '/projects/reef/manage/construction'], ['Survey', '/projects/reef/manage/survey'], ['QA/QC', '/projects/reef/manage/qaqc'], ['Civil / Earthworks', '/projects/reef/manage/civil']])
       expect(out, label).toContain(`href="${href}"`)
     expect(out).toContain('Future')
-    expect(out).not.toContain('aria-label="Expand Materials') // direct links have no chevron
+    expect(out).not.toContain('aria-label="Expand Procurement') // direct links have no chevron
   })
 
   it('opens Setup with its pages when you are in Setup', () => {
@@ -62,8 +62,8 @@ describe('sidebar contents', () => {
     const out = html('/projects/reef/manage/construction')
     expect((out.match(/aria-current="page"/g) ?? []).length).toBe(1)
     expect(out).toMatch(/aria-current="page"[^>]*>.{0,700}Construction \/ Installation/)
-    const records = html('/projects/reef/manage/materials/records') // a page inside Materials & Procurement keeps that entry highlighted
-    expect(records).toMatch(/bg-white\/10[^>]*>.{0,700}Materials &amp; Procurement/)
+    const records = html('/projects/reef/manage/materials/records') // a page inside Procurement keeps that entry highlighted
+    expect(records).toMatch(/bg-white\/10[^>]*>.{0,700}Procurement/)
     const area = html('/projects/reef/foundation?area=a2')
     expect(area).toMatch(/title="Mole Sieve"[^>]*aria-current="page"|aria-current="page"[^>]*title="Mole Sieve"/)
     expect(area).not.toMatch(/title="E-House"[^>]*aria-current="page"/)
@@ -72,7 +72,7 @@ describe('sidebar contents', () => {
   it('shrinks to an icon rail that still reaches every entry, with accessible names', () => {
     const out = html('/projects/reef/progress', true)
     expect(out).toContain('aria-label="Expand navigation"')
-    for (const name of ['Project Status', 'Materials & Procurement', 'Construction / Installation', 'Survey', 'QA/QC', 'Civil / Earthworks', 'Foundation Overview', 'Fleet', 'Setup', 'Issues', 'Crew', 'Safety']) expect(out, name).toContain(`aria-label="${name.replace('&', '&amp;')}"`)
+    for (const name of ['Project Status', 'Procurement', 'Construction / Installation', 'Survey', 'QA/QC', 'Civil / Earthworks', 'Foundation Overview', 'Fleet', 'Setup', 'Issues', 'Crew', 'Safety']) expect(out, name).toContain(`aria-label="${name.replace('&', '&amp;')}"`)
     expect(out).not.toContain('NEXUS')
     expect(out).not.toContain('>E-House<')
   })

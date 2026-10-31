@@ -13,8 +13,8 @@ const html = readFileSync('index.html', 'utf8')
 
 describe('phone navigation', () => {
   it('has the four primary sections, in order, with short labels', () => {
-    expect(PRIMARY_NAV.map((d) => d.short)).toEqual(['Status', 'Materials', 'Foundation', 'Fleet'])
-    expect(PRIMARY_NAV.map((d) => d.label)).toEqual(['Project Status', 'Materials & Procurement', 'Foundation Overview', 'Fleet'])
+    expect(PRIMARY_NAV.map((d) => d.short)).toEqual(['Status', 'Procurement', 'Foundation', 'Fleet'])
+    expect(PRIMARY_NAV.map((d) => d.label)).toEqual(['Project Status', 'Procurement', 'Foundation Overview', 'Fleet'])
     expect(PRIMARY_NAV.map((d) => d.to('reef'))).toEqual(['/projects/reef/progress', '/projects/reef/manage/materials', '/projects/reef/foundation', '/fleet'])
   })
 

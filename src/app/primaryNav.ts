@@ -20,7 +20,7 @@ export interface PrimaryDestination {
  */
 export const PRIMARY_NAV: PrimaryDestination[] = [
   { id: 'status', label: 'Project Status', short: 'Status', icon: BarChart3, needsProject: true, to: (p) => (p ? paths.progress(p) : '/projects') },
-  { id: 'materials', label: 'Materials & Procurement', short: 'Materials', icon: ShoppingCart, needsProject: true, to: (p) => (p ? paths.manage(p) : '/projects') },
+  { id: 'materials', label: 'Procurement', short: 'Procurement', icon: ShoppingCart, needsProject: true, to: (p) => (p ? paths.manage(p) : '/projects') },
   { id: 'foundation', label: 'Foundation Overview', short: 'Foundation', icon: Building2, needsProject: true, to: (p) => (p ? paths.foundations(p) : '/projects') },
   { id: 'fleet', label: 'Fleet', short: 'Fleet', icon: Truck, needsProject: false, to: () => '/fleet' },
 ]

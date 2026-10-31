@@ -7,7 +7,7 @@ import type { Foundation } from './types'
 export const paths = {
   project: (p: string) => `/projects/${p}`,
   progress: (p: string) => `/projects/${p}/progress`,
-  /** Project Management opens on Materials & Procurement. */
+  /** Project Management opens on Procurement. */
   manage: (p: string) => `/projects/${p}/manage/materials`,
   manageSection: (p: string, section: 'materials' | 'records' | 'construction' | 'survey' | 'qaqc' | 'civil', areaId?: string) =>
     `/projects/${p}/manage/${section === 'records' ? 'materials/records' : section}${areaId ? `?area=${areaId}` : ''}`,

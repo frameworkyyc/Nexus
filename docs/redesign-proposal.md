@@ -7,7 +7,7 @@ This revision replaces the earlier all-disciplines proposal. **Approved with one
 
 **In scope**
 - The new four-section navigation and layout (Project Progress, Project Management, Foundation Overview, Fleet).
-- New Materials & Procurement functionality in all three project views, built on the unified Materials model from Phase 1.
+- New Procurement functionality in all three project views, built on the unified Materials model from Phase 1.
 - The five discipline categories visible in the right places.
 
 **Explicitly out of scope (nothing in these areas changes)**
@@ -65,8 +65,8 @@ URLs keep the existing `/projects/:projectId` prefix, so most existing links and
 /projects/:p/progress/:area/materials/:key     One material requirement → foundations that need it
 /projects/:p/progress/:area/{construction|survey|qaqc}   Existing figures and records for that area (read-only view of what exists)
 /projects/:p/progress/:area/civil              Future-development placeholder
-/projects/:p/manage                            Opens Materials & Procurement
-/projects/:p/manage/materials                  Materials & Procurement workspace (tabs below)
+/projects/:p/manage                            Opens Procurement
+/projects/:p/manage/materials                  Procurement workspace (tabs below)
 /projects/:p/manage/construction | survey | qaqc   Existing editing screens, area selector on top
 /projects/:p/manage/civil                      Future-development placeholder
 /projects/:p/foundation                        Selector: Area → Foundation designation
@@ -79,7 +79,7 @@ Redirects: `/procurement` and `/projects/:p/procurement` → `manage/materials`;
 ### 2.3 The five categories in each section
 | Category | Project Progress | Project Management | Foundation Overview |
 |---|---|---|---|
-| Materials | **new** read-only dashboards | **new** Materials & Procurement workspace | **new** materials section |
+| Materials | **new** read-only dashboards | **new** Procurement workspace | **new** materials section |
 | Construction / Installation | existing indicator and figures, unchanged | existing editing screens, relocated | existing activity records |
 | Survey | existing indicator, unchanged | existing screens, relocated | existing activity records |
 | QA/QC | existing indicator, unchanged | existing screens, relocated | existing activity records |
@@ -147,12 +147,12 @@ Requirement list (read-only)  → each row: material · spec · required · orde
 ```
 Totals are in pieces and each percentage is quantity-based (section 5). Aggregates are only formed within a material category, never across categories with different units.
 
-### 3.4 Project Management → Materials & Procurement
+### 3.4 Project Management → Procurement
 One workspace. Tabs replace the six current entry points; every existing function stays reachable.
 ```
-Project Management   [Materials & Procurement] Construction  Survey  QA/QC  Civil (future)
+Project Management   [Procurement] Construction  Survey  QA/QC  Civil (future)
 ────────────────────────────────────────────────────────────────────────────────
-Materials & Procurement                         ⟲ synced   you: Editor
+Procurement                         ⟲ synced   you: Editor
 Summary strip (clickable filters):
  Ordered 88% · Delivered 62% · Allocated 55% · Installed 22%   (quantity-based, of required)
  [To order 12] [Ordered, not delivered 28] [Partly delivered 9] [Delivered 34] [Allocated 30] [Installed 12]  ← requirement counts, clickable filters
@@ -212,7 +212,7 @@ A bulk delivery is never shown as "this foundation has it": ordered/delivered/in
 | Dashboard `/`, Project overview | Project Progress → overview | rebuild (Materials from unified model; others as existing indicators) |
 | Area Overview | Progress → Area dashboard | rebuild |
 | Project Materials / Area Materials tab / Material records | Progress → Materials (read) and Manage → Records & history | relocate, no logic change |
-| Procurement (global and project) | Manage → Materials & Procurement | relocate + add tabs |
+| Procurement (global and project) | Manage → Procurement | relocate + add tabs |
 | Area Construction and Quality tabs | Manage → Construction / Survey / QA/QC (area selector) | embed existing components unchanged |
 | Foundation page | Foundation Overview | keep existing activity content, Materials section added |
 | Foundation Register, Add/Edit Foundation, Anchorage Library/types, pours, suppliers | Setup (More) | relocate |
@@ -254,7 +254,7 @@ Everything is committed to `staging` only, after tests pass, and nothing structu
 |---|---|---|
 | **1. Navigation & layout** | Project context and selector, four-section frame, More menu, phone bottom bar, redirects, existing pages mounted unchanged under new routes, Future-development placeholder component, route-parity test | none |
 | **2. Project Progress → Materials** | Project overview, Area dashboard, Materials detail (category, area, requirement, foundation drill-down), quantity-based stage percentages in the model | none |
-| **3. Project Management → Materials & Procurement** | Single workspace: summary strip, filters, Requirements, Orders, Deliveries, Allocate & install, Records & history, detail drawer | none |
+| **3. Project Management → Procurement** | Single workspace: summary strip, filters, Requirements, Orders, Deliveries, Allocate & install, Records & history, detail drawer | none |
 | **4. Foundation Overview → Materials** | Selector and materials section, project-level vs foundation-level labelling | none |
 | **5. End-to-end test & refinement** | Scenario tests across areas and categories, agreement checks across the three views, permission tests (viewer/editor/admin), Playwright at desktop, iPad and phone widths, existing staging data preserved | none |
 
@@ -288,7 +288,7 @@ Done: four-section frame (desktop/iPad header, phone bottom bar), project select
 
 Transitional (replaced in later stages, no behavior changed in Stage 1):
 - Project Progress shows today's project and area pages; the Materials dashboards and quantity-based percentages arrive in Stage 2.
-- Manage → Materials & Procurement is today's Procurement page (the public demo bundle shows its Materials page, as before). "Material records" is a temporary extra tab until Stage 3 folds it into Records & history.
+- Manage → Procurement is today's Procurement page (the public demo bundle shows its Materials page, as before). "Material records" is a temporary extra tab until Stage 3 folds it into Records & history.
 - Foundation Overview opens today's foundation page; the Materials table comes in Stage 4.
 - Survey and QA/QC open the same existing table (they are recorded together today).
 
@@ -307,8 +307,8 @@ Every Area page now has the same five tabs, in this order: **Overview, Materials
 
 There is no Project Management parent and no Project Management page or crumb. Progress is renamed **Project Status**. The sidebar reads, top to bottom:
 - **Project Status** (expandable): Project Overview, then each Area.
-- **Operational pages** (direct links): Materials & Procurement, Construction / Installation, Survey, QA/QC, Civil / Earthworks (tagged Future).
+- **Operational pages** (direct links): Procurement, Construction / Installation, Survey, QA/QC, Civil / Earthworks (tagged Future).
 - **Foundation Overview** (expandable by Area) and **Fleet**.
 - **Tools**: Setup (expandable), Issues, Fleet on this project, Fabrication/Handover (demo), All projects, Company overview, Crew, Safety, Data & backups.
 
-URLs are unchanged (`/projects/:p/manage/...` stays; `/manage` alone still redirects to Materials & Procurement). The project's Materials-by-area page and Material records, which sat in the old Management tab row, are linked from the Materials & Procurement page header. On phones the bottom bar is Status · Materials · Foundation · Fleet, and the menu lists the other operational pages, then the tools.
+URLs are unchanged (`/projects/:p/manage/...` stays; `/manage` alone still redirects to Procurement). The project's Materials-by-area page and Material records, which sat in the old Management tab row, are linked from the Procurement page header. On phones the bottom bar is Status · Materials · Foundation · Fleet, and the menu lists the other operational pages, then the tools.

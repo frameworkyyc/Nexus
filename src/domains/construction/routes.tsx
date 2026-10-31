@@ -49,7 +49,7 @@ function FoundationCrumb({ params }: { params: Params<string> }) {
 export const constructionRoutes: RouteObject[] = [
   { index: true, element: <RootRedirect />, handle: text('Dashboard') },
   { path: 'overview', element: <OverviewPage />, handle: text('Company overview') },
-  // The old global /procurement opens Materials & Procurement of the project in context.
+  // The old global /procurement opens Procurement of the project in context.
   ...(IS_PUBLIC_DEMO ? [] : [{ path: 'procurement', element: <ProjectContextRedirect to={paths.procurement} />, handle: { legacy: true } }]),
   {
     path: 'projects',
@@ -82,7 +82,7 @@ export const constructionRoutes: RouteObject[] = [
             path: 'manage',
             children: [
               { index: true, element: <Navigate to="materials" replace /> }, // an old /manage bookmark
-              { path: 'materials', handle: text('Materials & Procurement'), children: [
+              { path: 'materials', handle: text('Procurement'), children: [
                 { index: true, element: IS_PUBLIC_DEMO ? <MaterialsPage /> : <ProcurementPage /> },
                 { path: 'records', element: <MaterialRecordsPage />, handle: text('Material records') },
               ] },
