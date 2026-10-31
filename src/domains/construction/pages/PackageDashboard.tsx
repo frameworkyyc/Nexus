@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { CARD } from '@/components/mobile/Cards'
 import { Donut } from '@/components/ui/Donut'
+import { GAUGE_GRID, ProgressGauge } from '@/components/ui/ProgressGauge'
 import { useIsPhone } from '@/lib/useMedia'
 import { paths } from '../paths'
 import { packageProgress, type PackageIndicator } from '../packageProgress'
@@ -39,12 +40,11 @@ export function PackageDashboard({ idx, projectId, areaId }: { idx: Index; proje
   }
   return (
     <section aria-label="Package progress" className="mb-10">
-      <ul className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 xl:grid-cols-4">
+      <ul className={GAUGE_GRID}>
         {items.map((p) => (
           <li key={p.key}>
             <Link to={paths.area(projectId, areaId, TAB[p.key])} className="group block" aria-label={`${p.title} details`}>
-              <div className="flex items-center justify-between"><span className="t-label">{p.title}</span><span className="text-xs text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">Details →</span></div>
-              <div className="mt-4 flex justify-center"><Donut value={p.percent} label={p.title} /></div>
+              <ProgressGauge title={p.title} percent={p.percent} action={<span className="text-xs text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">Details →</span>} />
             </Link>
             <dl className="mt-4 space-y-1.5 border-t border-line pt-3 text-xs">
               {p.rows.map((r) => (

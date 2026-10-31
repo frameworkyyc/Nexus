@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
-import { Ring, RingValue } from '@/components/viz/Ring'
+import { GAUGE_GRID, GaugeCaption, GaugeCard, ProgressGauge } from '@/components/ui/ProgressGauge'
+import { useIsPhone } from '@/lib/useMedia'
 import { Input } from '@/components/ui/Field'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { formatDate } from '@/lib/format'
@@ -81,26 +82,26 @@ const STATUS_TONE: Record<MaterialStatus, Tone> = { pending: 'muted', 'partially
 export const StageBadge = ({ stage }: { stage: MaterialStatus }) => <StatusBadge tone={STATUS_TONE[stage]} label={MATERIAL_STATUS_LABEL[stage]} />
 const when = (at: string) => (at ? new Date(at).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' }) : '')
 
-/** Four rings counted in requirements (lines), not units. */
+/** Four rings counted in requirements (lines), not units, laid out exactly like the Area Overview gauges. */
 function Gauges({ rows }: { rows: { required: number; ordered: number; received: number; allocated: number }[] }) {
+  const phone = useIsPhone()
   const c = progressCounts(rows)
   const items = [
     { label: 'Ordered', n: c.ordered, sub: 'Fully ordered' }, { label: 'Delivered', n: c.delivered, sub: 'Fully received' },
     { label: 'Allocated', n: c.allocated, sub: 'Fully allocated' }, { label: 'Outstanding', n: c.outstanding, sub: 'Not yet fully ordered' },
   ]
   return (
-    <dl aria-label="Progress" className="grid grid-cols-2 gap-x-4 gap-y-6 border-y border-line py-6 sm:grid-cols-4">
-      {items.map((i) => {
-        const pct = c.total === 0 ? 0 : Math.round((i.n / c.total) * 100)
-        return (
-          <div key={i.label} className="text-center">
-            <Ring percent={pct} status="info" size={104} label={`${i.label}: ${i.n} of ${c.total}`}><RingValue size={104} value={<>{i.n}<span className="text-[0.62em] text-muted">/{c.total}</span></>} scale={0.2} /></Ring>
-            <dt className="t-label mt-3">{i.label}</dt>
-            <dd className="mt-0.5 text-xs text-muted">{i.sub}</dd>
-          </div>
-        )
-      })}
-    </dl>
+    <section aria-label="Progress">
+      <ul className={phone ? 'grid grid-cols-1 gap-3 sm:grid-cols-2' : GAUGE_GRID}>
+        {items.map((i) => (
+          <li key={i.label}>
+            {phone
+              ? <GaugeCard title={i.label} count={i.n} of={c.total}><p className="mt-1.5 text-[14px] tabular-nums">{i.n} of {c.total}</p><p className="text-[12.5px] leading-snug text-muted">{i.sub}</p></GaugeCard>
+              : <ProgressGauge title={i.label} count={i.n} of={c.total}><GaugeCaption>{i.sub}</GaugeCaption></ProgressGauge>}
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
