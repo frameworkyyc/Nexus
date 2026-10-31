@@ -709,3 +709,31 @@ describe('cancelling orders with deliveries and correcting deliveries on the ser
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
   })
 })
+
+describe('unlinked deliveries on the server', () => {
+  it('a delivery recorded with no order survives deleting the order; it can be attached to an order (administrators only) and then counts through it', async () => {
+    const { db } = await setup()
+    const get2 = async () => ({ m: await get(db, 'materials'), c: await get(db, 'construction') })
+    const rows = () => get2().then(({ m, c }) => procurementRows(refreshRequirements(m, c, { log: false }), c))
+    const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ name: 'Bolts', number: '', supplier: '', date: '2026-10-20', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
+    const id = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    // received from Requirements without choosing the order
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ date: '2026-10-21', lines: [{ key: bolts.key, qty: 40 }] }, TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT order_id FROM procurement_deliveries').get()).toEqual({ order_id: null })
+    expect((await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(200) // nothing is linked to it
+    expect(count(db, 'procurement_deliveries')).toBe(1)
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 0, received: 40 }) // still counted: it is a real receipt
+    // re-place the order and attach the delivery to it
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ name: 'Bolts', number: '', supplier: '', date: '2026-10-20', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
+    const id2 = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    const dl = (db.raw.prepare('SELECT id FROM procurement_deliveries').get() as { id: string }).id
+    expect((await cmd(db, 'editor@example.com', 'materials', 'correctDelivery', [dl, { orderId: id2 }, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'correctDelivery', [dl, { orderId: id2 }, TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT order_id FROM procurement_deliveries').get()).toEqual({ order_id: id2 })
+    expect(db.raw.prepare('SELECT order_line_id FROM procurement_delivery_lines').get()).not.toEqual({ order_line_id: null })
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 100, received: 40 })
+    expect((await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id2])).status).toBe(422) // now it owns the delivery
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+})

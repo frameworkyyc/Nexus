@@ -9,6 +9,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useConstruction } from '../../store'
 import { paths } from '../../paths'
+import { UnlinkedNotice } from '../../procurement/UnlinkedNotice'
 import { Button } from '@/components/ui/Button'
 import { useAccess } from '@/lib/access'
 import { archiveMaterials, editMaterial, recordInstallation, voidInstallation } from '../commands'
@@ -217,6 +218,7 @@ export function MaterialsByArea({ areaId }: { areaId?: string }) {
     <div className="space-y-6">
       {!areaId && <Chips label="View" value={view} onChange={(v) => setParams(v ? { area: v } : {}, { replace: true })} items={[{ id: '', label: 'Overview' }, ...areas.map(([id, name]) => ({ id, label: name }))]} />}
       <Gauges rows={overview ? merged : shown} />
+      <UnlinkedNotice state={state} areaIds={areaId ? new Set([areaId]) : view ? new Set([view]) : new Set(construction.areas.filter((a) => a.projectId === projectId).map((a) => a.id))} action={<Link to={paths.procurement(projectId)} className="text-[13px] underline underline-offset-4">Open Procurement</Link>} />
       {list.length === 0 && <p className="py-6 text-center text-[13px] text-muted">No materials are required in this area yet. They appear once anchorage types are assigned to its foundations or footing anchor bolts are added.</p>}
       <div className="divide-y divide-line border-y border-line">
         {cats.map((cat) => {

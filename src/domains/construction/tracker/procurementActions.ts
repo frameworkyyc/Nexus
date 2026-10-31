@@ -233,6 +233,8 @@ export interface DeliveryCorrection {
   note?: string
   /** Corrected quantity for lines of this delivery, by line id. Use Void to remove a delivery altogether. */
   quantities?: { lineId: string; qty: number }[]
+  /** Attach the delivery to an order (every material on it must be on that order), or null to make it a delivery with no order. */
+  orderId?: string | null
 }
 
 /**
@@ -257,8 +259,25 @@ export const correctDelivery = (deliveryId: string, edit: DeliveryCorrection, to
     if (!whole(q.qty)) return { error: `${label(line)}: enter a whole number of 1 or more. To remove it, void the delivery.` }
     if (q.qty !== line.qty) wanted.set(line.id, q.qty)
   }
+  // attaching to, or detaching from, an order
+  const wantOrder = e.orderId === undefined ? (d.orderId ?? null) : e.orderId
+  const target = wantOrder ? (s.orders ?? []).find((x) => x.id === wantOrder) : undefined
+  if (wantOrder && !target) return { error: 'That purchase order is not available.' }
+  if (target?.cancelled && wantOrder !== d.orderId) return { error: `${orderTitle(s, target)} is cancelled, so deliveries cannot be attached to it.` }
+  const attach = new Map<string, string | null>()
+  if (wantOrder !== (d.orderId ?? null)) {
+    const targetLines = wantOrder ? (s.orderLines ?? []).filter((l) => l.orderId === wantOrder) : []
+    const k0 = alias(s, source(ctx))
+    for (const l of lines) {
+      if (!wantOrder) { attach.set(l.id, null); continue }
+      const match = targetLines.find((x) => k0(x.key) === k0(l.key))
+      if (!match) return { error: `${label(l)} is not on ${orderTitle(s, target!)}, so the delivery cannot be attached to it.` }
+      attach.set(l.id, match.id)
+    }
+  }
   const changes: AuditEntry['changes'] = []
   const show = (t: string) => t || 'none'
+  if (wantOrder !== (d.orderId ?? null)) { const was = d.orderId ? (s.orders ?? []).find((x) => x.id === d.orderId) : undefined; changes.push({ field: 'Order', from: was ? orderTitle(s, was) : 'No order', to: target ? orderTitle(s, target) : 'No order' }) }
   if (date !== d.date) changes.push({ field: 'Date', from: d.date, to: date })
   if (reference !== d.reference) changes.push({ field: 'Reference', from: show(d.reference), to: show(reference) })
   if (noteText !== d.note) changes.push({ field: 'Note', from: show(d.note), to: show(noteText) })
@@ -266,8 +285,8 @@ export const correctDelivery = (deliveryId: string, edit: DeliveryCorrection, to
   if (changes.length === 0) return { state: s }
   const next: TrackerState = {
     ...s,
-    deliveries: (s.deliveries ?? []).map((x) => (x.id === deliveryId ? { ...x, date, reference, note: noteText } : x)),
-    deliveryLines: (s.deliveryLines ?? []).map((l) => (wanted.has(l.id) ? { ...l, qty: wanted.get(l.id)! } : l)),
+    deliveries: (s.deliveries ?? []).map((x) => (x.id === deliveryId ? { ...x, date, reference, note: noteText, orderId: wantOrder } : x)),
+    deliveryLines: (s.deliveryLines ?? []).map((l) => ({ ...l, ...(wanted.has(l.id) ? { qty: wanted.get(l.id)! } : {}), ...(attach.has(l.id) ? { orderLineId: attach.get(l.id) ?? null } : {}) })),
   }
   const c = source(ctx)
   if (c && wanted.size > 0) {
@@ -281,7 +300,7 @@ export const correctDelivery = (deliveryId: string, edit: DeliveryCorrection, to
   }
   const order = d.orderId ? (s.orders ?? []).find((x) => x.id === d.orderId) : undefined
   const total = (next.deliveryLines ?? []).filter((l) => l.deliveryId === deliveryId).reduce((a, l) => a + l.qty, 0)
-  return { state: withHistory(next, note(ctx, 'delivery', order?.number || reference || 'Delivery', `Delivery corrected${order ? ` (${orderTitle(s, order)})` : ''}, dated ${date}: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join('; ')} (delivery now ${fmt(total)} items)`, changes)) }
+  return { state: withHistory(next, note(ctx, 'delivery', order?.number || reference || 'Delivery', `Delivery corrected${order || target ? ` (${orderTitle(s, (target ?? order)!)})` : ''}, dated ${date}: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join('; ')} (delivery now ${fmt(total)} items)`, changes)) }
 })
 
 export interface InstallationInput { key: string; qty: number; date: ISODate; note?: string }

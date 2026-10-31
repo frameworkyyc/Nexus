@@ -18,6 +18,7 @@ import { paths } from '../paths'
 import { useConstruction } from '../store'
 import { CorrectDeliveryModal, OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
 import { OrdersTab } from './OrdersTab'
+import { UnlinkedNotice } from './UnlinkedNotice'
 import { RequirementsView, type RequirementsLayout } from './RequirementsView'
 import { ViewToggle } from '@/components/ui/Toolbar'
 import { usePersistentChoice } from '@/lib/usePersistentChoice'
@@ -109,6 +110,8 @@ export function ProcurementPage() {
           )}
         </div>
       )}
+
+      {areas.length > 0 && <div className="pt-5"><UnlinkedNotice state={state} areaIds={new Set(areas.map(([id]) => id))} action={tab !== 'orders' ? <button type="button" className="text-[13px] underline underline-offset-4" onClick={() => setTab('orders')}>Review in Orders</button> : undefined} /></div>}
 
       {tab === 'orders' && (
         <OrdersTab state={state} orders={orders.filter(projectOrder)} deliveries={deliveries.filter(projectDelivery)} perms={{ order: canOrder, receive: canReceive, void: canVoid }} act={act}

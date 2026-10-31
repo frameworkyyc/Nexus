@@ -231,3 +231,14 @@ export function orderTitle(s: Pick<TrackerState, 'orderLines'>, o: PurchaseOrder
   if (areas.length === 1) return `${areas[0]} ${what}`
   return `${what === 'materials' ? 'Materials' : what} · ${areas.length} areas`
 }
+
+/**
+ * Deliveries recorded without an order. They are real receipts and count as delivered everywhere (Materials, Procurement, Area Overview), but they
+ * belong to no order, so deleting or cancelling an order never touches them. Listed so they can be attached to the right order, or voided if they
+ * were recorded by mistake. `areaIds`, when given, limits the list to deliveries that include one of those areas.
+ */
+export function unlinkedDeliveries(s: Pick<TrackerState, 'deliveries' | 'deliveryLines'>, areaIds?: Set<string>) {
+  const out = (s.deliveries ?? []).filter((d) => !d.orderId).map((d) => ({ delivery: d, lines: (s.deliveryLines ?? []).filter((l) => l.deliveryId === d.id) }))
+    .filter((x) => !areaIds || x.lines.some((l) => !l.areaId || areaIds.has(l.areaId)))
+  return { deliveries: out.map((x) => x.delivery), count: out.length, items: sum(out.flatMap((x) => x.lines.map((l) => l.qty))) }
+}

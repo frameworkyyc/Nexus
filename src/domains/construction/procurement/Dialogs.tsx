@@ -114,18 +114,27 @@ export function OrderModal({ rows, initialKeys, state, today, onClose, order }: 
 }
 
 /** Records one delivery (a shipment) for any number of materials, optionally against a purchase order. Who confirmed it and when are recorded with it. */
-export function ReceiveModal({ rows, initialKeys, state, today, onClose, order }: { rows: ProcRow[]; initialKeys: string[]; state: TrackerState; today: string; onClose: () => void; order?: PurchaseOrder }) {
-  const progress = order ? orderProgress(state, order.id) : null
+export function ReceiveModal({ rows, initialKeys, state, today, onClose, order: fixedOrder }: { rows: ProcRow[]; initialKeys: string[]; state: TrackerState; today: string; onClose: () => void; order?: PurchaseOrder }) {
+  // Opened from an order, the delivery is for that order. Opened from Requirements, the user picks the order (or none): a delivery recorded with no
+  // order belongs to no order, so deleting the order later would leave it behind.
+  const [picked, setPicked] = useState<string | null>(null) // null = not chosen yet
   const byKey = new Map(rows.map((r) => [r.key, r]))
+  const [lines, setLines] = useState<{ key: string; qty: string }[]>(() => {
+    const p0 = fixedOrder ? orderProgress(state, fixedOrder.id) : null
+    const keys = p0 ? p0.lines.filter((x) => x.due > 0).map((x) => x.line.key) : initialKeys.filter((k) => byKey.has(k))
+    return keys.map((k) => ({ key: k, qty: String(Math.max(1, p0?.lines.find((x) => x.line.key === k)?.due ?? byKey.get(k)?.outstanding ?? 0)) }))
+  })
+  const candidates = (state.orders ?? []).filter((o) => !o.cancelled && lines.length > 0 && lines.every((l) => (state.orderLines ?? []).some((x) => x.orderId === o.id && x.key === l.key)))
+  const chosenId = fixedOrder ? fixedOrder.id : picked !== null ? picked : candidates.length === 1 ? candidates[0].id : ''
+  const order = fixedOrder ?? (chosenId ? (state.orders ?? []).find((o) => o.id === chosenId) : undefined)
+  const progress = order ? orderProgress(state, order.id) : null
   const dueOf = (k: string) => progress?.lines.find((x) => x.line.key === k)?.due ?? byKey.get(k)?.outstanding ?? 0
-  const start = order ? progress!.lines.filter((x) => x.due > 0).map((x) => x.line.key) : initialKeys.filter((k) => byKey.has(k))
-  const [lines, setLines] = useState(start.map((k) => ({ key: k, qty: String(Math.max(1, dueOf(k))) })))
   const [date, setDate] = useState(today)
   const [reference, setReference] = useState('')
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const choices = order ? rows.filter((r) => progress!.lines.some((x) => x.line.key === r.key)) : rows
+  const choices = fixedOrder ? rows.filter((r) => progress!.lines.some((x) => x.line.key === r.key)) : rows
   const lookup = new Map<string, GroupRef>([...byKey, ...(progress?.lines.map((x) => [x.line.key, x.line] as [string, GroupRef]) ?? [])])
   const total = lines.reduce((a, l) => a + (Number.isFinite(toQty(l.qty)) ? toQty(l.qty) : 0), 0)
   const save = async () => {
@@ -139,7 +148,7 @@ export function ReceiveModal({ rows, initialKeys, state, today, onClose, order }
     if (e) setError(e); else onClose()
   }
   return (
-    <Modal title={order ? `Receive delivery · ${orderTitle(state, order)}` : 'Receive delivery'} onClose={onClose} wide>
+    <Modal title={fixedOrder ? `Receive delivery · ${orderTitle(state, fixedOrder)}` : 'Receive delivery'} onClose={onClose} wide>
       <div className="space-y-5 p-6 text-[13px]">
         <p className="text-muted">Enter what was physically received and checked. It is recorded once for the area’s material, not against each foundation. Partial deliveries are fine: record the rest when it arrives.</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -147,7 +156,15 @@ export function ReceiveModal({ rows, initialKeys, state, today, onClose, order }
           <Field label="Delivery note / reference"><Input aria-label="Delivery reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. DN-1042" /></Field>
           <div className="col-span-2"><Field label="Note"><Input aria-label="Delivery note" value={note} onChange={(e) => setNote(e.target.value)} /></Field></div>
         </div>
-        {lines.length === 0 ? <p className="border-l-2 border-line pl-3 text-muted">{order ? 'Everything on this order has been received.' : 'No materials yet. Choose one below.'}</p> : (
+        {!fixedOrder && lines.length > 0 && (
+          <Field label="Against order">
+            <Select aria-label="Against order" value={chosenId} onChange={(e) => setPicked(e.target.value)}>
+              <option value="">Not against an order</option>
+              {candidates.map((o) => <option key={o.id} value={o.id}>{orderTitle(state, o)}</option>)}
+            </Select>
+          </Field>
+        )}
+        {lines.length === 0 ? <p className="border-l-2 border-line pl-3 text-muted">{fixedOrder ? 'Everything on this order has been received.' : 'No materials yet. Choose one below.'}</p> : (
           <LineList rows={lookup} lines={lines} set={setLines} label="Quantity received" hint={(k) => { const r = byKey.get(k); return order ? `ordered ${fmt(progress!.lines.find((x) => x.line.key === k)?.line.qty ?? 0)} · due ${fmt(dueOf(k))}` : `required ${fmt(r?.required ?? 0)} · received ${fmt(r?.received ?? 0)} · outstanding ${fmt(dueOf(k))}` }} />
         )}
         <AddMaterial rows={choices} taken={new Set(lines.map((l) => l.key))} label="Add a material" qtyOf={(r) => Math.max(1, dueOf(r.key))} onAdd={(key, qty) => setLines([...lines, { key, qty: String(qty) }])} />
@@ -316,12 +333,15 @@ export function CorrectDeliveryModal({ delivery, state, today, onClose }: { deli
   const [reference, setReference] = useState(delivery.reference)
   const [note, setNote] = useState(delivery.note)
   const [qty, setQty] = useState<Record<string, string>>(() => Object.fromEntries(lines.map((l) => [l.id, String(l.qty)])))
+  const [orderId, setOrderId] = useState(delivery.orderId ?? '')
+  // Orders this delivery could belong to: every material on it must be on the order.
+  const fits = (state.orders ?? []).filter((o) => o.id === delivery.orderId || (!o.cancelled && lines.every((l) => (state.orderLines ?? []).some((x) => x.orderId === o.id && x.key === l.key))))
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const order = delivery.orderId ? (state.orders ?? []).find((o) => o.id === delivery.orderId) : undefined
   const save = async () => {
     setSaving(true); setError('')
-    const e = await trackerStore.run(correctDelivery(delivery.id, { date, reference, note, quantities: lines.map((l) => ({ lineId: l.id, qty: toQty(qty[l.id]) })) }, today))
+    const e = await trackerStore.run(correctDelivery(delivery.id, { date, reference, note, ...(orderId !== (delivery.orderId ?? '') ? { orderId: orderId || null } : {}), quantities: lines.map((l) => ({ lineId: l.id, qty: toQty(qty[l.id]) })) }, today))
     setSaving(false)
     if (e) setError(e); else onClose()
   }
@@ -333,6 +353,12 @@ export function CorrectDeliveryModal({ delivery, state, today, onClose }: { deli
           <Field label="Date received"><Input aria-label="Date received" type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           <Field label="Reference"><Input aria-label="Reference" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} /></Field>
           <div className="col-span-2 sm:col-span-3"><Field label="Note"><Input aria-label="Note" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} /></Field></div>
+          <div className="col-span-2 sm:col-span-3"><Field label="Against order">
+            <Select aria-label="Against order" value={orderId} onChange={(e) => setOrderId(e.target.value)} disabled={!!order?.cancelled}>
+              <option value="">Not against an order</option>
+              {fits.map((o) => <option key={o.id} value={o.id}>{orderTitle(state, o)}</option>)}
+            </Select>
+          </Field></div>
         </div>
         <section aria-label="Quantities received">
           <h3 className="t-label mb-2">Quantities received</h3>
