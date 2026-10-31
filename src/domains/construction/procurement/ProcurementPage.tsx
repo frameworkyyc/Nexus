@@ -16,7 +16,7 @@ import { useTracker } from '../tracker/store'
 import { useToast } from '@/components/ui/Toast'
 import { paths } from '../paths'
 import { useConstruction } from '../store'
-import { OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
+import { CorrectDeliveryModal, OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
 import { OrdersTab } from './OrdersTab'
 import { RequirementsView, type RequirementsLayout } from './RequirementsView'
 import { ViewToggle } from '@/components/ui/Toolbar'
@@ -41,7 +41,7 @@ export function ProcurementPage() {
   const [status, setStatus] = useState<ProcStatus | ''>('')
   const [search, setSearch] = useState('')
   const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string } | { kind: 'po'; order: string }>(null)
+  const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string } | { kind: 'po'; order: string } | { kind: 'correct'; delivery: string }>(null)
   const areaFilter = params.get('area') ?? ''
 
   const rows = useMemo(() => {
@@ -112,11 +112,12 @@ export function ProcurementPage() {
 
       {tab === 'orders' && (
         <OrdersTab state={state} orders={orders.filter(projectOrder)} deliveries={deliveries.filter(projectDelivery)} perms={{ order: canOrder, receive: canReceive, void: canVoid }} act={act}
-          onReceive={(id) => setDialog({ kind: 'receive', keys: [], order: id })} onAddMaterials={(id) => setDialog({ kind: 'order', keys: [], order: id })} onEdit={(id) => setDialog({ kind: 'po', order: id })} />
+          onReceive={(id) => setDialog({ kind: 'receive', keys: [], order: id })} onAddMaterials={(id) => setDialog({ kind: 'order', keys: [], order: id })} onEdit={(id) => setDialog({ kind: 'po', order: id })} onCorrect={(id) => setDialog({ kind: 'correct', delivery: id })} />
       )}
 
       {dialog?.kind === 'order' && <OrderModal rows={rows.filter((r) => r.required > 0 || r.orphan)} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
       {dialog?.kind === 'po' && (state.orders ?? []).some((o) => o.id === dialog.order) && <OrderDetailsModal order={(state.orders ?? []).find((o) => o.id === dialog.order)!} state={state} onClose={() => setDialog(null)} />}
+      {dialog?.kind === 'correct' && (state.deliveries ?? []).some((d) => d.id === dialog.delivery) && <CorrectDeliveryModal delivery={(state.deliveries ?? []).find((d) => d.id === dialog.delivery)!} state={state} today={today} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'receive' && <ReceiveModal rows={rows} initialKeys={dialog.keys} state={state} today={today} order={dialog.order ? (state.orders ?? []).find((o) => o.id === dialog.order) : undefined} onClose={() => { setDialog(null); setPicked(new Set()) }} />}
       {dlg && <RowModal row={dlg as ProcRow} state={state} foundationName={foundationName} onClose={() => setDialog(null)} onOrder={() => setDialog({ kind: 'order', keys: [dlg.key] })} onReceive={() => setDialog({ kind: 'receive', keys: [dlg.key] })} />}
     </>

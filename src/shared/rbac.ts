@@ -50,6 +50,7 @@ const MATERIALS_COMMANDS: Record<string, Permission> = {
   setPurchaseOrderName: 'materials.edit',
   editPurchaseOrder: 'materials.edit',
   deletePurchaseOrder: 'materials.void-receipt',
+  correctDelivery: 'materials.void-receipt',
   addOrderLines: 'materials.edit',
   cancelPurchaseOrder: 'materials.void-receipt',
   recordDelivery: 'materials.receive',

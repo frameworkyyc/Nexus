@@ -650,3 +650,62 @@ describe('editing and deleting orders on the server', () => {
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
   })
 })
+
+describe('cancelling orders with deliveries and correcting deliveries on the server', () => {
+  async function delivered() {
+    const { db } = await setup()
+    const get2 = async () => ({ m: await get(db, 'materials'), c: await get(db, 'construction') })
+    const rows = () => get2().then(({ m, c }) => procurementRows(refreshRequirements(m, c, { log: false }), c))
+    const bolts = (await rows()).find((r) => r.name === 'Anchor bolt')!
+    expect((await cmd(db, 'editor@example.com', 'materials', 'createPurchaseOrder', [{ name: 'Bolts', number: 'PO-C1', supplier: 'Nucor', date: '2026-10-20', lines: [{ key: bolts.key, qty: 100 }] }, TODAY])).status).toBe(200)
+    const id = (db.raw.prepare('SELECT id FROM purchase_orders').get() as { id: string }).id
+    expect((await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ orderId: id, date: '2026-10-21', reference: 'DN-1', lines: [{ key: bolts.key, qty: 40 }] }, TODAY])).status).toBe(200)
+    return { db, id, bolts, rows }
+  }
+
+  it('cancels an order that has deliveries (administrators only), keeps every record, and recalculates Procurement', async () => {
+    const { db, id, rows } = await delivered()
+    expect((await cmd(db, 'editor@example.com', 'materials', 'cancelPurchaseOrder', [id])).status).toBe(403)
+    expect((await cmd(db, 'viewer@example.com', 'materials', 'cancelPurchaseOrder', [id])).status).toBe(403)
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ ordered: 100, received: 40 })
+    expect((await cmd(db, 'admin@example.com', 'materials', 'cancelPurchaseOrder', [id])).status).toBe(200)
+    expect(db.raw.prepare('SELECT cancelled FROM purchase_orders').get()).toEqual({ cancelled: 1 })
+    expect(db.raw.prepare('SELECT qty FROM purchase_order_lines').all()).toEqual([{ qty: 100 }]) // the original line is kept
+    expect(count(db, 'procurement_deliveries')).toBe(1)
+    expect(count(db, 'procurement_delivery_lines')).toBe(1)
+    const row = (await rows()).find((r) => r.name === 'Anchor bolt')!
+    expect(row).toMatchObject({ ordered: 40, received: 40 })
+    expect(row.toOrder).toBe(row.required - 40)
+    const refused = await cmd(db, 'editor@example.com', 'materials', 'recordDelivery', [{ orderId: id, date: '2026-10-21', lines: [{ key: row.key, qty: 1 }] }, TODAY])
+    expect(refused.status).toBe(422)
+    expect(JSON.stringify(refused.body)).toMatch(/is cancelled, so no further deliveries/)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'cancelPurchaseOrder', [id])).status).toBe(422) // already cancelled
+    const hist = db.raw.prepare("SELECT summary FROM material_audit WHERE summary LIKE 'Order cancelled:%'").get() as { summary: string }
+    expect(hist.summary).toMatch(/40 delivered stays recorded, 60 undelivered removed/)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('corrects a delivery with permissions and history; a voided delivery then lets the order be deleted', async () => {
+    const { db, id, bolts, rows } = await delivered()
+    const dlId = (db.raw.prepare('SELECT id FROM procurement_deliveries').get() as { id: string }).id
+    const lineId = (db.raw.prepare('SELECT id FROM procurement_delivery_lines').get() as { id: string }).id
+    const fix = { reference: 'DN-1A', quantities: [{ lineId, qty: 25 }] }
+    expect((await cmd(db, 'editor@example.com', 'materials', 'correctDelivery', [dlId, fix, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'correctDelivery', [dlId, { quantities: [{ lineId, qty: 0 }] }, TODAY])).status).toBe(422)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'correctDelivery', [dlId, fix, TODAY])).status).toBe(200)
+    expect(db.raw.prepare('SELECT reference FROM procurement_deliveries').get()).toEqual({ reference: 'DN-1A' })
+    expect(db.raw.prepare('SELECT qty FROM procurement_delivery_lines').get()).toEqual({ qty: 25 })
+    expect((await rows()).find((r) => r.name === 'Anchor bolt')).toMatchObject({ received: 25, ordered: 100 })
+    const h = db.raw.prepare("SELECT summary FROM material_audit WHERE summary LIKE 'Delivery corrected%'").get() as { summary: string }
+    expect(h.summary).toMatch(/Reference DN-1 → DN-1A.* 40 → 25/)
+    // delete is refused while the delivery stands, allowed once it is voided
+    expect((await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(422)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'voidDelivery', [dlId])).status).toBe(200)
+    expect(count(db, 'procurement_delivery_lines')).toBe(0)
+    expect((await cmd(db, 'admin@example.com', 'materials', 'deletePurchaseOrder', [id])).status).toBe(200)
+    expect(count(db, 'purchase_orders')).toBe(0)
+    expect((await rows()).find((r) => r.key === bolts.key)).toMatchObject({ ordered: 0, received: 0 })
+    expect(db.raw.prepare("SELECT COUNT(*) AS n FROM material_audit WHERE summary LIKE 'Delivery%voided%' OR summary LIKE 'Order deleted%' OR summary LIKE 'Delivery corrected%'").get()).toEqual({ n: 3 })
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+})

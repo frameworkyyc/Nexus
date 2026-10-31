@@ -6,11 +6,11 @@ import { Modal } from '@/components/ui/Modal'
 import { formatDate } from '@/lib/format'
 import { useAccess } from '@/lib/access'
 import { useBackend } from '@/lib/dataSource'
-import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, editPurchaseOrder } from '../tracker/commands'
+import { addOrderLines, createPurchaseOrder, recordDelivery, setAllocations, correctDelivery, editPurchaseOrder } from '../tracker/commands'
 import { displayName, specText } from '../tracker/consolidate'
 import { orderProgress, orderTitle, PROC_LABEL, type ProcRow } from '../tracker/procurement'
 import { trackerStore } from '../tracker/store'
-import type { GroupRef, PurchaseOrder, TrackerState } from '../tracker/types'
+import type { Delivery, GroupRef, PurchaseOrder, TrackerState } from '../tracker/types'
 import { CATEGORY_LABEL } from '../tracker/selectors'
 
 export const fmt = (n: number) => n.toLocaleString('en-CA')
@@ -303,6 +303,52 @@ export function OrderDetailsModal({ order, state, onClose }: { order: PurchaseOr
         </section>
         {error && <p role="alert" className="border-l-2 border-danger pl-3 text-danger">{error}</p>}
         <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => void save()} disabled={saving}>Save changes</Button></div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Corrects a delivery recorded wrongly: date, reference, note and the quantity received on each line. The server refuses a change that would leave
+ * less received than has been allocated or installed, and the original values stay in the history. A delivery to be removed altogether is voided instead.
+ */
+export function CorrectDeliveryModal({ delivery, state, today, onClose }: { delivery: Delivery; state: TrackerState; today: string; onClose: () => void }) {
+  const lines = (state.deliveryLines ?? []).filter((l) => l.deliveryId === delivery.id)
+  const [date, setDate] = useState(delivery.date)
+  const [reference, setReference] = useState(delivery.reference)
+  const [note, setNote] = useState(delivery.note)
+  const [qty, setQty] = useState<Record<string, string>>(() => Object.fromEntries(lines.map((l) => [l.id, String(l.qty)])))
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const order = delivery.orderId ? (state.orders ?? []).find((o) => o.id === delivery.orderId) : undefined
+  const save = async () => {
+    setSaving(true); setError('')
+    const e = await trackerStore.run(correctDelivery(delivery.id, { date, reference, note, quantities: lines.map((l) => ({ lineId: l.id, qty: toQty(qty[l.id]) })) }, today))
+    setSaving(false)
+    if (e) setError(e); else onClose()
+  }
+  return (
+    <Modal title="Correct delivery" onClose={onClose} wide>
+      <div className="space-y-5 p-6 text-[13px]">
+        <p className="text-muted">{order ? `Against ${orderTitle(state, order)}. ` : 'Received without an order. '}The original values stay in the history. To remove the delivery altogether, void it.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Field label="Date received"><Input aria-label="Date received" type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Reference"><Input aria-label="Reference" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} /></Field>
+          <div className="col-span-2 sm:col-span-3"><Field label="Note"><Input aria-label="Note" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} /></Field></div>
+        </div>
+        <section aria-label="Quantities received">
+          <h3 className="t-label mb-2">Quantities received</h3>
+          <ul className="divide-y divide-line border-y border-line">
+            {lines.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                <span className="min-w-0 flex-1"><span className="block">{displayName(l)}{specText(l) ? ` · ${specText(l)}` : ''}</span><span className="block text-xs text-muted">{l.area}</span></span>
+                <Input aria-label={`Quantity received of ${displayName(l)} ${specText(l)}`} className="!w-24 text-right" inputMode="numeric" value={qty[l.id]} onChange={(e) => setQty({ ...qty, [l.id]: e.target.value })} />
+              </li>
+            ))}
+          </ul>
+        </section>
+        {error && <p role="alert" className="border-l-2 border-danger pl-3 text-danger">{error}</p>}
+        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={() => void save()} disabled={saving}>Save correction</Button></div>
       </div>
     </Modal>
   )

@@ -27,11 +27,12 @@ export interface OrdersTabProps {
   onReceive: (orderId?: string) => void
   onAddMaterials: (orderId: string) => void
   onEdit: (orderId: string) => void
+  onCorrect: (deliveryId: string) => void
   act: (run: () => Promise<string | null>) => Promise<void>
 }
 
 /** One delivery's lines, with who confirmed it and when, and Void for those allowed to. */
-function DeliveryList({ state, deliveries, perms, act }: { state: TrackerState; deliveries: Delivery[]; perms: OrdersTabProps['perms']; act: OrdersTabProps['act'] }) {
+function DeliveryList({ state, deliveries, perms, act, onCorrect }: { state: TrackerState; deliveries: Delivery[]; perms: OrdersTabProps['perms']; act: OrdersTabProps['act']; onCorrect: (id: string) => void }) {
   const { readOnly } = useBackend()
   return (
     <ul className="divide-y divide-line border-y border-line text-[13px]" aria-label="Deliveries">
@@ -41,7 +42,7 @@ function DeliveryList({ state, deliveries, perms, act }: { state: TrackerState; 
           <li key={d.id} className="py-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span><span className="font-medium">{formatDate(d.date)}</span>{d.reference && <span className="text-muted"> · {d.reference}</span>}<span className="text-muted"> · {fmt(lines.reduce((a, l) => a + l.qty, 0))} items{readOnly ? '' : ` · ${who(d.by)}${d.at ? `, ${when(d.at)}` : ''}`}</span></span>
-              {perms.void && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm('Void this delivery? It is removed from the received totals and stays in the history.')) void act(() => trackerStore.run(voidDelivery(d.id))) }}>Void</Button>}
+              {perms.void && <span className="flex gap-1"><Button variant="ghost" className="!h-8" onClick={() => onCorrect(d.id)}>Correct</Button><Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm('Void this delivery? It is removed from the received totals and stays in the history.')) void act(() => trackerStore.run(voidDelivery(d.id))) }}>Void</Button></span>}
             </div>
             <ul className="mt-1 space-y-0.5 text-xs text-muted">{lines.map((l) => <li key={l.id} className="flex justify-between gap-3"><span>{l.area} · {l.designation ? `${l.designation} ` : ''}{l.name}{specText(l) ? ` · ${specText(l)}` : ''}</span><span className="tabular-nums">{fmt(l.qty)} {l.unit}</span></li>)}</ul>
             {d.note && <p className="mt-1 text-xs text-muted">{d.note}</p>}
@@ -53,7 +54,7 @@ function DeliveryList({ state, deliveries, perms, act }: { state: TrackerState; 
 }
 
 /** Orders: each purchase order with its materials, deliveries and details in one place, plus any delivery that arrived with no order. */
-export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMaterials, onEdit, act }: OrdersTabProps) {
+export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMaterials, onEdit, onCorrect, act }: OrdersTabProps) {
   const { readOnly } = useBackend() // the public view-only site does not show suppliers or PO numbers
   const [open, setOpen] = useState<Set<string>>(new Set())
   const toggle = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -100,18 +101,19 @@ export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMa
                             {perms.order && !o.cancelled && <Button className="!h-8" onClick={() => onAddMaterials(o.id)}>Add materials</Button>}
                             {perms.receive && !o.cancelled && p.due > 0 && <Button variant="primary" className="!h-8" onClick={() => onReceive(o.id)}>Record delivery</Button>}
                             {perms.void && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(`Delete ${title}?\n\nPO ${o.number || 'Not Assigned'} · ${o.supplier || 'Supplier Not Assigned'} · ${formatDate(o.date)}\n${p.lines.length} material${p.lines.length === 1 ? '' : 's'}, ${fmt(p.ordered)} items.\n\nIts quantities are removed from what is ordered, so they show as still to order again. A record of the deleted order stays in the history.`)) void act(() => trackerStore.run(deletePurchaseOrder(o.id))) }}>Delete order</Button>}
-                            {perms.void && !o.cancelled && p.deliveries.length === 0 && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(`Cancel ${title}? It stays on record.`)) void act(() => trackerStore.run(cancelPurchaseOrder(o.id))) }}>Cancel order</Button>}
+                            {perms.void && !o.cancelled && <Button variant="ghost" className="!h-8" onClick={() => { if (window.confirm(p.received > 0 ? `Cancel ${title}?\n\n${fmt(p.received)} items already delivered stay recorded and counted in Materials. The ${fmt(p.original - p.received > 0 ? p.original - p.received : 0)} not yet delivered are removed from what is ordered and show as still to order.\nNo further deliveries can be recorded against it. Deliveries and history are kept.` : `Cancel ${title}?\n\nIts ${fmt(p.original)} items are removed from what is ordered and show as still to order. The order stays on record, marked Cancelled.`)) void act(() => trackerStore.run(cancelPurchaseOrder(o.id))) }}>Cancel order</Button>}
                           </div>
                         </div>
+                        {o.cancelled && <p role="status" className="border-l-2 border-line pl-3 text-[13px]">Cancelled. {p.received > 0 ? `${fmt(p.received)} delivered stays recorded and counted; ` : ''}{fmt(p.cancelledQty)} of the {fmt(p.original)} ordered {p.cancelledQty === 1 ? 'was' : 'were'} not delivered and {p.cancelledQty === 1 ? 'is' : 'are'} no longer counted as ordered. No further deliveries can be recorded.</p>}
                         {o.notes && <p className="text-xs text-muted">{o.notes}</p>}
                         <div className="pr-3"><table className="w-full table-fixed text-left text-[13px] [&_td]:pr-2 [&_th]:pr-2" aria-label={`Materials of ${title}`}>
                           <colgroup><col className="w-24" /><col /><col className="w-[4.5rem]" /><col className="w-[5.5rem]" /><col className="w-16" /></colgroup>
-                          <thead><tr className="border-b border-line"><th scope="col" className="t-label font-medium">Area</th><th scope="col" className="t-label font-medium">Material</th><th scope="col" className="t-label text-right font-medium">Ordered</th><th scope="col" className="t-label text-right font-medium">Delivered</th><th scope="col" className="t-label text-right font-medium">Due</th></tr></thead>
-                          <tbody>{p.lines.map(({ line, received, due }) => <tr key={line.id} className="border-b border-line"><td>{line.area}</td><td title={`${line.name} ${specText(line)}`}>{line.designation ? `${line.designation} ` : ''}{line.name}{specText(line) ? ` · ${specText(line)}` : ''}</td><td className="text-right">{fmt(line.qty)}</td><td className="text-right">{fmt(received)}</td><td className="text-right">{fmt(due)}</td></tr>)}</tbody>
+                          <thead><tr className="border-b border-line"><th scope="col" className="t-label font-medium">Area</th><th scope="col" className="t-label font-medium">Material</th><th scope="col" className="t-label text-right font-medium">Ordered</th><th scope="col" className="t-label text-right font-medium">Delivered</th><th scope="col" className="t-label text-right font-medium">{o.cancelled ? 'Cancelled' : 'Due'}</th></tr></thead>
+                          <tbody>{p.lines.map(({ line, received, due, cancelledQty }) => <tr key={line.id} className="border-b border-line"><td>{line.area}</td><td title={`${line.name} ${specText(line)}`}>{line.designation ? `${line.designation} ` : ''}{line.name}{specText(line) ? ` · ${specText(line)}` : ''}</td><td className="text-right">{fmt(line.qty)}</td><td className="text-right">{fmt(received)}</td><td className="text-right">{fmt(o.cancelled ? cancelledQty : due)}</td></tr>)}</tbody>
                         </table></div>
                         <section aria-label={`Deliveries of ${title}`}>
                           <h3 className="t-label mb-2">Deliveries</h3>
-                          {p.deliveries.length === 0 ? <p className="text-muted">Nothing delivered yet.</p> : <DeliveryList state={state} deliveries={p.deliveries.slice().sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at))} perms={perms} act={act} />}
+                          {p.deliveries.length === 0 ? <p className="text-muted">Nothing delivered yet.</p> : <DeliveryList state={state} deliveries={p.deliveries.slice().sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at))} perms={perms} act={act} onCorrect={onCorrect} />}
                         </section>
                       </div>
                     </td></tr>
@@ -125,7 +127,7 @@ export function OrdersTab({ state, orders, deliveries, perms, onReceive, onAddMa
       {loose.length > 0 && (
         <section aria-label="Deliveries without an order">
           <h3 className="t-label mb-2">Received without an order</h3>
-          <div className="max-w-4xl"><DeliveryList state={state} deliveries={loose} perms={perms} act={act} /></div>
+          <div className="max-w-4xl"><DeliveryList state={state} deliveries={loose} perms={perms} act={act} onCorrect={onCorrect} /></div>
         </section>
       )}
     </div>

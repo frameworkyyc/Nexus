@@ -1,7 +1,7 @@
 import type { ISODate } from '@/lib/date'
 import { audited, type Ctx } from './audit'
 import { consolidate, type ConsolidationSource } from './consolidate'
-import { keyAliases, orderTitle, procurementRows } from './procurement'
+import { deliveredByLine, keyAliases, orderTitle, procurementRows } from './procurement'
 import type { AuditEntry, Allocation, Delivery, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 import type { Result, Reducer } from './actions'
 
@@ -195,7 +195,7 @@ export const deletePurchaseOrder = (orderId: string): Reducer => audited((s, ctx
   const o = (s.orders ?? []).find((x) => x.id === orderId)
   if (!o) return { error: 'That purchase order no longer exists.' }
   const title = orderTitle(s, o)
-  if ((s.deliveries ?? []).some((d) => d.orderId === orderId)) return { error: `Deliveries have been recorded against ${title}, so it cannot be deleted. Void those deliveries first (they stay in the history) or leave the order in place.` }
+  if ((s.deliveries ?? []).some((d) => d.orderId === orderId)) return { error: `Deliveries have been recorded against ${title}, so it cannot be deleted. Cancel the order to keep those deliveries on record, or void the deliveries first (they stay in the history).` }
   const lines = (s.orderLines ?? []).filter((l) => l.orderId === orderId)
   const next: TrackerState = { ...s, orders: (s.orders ?? []).filter((x) => x.id !== orderId), orderLines: (s.orderLines ?? []).filter((l) => l.orderId !== orderId) }
   const k = alias(s, source(ctx))
@@ -207,12 +207,81 @@ export const deletePurchaseOrder = (orderId: string): Reducer => audited((s, ctx
   return { state: withHistory(next, note(ctx, 'order', o.number || o.name || 'Order', summary, changes)) }
 })
 
-/** Cancels an order that nothing has arrived against. The order and its lines stay on record. */
+/**
+ * Cancels an order. Whatever has been delivered against it stays recorded and counted (Materials keeps it); the undelivered part is removed from
+ * what is ordered, so those quantities read as still to order again. The order, its lines, its deliveries and the history all stay, the order is
+ * marked Cancelled, and no further deliveries can be recorded against it. (A delivery recorded by mistake is corrected or voided separately.)
+ */
 export const cancelPurchaseOrder = (orderId: string): Reducer => audited((s, ctx): Result => {
   const o = (s.orders ?? []).find((x) => x.id === orderId)
-  if (!o || o.cancelled) return { error: 'That purchase order is not available.' }
-  if ((s.deliveries ?? []).some((d) => d.orderId === orderId)) return { error: `Deliveries have been recorded against ${o.number || 'this order'}, so it cannot be cancelled.` }
-  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, cancelled: true } : x)) }, note(ctx, 'order', o.number || 'No PO number', `${o.number ? `Purchase order ${o.number}` : 'Purchase order with no PO number'} cancelled`)) }
+  if (!o) return { error: 'That purchase order is not available.' }
+  const title = orderTitle(s, o)
+  if (o.cancelled) return { error: `${title} is already cancelled.` }
+  const lines = (s.orderLines ?? []).filter((l) => l.orderId === orderId)
+  const delivered = deliveredByLine(s)
+  const kept = lines.reduce((a, l) => a + Math.min(l.qty, delivered.get(l.id) ?? 0), 0)
+  const ordered = lines.reduce((a, l) => a + l.qty, 0)
+  const removed = ordered - kept
+  const changes: AuditEntry['changes'] = lines.filter((l) => l.qty > Math.min(l.qty, delivered.get(l.id) ?? 0)).map((l) => ({ field: label(l), from: String(l.qty), to: String(Math.min(l.qty, delivered.get(l.id) ?? 0)) }))
+  const what = kept > 0 ? ` — ${fmt(kept)} delivered stays recorded, ${fmt(removed)} undelivered removed from what is ordered` : ` — ${fmt(removed)} items removed from what is ordered`
+  return { state: withHistory({ ...s, orders: (s.orders ?? []).map((x) => (x.id === orderId ? { ...x, cancelled: true } : x)) }, note(ctx, 'order', o.number || o.name || 'Order', `Order cancelled: ${title}${o.number ? ` · PO ${o.number}` : ''}${what}`, changes)) }
+})
+
+export interface DeliveryCorrection {
+  date?: ISODate
+  reference?: string
+  note?: string
+  /** Corrected quantity for lines of this delivery, by line id. Use Void to remove a delivery altogether. */
+  quantities?: { lineId: string; qty: number }[]
+}
+
+/**
+ * Corrects a delivery recorded wrongly: its date, reference, note and the quantity received on each line. Material that has already been allocated
+ * or installed cannot be corrected away, and the original values stay in the history. To take a delivery out altogether, void it.
+ */
+export const correctDelivery = (deliveryId: string, edit: DeliveryCorrection, today: ISODate): Reducer => audited((s, ctx): Result => {
+  const d = (s.deliveries ?? []).find((x) => x.id === deliveryId)
+  if (!d) return { error: 'That delivery no longer exists.' }
+  const e = edit ?? {}
+  const date = e.date ?? d.date
+  if (!validDate(date)) return { error: 'Enter a valid delivery date.' }
+  if (date > today) return { error: 'A delivery cannot be dated in the future.' }
+  const reference = e.reference === undefined ? d.reference : clip(e.reference, 60)
+  const noteText = e.note === undefined ? d.note : clip(e.note, 500)
+  const lines = (s.deliveryLines ?? []).filter((l) => l.deliveryId === deliveryId)
+  const wanted = new Map<string, number>()
+  for (const q of e.quantities ?? []) {
+    const line = lines.find((l) => l.id === q?.lineId)
+    if (!line) return { error: 'One of those materials is not on this delivery. Reload and try again.' }
+    if (wanted.has(line.id)) return { error: `${label(line)} is listed twice.` }
+    if (!whole(q.qty)) return { error: `${label(line)}: enter a whole number of 1 or more. To remove it, void the delivery.` }
+    if (q.qty !== line.qty) wanted.set(line.id, q.qty)
+  }
+  const changes: AuditEntry['changes'] = []
+  const show = (t: string) => t || 'none'
+  if (date !== d.date) changes.push({ field: 'Date', from: d.date, to: date })
+  if (reference !== d.reference) changes.push({ field: 'Reference', from: show(d.reference), to: show(reference) })
+  if (noteText !== d.note) changes.push({ field: 'Note', from: show(d.note), to: show(noteText) })
+  for (const l of lines) if (wanted.has(l.id)) changes.push({ field: label(l), from: String(l.qty), to: String(wanted.get(l.id)) })
+  if (changes.length === 0) return { state: s }
+  const next: TrackerState = {
+    ...s,
+    deliveries: (s.deliveries ?? []).map((x) => (x.id === deliveryId ? { ...x, date, reference, note: noteText } : x)),
+    deliveryLines: (s.deliveryLines ?? []).map((l) => (wanted.has(l.id) ? { ...l, qty: wanted.get(l.id)! } : l)),
+  }
+  const c = source(ctx)
+  if (c && wanted.size > 0) {
+    const rows = procurementRows(next, c)
+    const k = alias(next, c)
+    for (const l of lines.filter((x) => wanted.has(x.id))) {
+      const row = rows.find((r) => r.key === k(l.key))
+      if (row && row.allocated > row.received) return { error: `${label(row)}: ${fmt(row.allocated)} has been allocated to foundations, more than would remain received. Reduce the allocation first.` }
+      if (row && row.installed > row.received) return { error: `${label(row)}: ${fmt(row.installed)} has been installed, more than would remain received. Void the installation first.` }
+    }
+  }
+  const order = d.orderId ? (s.orders ?? []).find((x) => x.id === d.orderId) : undefined
+  const total = (next.deliveryLines ?? []).filter((l) => l.deliveryId === deliveryId).reduce((a, l) => a + l.qty, 0)
+  return { state: withHistory(next, note(ctx, 'delivery', order?.number || reference || 'Delivery', `Delivery corrected${order ? ` (${orderTitle(s, order)})` : ''}, dated ${date}: ${changes.map((x) => `${x.field} ${x.from} → ${x.to}`).join('; ')} (delivery now ${fmt(total)} items)`, changes)) }
 })
 
 export interface InstallationInput { key: string; qty: number; date: ISODate; note?: string }
@@ -254,7 +323,8 @@ export const recordDelivery = (input: DeliveryInput, today: ISODate): Reducer =>
   if (input.date > today) return { error: 'A delivery cannot be dated in the future.' }
   if (!Array.isArray(input.lines) || input.lines.length === 0) return { error: 'Enter the quantity received for at least one material.' }
   const order = input.orderId ? (s.orders ?? []).find((o) => o.id === input.orderId) : null
-  if (input.orderId && (!order || order.cancelled)) return { error: 'That purchase order is not available.' }
+  if (input.orderId && !order) return { error: 'That purchase order is not available.' }
+  if (order?.cancelled) return { error: `${orderTitle(s, order)} is cancelled, so no further deliveries can be recorded against it.` }
   const known = new Map(procurementRows(s, c).map((g) => [g.key, g]))
   const orderLines = (s.orderLines ?? []).filter((l) => l.orderId === input.orderId)
   const k = alias(s, c)
