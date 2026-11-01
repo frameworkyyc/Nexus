@@ -115,6 +115,16 @@ jobs:
           if grep -Ev '^(INSERT INTO|UPDATE "?module_versions"?|--|$|PRAGMA)' migration.sql | head -3 | grep -q .; then echo "::error::migration.sql contains statements other than INSERT / module counter updates"; exit 1; fi
           echo "Rehearsal passed; $(wc -c < migration.sql) bytes of SQL ready."
 
+      - name: Validate the verification procedure against production as it is now (read-only)
+        run: |
+          set -e
+          cd "$RUNNER_TEMP/w"
+          S="$GITHUB_WORKSPACE/scripts"
+          node $S/launch-guard.mjs counts production.sqlite verify.sql.expected.json > pre-counts.json
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "$(node $S/launch-guard.mjs verify-sql verify.sql.expected.json)" > pre-verify.json
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > pre-fk.json
+          node $S/launch-guard.mjs compare pre-verify.json pre-counts.json pre-fk.json
+
       - name: LIVE migration (atomic) and verification
         if: env.LIVE == 'yes'
         id: migrate
@@ -124,8 +134,10 @@ jobs:
           echo "started=yes" >> "$GITHUB_OUTPUT"
           wrangler d1 execute "$PRODUCTION_DB" --remote --yes --file=migration.sql > apply.log 2>&1 || { tail -5 apply.log; exit 1; }
           echo "Applied. Verifying."
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --file=verify.sql > verify.json
-          node "$GITHUB_WORKSPACE/scripts/launch-guard.mjs" compare verify.json expected-counts.json
+          S="$GITHUB_WORKSPACE/scripts"
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "$(node $S/launch-guard.mjs verify-sql verify.sql.expected.json)" > verify.json
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > fk.json
+          node $S/launch-guard.mjs compare verify.json expected-counts.json fk.json
           echo "verified=yes" >> "$GITHUB_OUTPUT"
 
       - name: Roll back the data if the migration failed or did not verify

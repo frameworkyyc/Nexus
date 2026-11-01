@@ -2,7 +2,8 @@
 //   report <report.json> <expectedRows>   the migration dry run: no problems, exactly the approved number of rows, nothing excluded, filtered, cascaded or in conflict
 //   counts <db.sqlite> <expected.json>    row counts of every table the migration touches (the rehearsal copy is the reference for the live database)
 //   prestate <wrangler-json>              production holds no project data, members, change log or module counters yet
-//   compare <wrangler-json> <counts.json> the live verification (foreign_key_check + counts) equals the rehearsal
+//   verify-sql <expected.json>            one UNION query counting every migrated table (`wrangler d1 execute --file` returns no rows, so verification uses --command)
+//   compare <counts-json> <counts.json> [fk-json]  live counts (and the foreign_key_check result) equal the expected counts
 import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -40,8 +41,11 @@ if (cmd === 'report') {
   if (dirty.length) fail(`production is not in its empty state: ${dirty.map(([k, v]) => `${k}=${v}`).join(', ')}`)
   if (row.ledger !== 27) fail(`production has ${row.ledger} migrations, expected 27`)
   ok('production is in its verified empty state (27 migrations, no project data, members, change log or counters)')
+} else if (cmd === 'verify-sql') {
+  const want = JSON.parse(readFileSync(a, 'utf8'))
+  console.log(Object.keys(want).map((t) => `SELECT '${t}' AS t, count(*) AS n FROM "${t}"`).join(' UNION ALL '))
 } else if (cmd === 'compare') {
-  const results = wrangler(a)
+  const results = [...wrangler(a), ...(process.argv[5] ? wrangler(process.argv[5]) : [])]
   const want = JSON.parse(readFileSync(b, 'utf8'))
   // Identify result blocks by their columns, not their position: D1 may omit the (empty) PRAGMA block, which would shift every block by one.
   const rows = results.flatMap((r) => r.results ?? [])
