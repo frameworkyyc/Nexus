@@ -183,3 +183,35 @@ describe('production launch workflow', () => {
     }
   })
 })
+
+describe('production release workflow', () => {
+  const wf = readFileSync('.github/workflows/production-release.yml', 'utf8')
+  const code = wf.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+
+  it('starts only from the dedicated branch and only on an explicit trigger word', () => {
+    expect(code).toMatch(/branches: \['release\/preflight'\]/)
+    expect(code).not.toMatch(/pull_request|schedule:|workflow_run|workflow_dispatch|tags:/)
+    expect(code).toMatch(/contains\(github\.event\.head_commit\.message, '\[release-rehearsal\]'\) \|\| contains\(github\.event\.head_commit\.message, '\[release-production\]'\)/)
+  })
+
+  it('deploys only the pinned, pre-flighted version, never a fresh build, and only in the live steps', () => {
+    expect(code).not.toMatch(/wrangler deploy(?!ments)|versions upload/)
+    expect(code.match(/versions deploy/g)).toHaveLength(1)
+    expect(code).toMatch(/versions deploy "\$\{TARGET_VERSION\}@100%"/)
+    expect(code).toMatch(/TARGET_VERSION: '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'/)
+    for (const block of code.split(/\n {6}- name: /).slice(1)) {
+      if (/--file=apply\.sql|versions deploy/.test(block)) expect(block).toMatch(/if: env\.LIVE == 'yes'/)
+    }
+  })
+
+  it('records a bookmark, checks the schema first, rehearses on an export, and can roll back without touching users’ data', () => {
+    expect(code).toMatch(/time-travel info/)
+    expect(code).toMatch(/schema-guard\.mjs" precheck/)
+    expect(code).toMatch(/d1 export/)
+    expect(code).toMatch(/anchorageMigration\.test\.ts/)
+    expect(code).toMatch(/DROP TABLE IF EXISTS foundation_anchorages/)
+    expect(code).not.toMatch(/time-travel restore/) // a restore would also discard what users saved since; the bookmark is only named as a last resort
+    expect(code).toMatch(/wrangler rollback/)
+    expect(code).not.toMatch(/upload-artifact/)
+  })
+})

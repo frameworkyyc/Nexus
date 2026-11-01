@@ -1,0 +1,167 @@
+# Production RELEASE of approved changes (no data migration): applies an additive schema migration to the production database, validates it, and promotes the pinned, pre-flighted Worker version.
+# Starts only from a push to the dedicated branch release/preflight whose head commit message contains a trigger word:
+#   [release-rehearsal]   everything up to the live apply, on an export of production's own data. Writes NOTHING to production and deploys nothing.
+#   [release-production]  the full release, with automatic rollback.
+# Order: credentials and permissions -> the pinned version still equals the code that was pre-flighted -> production must be exactly at the expected schema -> a Time Travel bookmark is recorded
+#   -> production is exported, the migration is applied to a COPY and compared before/after by the application's own readers (quantities, anchorage totals, requirements, progress, the OP1-21-29 case)
+#   -> LIVE: apply (atomic) -> verify -> pre-flight the pinned version -> deploy it -> live checks.
+# Rollback: if the apply or its verification fails, the additive objects are removed again (a Time Travel restore would also discard everything users saved since, so it is a last resort, recorded below).
+#   If the live checks fail after deploy, the previous deployment is restored; the schema stays (the old code ignores the new table).
+# Data never leaves the runner (this repository is public): no artifacts, counts only in the logs.
+name: Production release (additive migration and promotion)
+
+on:
+  push:
+    branches: ['release/preflight']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+env:
+  TARGET_VERSION: 'db06d5fd-90b9-4edd-b098-a59197a53f40'
+  PREFLIGHT_COMMIT: 'ca0d1188c35a0f31fe78f1f6bda3fed08ce7b221'
+  MIGRATION: '0028_anchorage_mounts.sql'
+  FROM_SCHEMA: '27'
+  TO_SCHEMA: '28'
+  PRODUCTION_DB: 'nexus-production'
+  LIVE_URL: 'https://nexus.frameworktools.ca'
+  WORKERS_SUBDOMAIN: 'plain-poetry-2054'
+
+jobs:
+  release:
+    if: github.repository == 'frameworkyyc/Nexus' && github.ref == 'refs/heads/release/preflight' && (contains(github.event.head_commit.message, '[release-rehearsal]') || contains(github.event.head_commit.message, '[release-production]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production-preflight
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Mode and credentials
+        run: |
+          mkdir -p "$RUNNER_TEMP/w"
+          echo "$GITHUB_WORKSPACE/node_modules/.bin" >> "$GITHUB_PATH"
+          if echo "$COMMIT_MESSAGE" | grep -q '\[release-production\]'; then echo "LIVE=yes" >> "$GITHUB_ENV"; echo "Mode: LIVE RELEASE"; else echo "LIVE=no" >> "$GITHUB_ENV"; echo "Mode: rehearsal (no production writes)"; fi
+          [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || { echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID missing in the production-preflight environment"; exit 1; }
+          grep -q 'd3f3ed8d-618b-4f00-82e3-52bfefae1245' wrangler.jsonc || { echo "::error::wrangler.jsonc does not name the production database"; exit 1; }
+
+      - name: Pinned version still matches the pre-flighted code
+        run: |
+          changed=$(git diff --name-only "$PREFLIGHT_COMMIT" HEAD -- src ':!src/**/__tests__/**' index.html public wrangler.jsonc migrations package.json package-lock.json vite.config.ts tsconfig.json || true)
+          if [ -n "$changed" ]; then echo "::error::Application code changed since the pre-flighted version:"; echo "$changed"; exit 1; fi
+          echo "No application code changed since the pre-flight of version $TARGET_VERSION."
+
+      - name: Permissions (read-only), recovery bookmark and the current deployment
+        run: |
+          set -e
+          if ! wrangler d1 info "$PRODUCTION_DB" --json > /dev/null 2>&1 || ! wrangler d1 time-travel info "$PRODUCTION_DB" --json > /dev/null 2>&1; then
+            echo "::error::The Cloudflare API token cannot use D1."; exit 1
+          fi
+          wrangler d1 time-travel info "$PRODUCTION_DB" --json > "$RUNNER_TEMP/w/bookmark.json"
+          echo "BOOKMARK=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).bookmark)' "$RUNNER_TEMP/w/bookmark.json")" >> "$GITHUB_ENV"
+          wrangler versions list --json > "$RUNNER_TEMP/w/versions.json"
+          node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(!v.some(x=>x.id===process.env.TARGET_VERSION)){console.error("::error::Pinned version not found");process.exit(1)}' "$RUNNER_TEMP/w/versions.json"
+          wrangler deployments list --json > "$RUNNER_TEMP/w/deployments.json"
+          echo "PREVIOUS_VERSION=$(node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const last=[...d].sort((a,b)=>String(a.created_on).localeCompare(String(b.created_on))).pop();console.log(last.versions[0].version_id)' "$RUNNER_TEMP/w/deployments.json")" >> "$GITHUB_ENV"
+          echo "Recovery bookmark recorded."
+
+      - name: Production is exactly at the expected schema
+        run: |
+          set -e
+          cd "$RUNNER_TEMP/w"
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM sqlite_master WHERE name='foundation_anchorages') AS has_table, (SELECT count(*) FROM foundation_anchorage_groups WHERE anchorage_type_id IS NOT NULL) AS typed_sets" > pre.json || { head -c 800 pre.json; exit 1; }
+          node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" precheck pre.json "$FROM_SCHEMA" "$FROM_SCHEMA"
+
+      - name: Export production, apply the migration to a COPY and compare before and after with the application's own readers
+        run: |
+          set -e
+          cd "$RUNNER_TEMP/w"
+          wrangler d1 export "$PRODUCTION_DB" --remote --output production-before.sql
+          node "$GITHUB_WORKSPACE/scripts/data-migration/import-sql.mjs" production-before.sql prod-before.sqlite
+          cp prod-before.sqlite prod-after.sqlite
+          node -e '
+            const { DatabaseSync } = require("node:sqlite"); const fs = require("fs")
+            const db = new DatabaseSync("prod-after.sqlite"); db.exec("PRAGMA foreign_keys = OFF")
+            db.exec(fs.readFileSync(process.env.GITHUB_WORKSPACE + "/migrations/" + process.env.MIGRATION, "utf8"))
+            db.exec("INSERT INTO d1_migrations (name) VALUES (\x27" + process.env.MIGRATION + "\x27)")
+            const fk = db.prepare("PRAGMA foreign_key_check").all(); if (fk.length) { console.error("foreign-key violations on the copy"); process.exit(1) }
+          '
+          cd "$GITHUB_WORKSPACE"
+          ANCHORAGE_MIGRATION_DB="$RUNNER_TEMP/w/prod-before.sqlite" ANCHORAGE_BEFORE_DB="$RUNNER_TEMP/w/prod-before.sqlite" ANCHORAGE_AFTER_DB="$RUNNER_TEMP/w/prod-after.sqlite" npx vitest run src/worker/__tests__/anchorageMigration.test.ts
+          echo "Rehearsal on production's own data passed."
+
+      - name: LIVE migration (atomic) and verification
+        if: env.LIVE == 'yes'
+        id: migrate
+        run: |
+          set -e
+          cd "$RUNNER_TEMP/w"
+          echo "started=yes" >> "$GITHUB_OUTPUT"
+          { cat "$GITHUB_WORKSPACE/migrations/$MIGRATION"; echo "INSERT INTO d1_migrations (name) VALUES ('$MIGRATION');"; } > apply.sql
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --file=apply.sql > apply.log 2>&1 || { tail -5 apply.log; exit 1; }
+          echo "Applied. Verifying."
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM foundation_anchorages) AS anchorages, (SELECT count(*) FROM foundation_anchorage_groups WHERE anchorage_type_id IS NOT NULL) AS typed_sets" > post.json || { head -c 800 post.json; exit 1; }
+          node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" verify post.json "$TO_SCHEMA" "$TO_SCHEMA"
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > fk.json || { head -c 800 fk.json; exit 1; }
+          node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" clean fk.json
+          echo "verified=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Roll the migration back (additive objects only) if it failed or did not verify
+        if: failure() && steps.migrate.outputs.started == 'yes' && steps.migrate.outputs.verified != 'yes'
+        run: |
+          cd "$RUNNER_TEMP/w"
+          echo "::warning::Removing the additive objects. Users' data is untouched; the bookmark $BOOKMARK is a last resort (it would also discard what users saved since)."
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --command "DROP INDEX IF EXISTS foundation_anchorages_foundation; DROP TABLE IF EXISTS foundation_anchorages; UPDATE schema_info SET value = '$FROM_SCHEMA' WHERE key = 'schema_version'; DELETE FROM d1_migrations WHERE name = '$MIGRATION';"
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM sqlite_master WHERE name='foundation_anchorages') AS has_table, (SELECT count(*) FROM foundation_anchorage_groups WHERE anchorage_type_id IS NOT NULL) AS typed_sets" > back.json
+          node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" precheck back.json "$FROM_SCHEMA" "$FROM_SCHEMA"
+          echo "::warning::Rolled back to schema $FROM_SCHEMA. (The unused mount_group_id columns on bolts and embed plates stay: they are empty and ignored.)"
+
+      - name: Pre-flight the pinned version again
+        if: env.LIVE == 'yes'
+        run: node scripts/preflight.mjs "https://${TARGET_VERSION%%-*}-nexus.${WORKERS_SUBDOMAIN}.workers.dev"
+
+      - name: LIVE deploy of the pinned, pre-flighted version
+        if: env.LIVE == 'yes'
+        id: deploy
+        run: |
+          echo "started=yes" >> "$GITHUB_OUTPUT"
+          wrangler versions deploy "${TARGET_VERSION}@100%" --yes --message "Release: anchorage mounts (migration 0028), completion basis, percentage formatting, library icon fix"
+
+      - name: Live checks (with retries)
+        if: env.LIVE == 'yes'
+        run: |
+          for i in $(seq 1 12); do
+            if node scripts/preflight.mjs "$LIVE_URL" > "$RUNNER_TEMP/w/live.log" 2>&1; then cat "$RUNNER_TEMP/w/live.log"; echo "Live site passed after $i attempt(s)."; exit 0; fi
+            sleep 10
+          done
+          cat "$RUNNER_TEMP/w/live.log"; exit 1
+
+      - name: Restore the previous deployment if the release failed
+        if: failure() && steps.deploy.outputs.started == 'yes'
+        run: |
+          echo "::error::Release checks failed: restoring version $PREVIOUS_VERSION. The migration stays (additive; the previous code ignores the new table)."
+          wrangler rollback "$PREVIOUS_VERSION" --yes --message "automatic rollback: live checks failed"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Production release: $([ "$LIVE" = yes ] && echo LIVE || echo rehearsal)"
+            echo "- Result: **${{ job.status }}**"
+            echo "- Time Travel bookmark taken before any write: \`${BOOKMARK:-none}\`"
+            echo "- Previous live version: \`${PREVIOUS_VERSION:-unknown}\`; pinned release version: \`$TARGET_VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
