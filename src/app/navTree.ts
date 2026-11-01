@@ -31,7 +31,7 @@ export function operationalNodes(projectId: string | null): NavSection[] {
     { id: 'op-construction', label: 'Construction', icon: Hammer, to: to('construction'), prefix: true },
     { id: 'op-survey', label: 'Survey', icon: Ruler, to: to('survey'), prefix: true },
     { id: 'op-qaqc', label: 'QA/QC', icon: ClipboardCheck, to: to('qaqc'), prefix: true },
-    { id: 'op-civil', label: 'Civil / Earthworks', icon: Shovel, to: to('civil'), prefix: true, future: true },
+    { id: 'op-civil', label: 'Civil / Earthworks', icon: Shovel, to: to('civil'), prefix: true },
   ]
 }
 

@@ -8,8 +8,8 @@ import { redirectFor } from '../navigation'
 import { paths } from '../paths'
 import { foundationsOf } from '../selectors'
 import { useConstruction } from '../store'
-import { Quality } from './AreaPage'
-import { ConstructionTracker } from './ConstructionTracker'
+import { DISCIPLINES } from '../constructionProgress'
+import { DisciplineTracker } from './DisciplineTracker'
 import { OverviewPage } from './OverviewPage'
 
 /* ── Redirects ────────────────────────────────────────────────────────────── */
@@ -32,46 +32,30 @@ export function ProjectContextRedirect({ to }: { to: (projectId: string) => stri
   return <Navigate to={projectId ? to(projectId) : '/projects'} replace />
 }
 
-/* ── Future development ───────────────────────────────────────────────────── */
-
-/** Shown where a category is planned but has no screens or records yet. It never shows a number: nothing is recorded, so nothing is claimed. */
-export function FutureDevelopment({ title, description }: { title: string; description: string }) {
-  return (
-    <section aria-label={`${title}: future development`} className="rounded-nx border border-dashed border-line bg-surface px-6 py-12 text-center">
-      <span className="inline-flex rounded-full border border-line px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted">Future development</span>
-      <h2 className="mt-4 text-lg font-medium">{title}</h2>
-      <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-muted">{description}</p>
-    </section>
-  )
-}
-
 /* ── Operational pages ────────────────────────────────────────────────────── */
 
-/**
- * Construction, Survey and QA/QC (operational pages): the existing area screens, unchanged, behind an area selector. Survey and QA/QC
- * are recorded together today (one table), so both entries open that same table until their own workflows are developed.
- */
-export function ManageDiscipline({ kind }: { kind: 'construction' | 'survey' | 'qaqc' }) {
+/** Construction, Survey, QA/QC and Civil / Earthworks: one tracker page for each, behind the same area selector (All areas first). */
+export function ManageDiscipline({ kind }: { kind: 'construction' | 'survey' | 'qaqc' | 'civil' }) {
   const { projectId = '' } = useParams()
   const { state } = useConstruction()
   const [params, setParams] = useSearchParams()
   const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence)
-  // Construction also offers All areas (the project-wide view) as its first choice and opens on it; the other pages open on the first area
-  const allAreas = kind === 'construction' && areas.length > 0 && (params.get('area') === 'all' || !areas.some((a) => a.id === params.get('area')))
+  // Every tracker offers All areas (the project-wide view) as its first choice and opens on it
+  const allAreas = areas.length > 0 && (params.get('area') === 'all' || !areas.some((a) => a.id === params.get('area')))
   const area = allAreas ? undefined : areas.find((a) => a.id === params.get('area')) ?? areas[0]
-  const title = kind === 'construction' ? 'Construction' : kind === 'survey' ? 'Survey' : 'QA/QC'
+  const title = DISCIPLINES[kind].title
   if (areas.length === 0 || (!area && !allAreas)) return <><PageHeader title={title} /><EmptyState title="No areas yet" description="Add an area in Setup to record this work." action={<Link to={paths.areas(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Areas</Link>} /></>
   return (
     <>
-      <PageHeader title={title} description={kind === 'construction' ? 'Update each foundation’s construction activities for the selected area.' : 'Survey checks and QA/QC inspections for the selected area. They are recorded together in one table today.'} />
+      <PageHeader title={title} description={DISCIPLINES[kind].description} />
       <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
-        {kind === 'construction' && <button type="button" aria-pressed={allAreas} onClick={() => setParams({ area: 'all' })} className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${allAreas ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>All areas</button>}
+        <button type="button" aria-pressed={allAreas} onClick={() => setParams({ area: 'all' })} className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${allAreas ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>All areas</button>
         {areas.map((a) => (
           <button key={a.id} type="button" aria-pressed={a.id === area?.id} onClick={() => setParams({ area: a.id })}
             className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${a.id === area?.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>{a.name}</button>
         ))}
       </div>
-      {kind === 'construction' ? <ConstructionTracker areaId={area?.id ?? 'all'} areaIds={areas.map((a) => a.id)} /> : <Quality projectId={projectId} areaId={area!.id} />}
+      <DisciplineTracker discipline={kind} areaId={area?.id ?? 'all'} areaIds={areas.map((a) => a.id)} />
     </>
   )
 }

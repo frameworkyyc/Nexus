@@ -51,11 +51,11 @@ describe('sidebar contents', () => {
     expect(html('/projects/reef/progress/a1')).toMatch(/bg-white\/10[^>]*>.{0,700}Project Status/)
   })
 
-  it('makes every discipline a direct link, with Civil marked as future development', () => {
+  it('makes every discipline a direct link, Civil / Earthworks included', () => {
     const out = html('/projects/reef/manage/materials')
     for (const [label, href] of [['Procurement', '/projects/reef/manage/materials'], ['Construction', '/projects/reef/manage/construction'], ['Survey', '/projects/reef/manage/survey'], ['QA/QC', '/projects/reef/manage/qaqc'], ['Civil / Earthworks', '/projects/reef/manage/civil']])
       expect(out, label).toContain(`href="${href}"`)
-    expect(out).toContain('Future')
+    expect(out).not.toContain('>Future<') // Civil / Earthworks is a working tracker now
     expect(out).not.toContain('aria-label="Expand Procurement') // direct links have no chevron
   })
 

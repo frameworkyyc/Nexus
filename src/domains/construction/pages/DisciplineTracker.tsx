@@ -13,7 +13,7 @@ import { usePersistentChoice } from '@/lib/usePersistentChoice'
 import { formatShortDate } from '@/lib/format'
 import { useIsPhone } from '@/lib/useMedia'
 import { updateActivity } from '../commands'
-import { areaTracks, isLate, projectTracks, matchesFilter, trackLabel, type FoundationTrack, type TrackFilter, type TrackState } from '../constructionProgress'
+import { areaTracks, DISCIPLINES, doneStatus, isLate, projectTracks, matchesFilter, trackLabel, type Discipline, type FoundationTrack, type TrackFilter, type TrackState } from '../constructionProgress'
 import { effectiveStatus } from '../selectors'
 import { useConstruction, useConstructionCommand } from '../store'
 import type { Activity, ActivityStatus } from '../types'
@@ -34,7 +34,7 @@ function Gauges({ counts, total, scheduled, active, onPick }: { counts: ReturnTy
     { key: 'overdue', title: 'Overdue', icon: AlertTriangle, ring: 'bad', text: 'text-[var(--nx-bad)]', n: counts.overdue, value: scheduled ? (total ? Math.round((counts.overdue / total) * 100) : 0) : null, note: scheduled ? '' : 'No planned dates yet' },
   ]
   return (
-    <section aria-label="Construction progress" className="mb-8">
+    <section aria-label="Progress" className="mb-8">
       <ul className={phone ? 'grid grid-cols-2 gap-3' : GAUGE_GRID}>
         {items.map((i) => {
           const Icon = i.icon
@@ -70,14 +70,14 @@ function ActivityRow({ a, canEdit }: { a: Activity; canEdit: boolean }) {
   const { run, saving } = useConstructionCommand()
   const status = effectiveStatus(idx, a)
   const late = isLate(idx, a, today)
-  const set = (s: ActivityStatus) => run(updateActivity(a.id, { status: s }, today))
+  const set = (s: ActivityStatus) => run(updateActivity(a.id, { status: s === 'complete' ? doneStatus(a) : s }, today))
   const done = status === 'complete' || status === 'approved'
   const opts: { s: ActivityStatus; label: string; icon: typeof Circle; on: string }[] = [
     { s: 'not-started', label: 'Not started', icon: CircleDashed, on: 'bg-neutral-200 text-ink' },
     { s: 'in-progress', label: 'In progress', icon: Clock, on: 'bg-[var(--nx-info)] text-white' },
     { s: 'complete', label: 'Completed', icon: CheckCircle2, on: 'bg-[var(--nx-ok)] text-white' },
   ]
-  const current = done ? 'complete' : status
+  const current = done ? 'complete' : status === 'pending-review' ? 'in-progress' : status
   return (
     <li className="flex items-center justify-between gap-3 py-2.5">
       <span className="flex min-w-0 items-center gap-2.5">
@@ -101,17 +101,17 @@ function ActivityRow({ a, canEdit }: { a: Activity; canEdit: boolean }) {
 }
 
 /** The foundation's construction activities grouped by footing and plinth, with its progress, in the standard side panel (a full-screen sheet on a phone). */
-function FoundationPanel({ id, onClose }: { id: string; onClose: () => void }) {
+function FoundationPanel({ id, discipline, onClose }: { id: string; discipline: Discipline; onClose: () => void }) {
   const { idx, today } = useConstruction()
   const access = useAccess()
   const f = idx.foundation.get(id)
   if (!f) return null
-  const t = areaTracks(idx, f.areaId, today).tracks.find((x) => x.foundation.id === id)
+  const t = areaTracks(idx, f.areaId, today, discipline).tracks.find((x) => x.foundation.id === id)
   if (!t) return null
   const meta = STATE_META[t.state]
   const groups = [{ key: 'footing', title: 'Footing', acts: t.acts.filter((a) => a.scope === 'footing') }, ...(idx.plinthsByFoundation.get(f.id) ?? []).map((p) => ({ key: p.id, title: `Plinth ${p.index}`, acts: t.acts.filter((a) => a.plinthId === p.id) }))].filter((g) => g.acts.length > 0)
   const qty = f.quantity ?? 1
-  const order = ['formed', 'poured', 'rebarBuilt', 'rebarInstalled'] // forming and pouring first, as they happen on site
+  const order = DISCIPLINES[discipline].order // in the order the work happens on site
   const ordered = (acts: Activity[]) => acts.slice().sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   return (
     <Modal title={f.number} onClose={onClose} wide>
@@ -157,7 +157,7 @@ function Card({ t, area, onOpen }: { t: FoundationTrack; area?: string; onOpen: 
 }
 
 /** The compact table view: one row per foundation, opening the same activity panel as a card. On a phone each row is a card, like the other tables. */
-export function ConstructionList({ tracks, areaName, onOpen }: { tracks: FoundationTrack[]; areaName: (id: string) => string; onOpen: (id: string) => void }) {
+export function DisciplineList({ tracks, areaName, onOpen }: { tracks: FoundationTrack[]; areaName: (id: string) => string; onOpen: (id: string) => void }) {
   return (
     <table className="card-table w-full text-left text-[13px]" aria-label="Foundations">
       <thead><tr className="border-b border-line">
@@ -186,19 +186,20 @@ export function ConstructionList({ tracks, areaName, onOpen }: { tracks: Foundat
 export type TrackerLayout = 'grid' | 'list'
 
 /**
- * The Construction page: gauges for the selected area (or every area, with `areaId` "all"), the foundations as cards or a compact list you can filter
- * by tapping a gauge, and a panel to update each foundation's construction activities. It reads and writes the existing activity records only.
+ * The tracker page shared by Construction, Survey, QA/QC and Civil / Earthworks: gauges for the selected area (or every area, with `areaId` "all"), the
+ * foundations as cards or a compact list you can filter by tapping a gauge, and a panel to update each foundation's activities in that discipline.
+ * It reads and writes the existing activity records only.
  */
-export function ConstructionTracker({ areaId, areaIds = [] }: { areaId: string; areaIds?: string[] }) {
+export function DisciplineTracker({ discipline, areaId, areaIds = [] }: { discipline: Discipline; areaId: string; areaIds?: string[] }) {
   const { idx, today, state } = useConstruction()
   const [filter, setFilter] = useState<TrackFilter | ''>('')
   const [open, setOpen] = useState<string | null>(null)
   // the chosen layout is remembered, so it stays as you switch areas
   const [layout, setLayout] = usePersistentChoice<TrackerLayout>('nexus.construction.view', ['grid', 'list'], 'grid')
   const all = areaId === 'all'
-  const { tracks, counts, scheduled } = all ? projectTracks(idx, areaIds, today) : areaTracks(idx, areaId, today)
+  const { tracks, counts, scheduled } = all ? projectTracks(idx, areaIds, today, discipline) : areaTracks(idx, areaId, today, discipline)
   const areaName = (id: string) => state.areas.find((a) => a.id === id)?.name ?? ''
-  if (tracks.length === 0) return <EmptyState title="No foundations in this area yet" description="Add foundations in Setup to track their construction." />
+  if (tracks.length === 0) return <EmptyState title="No foundations in this area yet" description="Add foundations in Setup to track their work here." />
   const shown = tracks.filter((t) => matchesFilter(t, filter))
   return (
     <>
@@ -208,14 +209,14 @@ export function ConstructionTracker({ areaId, areaIds = [] }: { areaId: string; 
         <ViewToggle label="Foundations view" value={layout} onChange={setLayout} items={[{ id: 'grid', label: 'Grid' }, { id: 'list', label: 'List' }]} />
       </div>
       {shown.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">No foundations match.</p> : layout === 'list' ? (
-        <ConstructionList tracks={shown} areaName={areaName} onOpen={setOpen} />
+        <DisciplineList tracks={shown} areaName={areaName} onOpen={setOpen} />
       ) : (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6" aria-label="Foundations">
           {shown.map((t) => <Card key={t.foundation.id} t={t} area={all ? areaName(t.foundation.areaId) : undefined} onOpen={() => setOpen(t.foundation.id)} />)}
         </ul>
       )}
-      <p className="mt-6 flex items-center gap-1 text-xs text-muted"><ChevronRight size={12} aria-hidden="true" />Tap a foundation to update its activities. Progress is the same figure shown in Project Status and Foundation Overview.</p>
-      {open && <FoundationPanel id={open} onClose={() => setOpen(null)} />}
+      <p className="mt-6 flex items-center gap-1 text-xs text-muted"><ChevronRight size={12} aria-hidden="true" />Tap a foundation to update its activities. Updates appear in Project Status and Foundation Overview.</p>
+      {open && <FoundationPanel id={open} discipline={discipline} onClose={() => setOpen(null)} />}
     </>
   )
 }

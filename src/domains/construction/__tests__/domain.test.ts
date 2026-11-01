@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as A from '../actions'
+import { getDef } from '../config'
 import { deriveExceptions } from '../exceptions'
 import { companyIssues } from '../portfolio'
 import { emptyTracker } from '../tracker/types'
@@ -561,7 +562,7 @@ describe('package progress', () => {
     expect(ind('installation', getIndex(empty)).percent).toBeNull()
   })
   it('counts only approved inspections as accepted; submitted does not raise the figure', () => {
-    const acts = foundationsOf(idx, mole.id).flatMap((f) => foundationActivities(idx, f)).filter((a) => a.key.endsWith('Inspection'))
+    const acts = foundationsOf(idx, mole.id).flatMap((f) => foundationActivities(idx, f)).filter((a) => getDef(a.scope, a.key).category === 'qaqc') // pre- and post-pour inspections and anchor bolt verification
     const approved = acts.filter((a) => a.status === 'approved').length
     expect(ind('qaqc').percent).toBe(Math.round((approved / acts.length) * 100))
     const bumped = { ...s, activities: s.activities.map((a) => (a.key === 'preInspection' && a.status === 'not-started' ? { ...a, status: 'pending-review' as const } : a)) }

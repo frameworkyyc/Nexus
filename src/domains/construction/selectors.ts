@@ -392,7 +392,7 @@ export const plinthState = (idx: Index, p: Plinth) => stateOf(idx, plinthActivit
 /** The next activity still to be completed, in construction sequence. */
 export function currentStep(idx: Index, acts: Activity[], seq: ActivityDef[]): string {
   for (const def of seq) {
-    if (def.category === 'materials') continue
+    if (def.category === 'materials' || def.category === 'civil') continue // civil work is tracked on its own page and is not a step in the construction sequence
     const a = acts.find((x) => x.key === def.key)
     if (a && !isDone(effectiveStatus(idx, a))) return def.label
   }

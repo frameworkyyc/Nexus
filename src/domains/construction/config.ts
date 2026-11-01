@@ -1,7 +1,7 @@
 import type { Tone } from '@/components/ui/StatusBadge'
 import type { ProjectStatus, ActivityScope, ActivityStatus, Acceptance, AutoMetric, ApprovalStatus, AuthStatus, FabStatus, PickupStatus, SiteReceiptStatus, TemplateReuse } from './types'
 
-export type ActivityCategory = 'materials' | 'construction' | 'rebar' | 'survey' | 'qaqc'
+export type ActivityCategory = 'materials' | 'construction' | 'rebar' | 'survey' | 'qaqc' | 'civil'
 export type StatusSet = 'work' | 'qaqc'
 export type Derivation = 'bolts' | 'nuts' | 'washers' | 'templates'
 
@@ -11,9 +11,10 @@ export const CATEGORY_LABEL: Record<ActivityCategory, string> = {
   rebar: 'Rebar',
   survey: 'Survey',
   qaqc: 'QA/QC',
+  civil: 'Civil / Earthworks',
 }
 
-export const CATEGORY_ORDER: ActivityCategory[] = ['materials', 'construction', 'rebar', 'survey', 'qaqc']
+export const CATEGORY_ORDER: ActivityCategory[] = ['materials', 'construction', 'rebar', 'survey', 'qaqc', 'civil']
 
 export interface ActivityDef {
   key: string
@@ -42,6 +43,13 @@ export const FOOTING_ACTIVITIES: ActivityDef[] = [
   { key: 'poured', scope: 'footing', category: 'construction', label: 'Footing poured', statusSet: work, after: ['preInspection'] },
   { key: 'postSurvey', scope: 'footing', category: 'survey', label: 'Post-pour survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'footing', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
+  // Civil / earthworks, recorded per foundation like the rest. Added after the existing activities so the construction sequence is unchanged.
+  { key: 'excavation', scope: 'footing', category: 'civil', label: 'Excavation', statusSet: work },
+  { key: 'subgradePrep', scope: 'footing', category: 'civil', label: 'Subgrade preparation', statusSet: work },
+  { key: 'compaction', scope: 'footing', category: 'civil', label: 'Compaction', statusSet: work },
+  { key: 'elevationVerification', scope: 'footing', category: 'civil', label: 'Elevation verification', statusSet: work },
+  { key: 'backfill', scope: 'footing', category: 'civil', label: 'Backfill', statusSet: work },
+  { key: 'finalGrading', scope: 'footing', category: 'civil', label: 'Final grading', statusSet: work },
 ]
 
 export const PLINTH_ACTIVITIES: ActivityDef[] = [
@@ -58,6 +66,10 @@ export const PLINTH_ACTIVITIES: ActivityDef[] = [
   { key: 'poured', scope: 'plinth', category: 'construction', label: 'Plinth poured', statusSet: work, after: ['preInspection'] },
   { key: 'postSurvey', scope: 'plinth', category: 'survey', label: 'Post-pour survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'plinth', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
+  // Added after the existing activities so the plinth sequence is unchanged: plinth layout, and the anchor bolt survey and verification.
+  { key: 'layout', scope: 'plinth', category: 'survey', label: 'Layout completed', statusSet: work },
+  { key: 'anchorBoltSurvey', scope: 'plinth', category: 'survey', label: 'Anchor bolt survey', statusSet: work },
+  { key: 'anchorBoltVerification', scope: 'plinth', category: 'qaqc', label: 'Anchor bolt verification', statusSet: qaqc },
 ]
 
 export const ACTIVITY_DEFS: Record<ActivityScope, ActivityDef[]> = {

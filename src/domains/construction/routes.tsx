@@ -18,7 +18,7 @@ import { ProjectLayout } from './pages/ProjectLayout'
 import { projectFleetRoutes } from '../fleet/routes'
 import { DemoOnly } from './pages/DemoOnly'
 import { useConstruction } from './store'
-import { FoundationSelector, FutureDevelopment, LegacyRedirect, ManageDiscipline, ProjectContextRedirect, RootRedirect, SetupHub } from './pages/Sections'
+import { FoundationSelector, LegacyRedirect, ManageDiscipline, ProjectContextRedirect, RootRedirect, SetupHub } from './pages/Sections'
 import { LEGACY_PROJECT_PATHS } from './navigation'
 import { paths } from './paths'
 
@@ -89,7 +89,7 @@ export const constructionRoutes: RouteObject[] = [
               { path: 'construction', element: <ManageDiscipline kind="construction" />, handle: text('Construction') },
               { path: 'survey', element: <ManageDiscipline kind="survey" />, handle: text('Survey') },
               { path: 'qaqc', element: <ManageDiscipline kind="qaqc" />, handle: text('QA/QC') },
-              { path: 'civil', element: <FutureDevelopment title="Civil / Earthworks" description="Grading, excavation, pre-pour preparation and backfill tracking is planned. Nothing is recorded here yet, and no progress is shown." />, handle: text('Civil / Earthworks') },
+              { path: 'civil', element: <ManageDiscipline kind="civil" />, handle: text('Civil / Earthworks') },
             ],
           },
           // ── Foundation Overview ──
