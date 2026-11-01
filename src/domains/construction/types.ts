@@ -231,7 +231,7 @@ export interface PlateSpec { thickness: number; width: number; length: number; u
 export interface LibraryEmbedPlate extends PlateSpec { id: string; projectId: string; createdAt: string; createdBy: string }
 /** An embed plate added directly to a foundation. `componentId` names a library embed plate (an anchorage type's, or a saved library plate); empty means the plate's own
  * specification is on the foundation (`plate`). `per-foundation` multiplies `qty` by the number of physical foundations; `total` is the total across all of them. */
-export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec; /** Absent/null = the footing; otherwise every plinth of that set (qty per plinth). */ mountGroupId?: MountGroupId }
+export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec; /** Absent/null = the footing; otherwise every plinth of that set (qty per plinth). */ mountGroupId?: MountGroupId; /** Post-installed embed plates get their own installation activity; absent = installed as part of the pour. */ installMethod?: InstallMethod }
 
 /** One physical foundation (or a set sharing a label) within a foundation designation, such as A-1 within OP1-01-01. Optional. It inherits the designation's footing,
  * anchorage configuration and quantity, and adds only its identifier and its own embed plates, chosen from the Anchorage Library. */

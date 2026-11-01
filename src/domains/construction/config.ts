@@ -1,5 +1,5 @@
 import type { Tone } from '@/components/ui/StatusBadge'
-import type { InstallMethod, ProjectStatus, ActivityScope, ActivityStatus, Acceptance, AutoMetric, ApprovalStatus, AuthStatus, FabStatus, PickupStatus, SiteReceiptStatus, TemplateReuse } from './types'
+import type { ProjectStatus, ActivityScope, ActivityStatus, Acceptance, AutoMetric, ApprovalStatus, AuthStatus, FabStatus, PickupStatus, SiteReceiptStatus, TemplateReuse } from './types'
 
 export type ActivityCategory = 'materials' | 'construction' | 'rebar' | 'survey' | 'qaqc' | 'civil'
 export type StatusSet = 'work' | 'qaqc'
@@ -28,7 +28,7 @@ export interface ActivityDef {
   after?: string[]
   /** Footing activities that must be complete first (plinth scope only). */
   afterFooting?: string[]
-  /** Only exists where it applies (anchor bolt installation: where anchor bolts are required), so it is not part of the standard list. */
+  /** Only exists where it applies (post-install tracking: where post-installed components exist), so it is not part of the standard list. */
   optional?: boolean
 }
 
@@ -42,7 +42,7 @@ export const FOOTING_ACTIVITIES: ActivityDef[] = [
   { key: 'formed', scope: 'footing', category: 'construction', label: 'Footing formed', statusSet: work, after: ['layout'] },
   { key: 'preSurvey', scope: 'footing', category: 'survey', label: 'Pre-pour survey checks', statusSet: work, after: ['formed', 'rebarInstalled'] },
   { key: 'preInspection', scope: 'footing', category: 'qaqc', label: 'Pre-pour inspection', statusSet: qaqc, after: ['formed', 'rebarInstalled'] },
-  { key: 'poured', scope: 'footing', category: 'construction', label: 'Footing poured', statusSet: work, after: ['preInspection', 'anchorBoltsWetSet'] },
+  { key: 'poured', scope: 'footing', category: 'construction', label: 'Footing poured', statusSet: work, after: ['preInspection'] },
   { key: 'postSurvey', scope: 'footing', category: 'survey', label: 'Post-pour survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'footing', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
   // Civil / earthworks, recorded per foundation like the rest. Added after the existing activities so the construction sequence is unchanged.
@@ -65,7 +65,7 @@ export const PLINTH_ACTIVITIES: ActivityDef[] = [
   { key: 'formed', scope: 'plinth', category: 'construction', label: 'Plinth formed', statusSet: work, afterFooting: ['poured'] },
   { key: 'preSurvey', scope: 'plinth', category: 'survey', label: 'Pre-pour survey checks', statusSet: work, after: ['formed', 'rebarInstalled', 'anchorBolts'] },
   { key: 'preInspection', scope: 'plinth', category: 'qaqc', label: 'Pre-pour inspection', statusSet: qaqc, after: ['formed', 'rebarInstalled'] },
-  { key: 'poured', scope: 'plinth', category: 'construction', label: 'Plinth poured', statusSet: work, after: ['preInspection', 'anchorBoltsWetSet'] },
+  { key: 'poured', scope: 'plinth', category: 'construction', label: 'Plinth poured', statusSet: work, after: ['preInspection'] },
   { key: 'postSurvey', scope: 'plinth', category: 'survey', label: 'Post-pour survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'plinth', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
   // Added after the existing activities so the plinth sequence is unchanged: plinth layout, and the anchor bolt survey and verification.
@@ -75,21 +75,20 @@ export const PLINTH_ACTIVITIES: ActivityDef[] = [
 ]
 
 /**
- * Anchor bolt installation, tracked on its own (not as forming, rebar or pouring) wherever anchor bolts are required, once per installation method present:
- * wet-set bolts are cast in, so they are in before the concrete is poured; post-installed bolts go in after it, and never hold up the pour.
+ * Post-installed components, tracked on their own (not as forming, rebar or pouring): anchor bolts and embed plates ticked "Post-Install" in Foundation Setup.
+ * They go into hardened concrete, so they never hold up the pour. Components installed as part of the pour have no installation activity.
  */
-export const BOLT_ACTIVITY_KEY: Record<InstallMethod, string> = { 'wet-set': 'anchorBoltsWetSet', 'post-installed': 'anchorBoltsPostInstalled' }
-export const BOLT_KEYS = Object.values(BOLT_ACTIVITY_KEY)
-export const INSTALL_METHOD_LABEL: Record<InstallMethod, string> = { 'wet-set': 'Wet-set', 'post-installed': 'Post-installed' }
-const boltActivities = (scope: ActivityScope): ActivityDef[] => [
-  { key: BOLT_ACTIVITY_KEY['wet-set'], scope, category: 'construction', label: 'Anchor bolts installed (wet-set)', statusSet: work, optional: true },
-  { key: BOLT_ACTIVITY_KEY['post-installed'], scope, category: 'construction', label: 'Anchor bolts installed (post-installed)', statusSet: work, after: ['poured'], optional: true },
-]
-export const BOLT_ACTIVITIES: Record<ActivityScope, ActivityDef[]> = { footing: boltActivities('footing'), plinth: boltActivities('plinth') }
+export type InstallItem = 'bolts' | 'embeds'
+export const INSTALL_ACTIVITY_KEY: Record<InstallItem, string> = { bolts: 'anchorBoltsPostInstalled', embeds: 'embedsPostInstalled' }
+export const INSTALL_KEYS = Object.values(INSTALL_ACTIVITY_KEY)
+export const INSTALL_LABEL: Record<InstallItem, string> = { bolts: 'Anchor bolts installed (post-installed)', embeds: 'Embed plates installed (post-installed)' }
+const installActivities = (scope: ActivityScope): ActivityDef[] =>
+  (Object.keys(INSTALL_ACTIVITY_KEY) as InstallItem[]).map((i) => ({ key: INSTALL_ACTIVITY_KEY[i], scope, category: 'construction', label: INSTALL_LABEL[i], statusSet: work, after: ['poured'], optional: true }))
+export const INSTALL_ACTIVITIES: Record<ActivityScope, ActivityDef[]> = { footing: installActivities('footing'), plinth: installActivities('plinth') }
 
 export const ACTIVITY_DEFS: Record<ActivityScope, ActivityDef[]> = {
-  footing: [...FOOTING_ACTIVITIES, ...BOLT_ACTIVITIES.footing],
-  plinth: [...PLINTH_ACTIVITIES, ...BOLT_ACTIVITIES.plinth],
+  footing: [...FOOTING_ACTIVITIES, ...INSTALL_ACTIVITIES.footing],
+  plinth: [...PLINTH_ACTIVITIES, ...INSTALL_ACTIVITIES.plinth],
 }
 
 export function getDef(scope: ActivityScope, key: string): ActivityDef {
@@ -186,7 +185,7 @@ export const HANDOVER_PHASES: { id: HandoverPhase; label: string }[] = [
 
 /** Shown beside the progress figures so the basis is never hidden. */
 export const PROGRESS_BASIS = [
-  'Every footing and every plinth record has construction stages: rebar, forming and pouring, plus anchor bolt installation wherever anchor bolts are required (wet-set and post-installed bolts are tracked separately). Concrete recorded as poured in a pour counts toward the pouring stage.',
+  'Every footing and every plinth record has construction stages: rebar, forming and pouring, plus installation of post-installed anchor bolts and embed plates wherever they are required. Concrete recorded as poured in a pour counts toward the pouring stage.',
   'The stages count equally. The rebar stage is split evenly between "built" and "installed", so rebar is not counted twice as heavily as forming or pouring.',
   'Each foundation type (one designation) has one progress figure: the average of its footing and plinth records. How the types are combined depends on the Completion basis: each type counts once (Foundation type), by how many individual foundations it represents (Foundation count), or by concrete volume (Concrete volume). Overall progress combines every foundation of every area directly; it is not an average of the area percentages.',
   'No quantities, hours or costs are available, so there is no effort weighting. Survey, QA/QC and handover are tracked separately and never change this figure.',

@@ -126,7 +126,7 @@ function FoundationPanel({ id, discipline, onClose }: { id: string; discipline: 
           <div className="mt-2"><ProgressBar value={t.percent} width="100%" showValue={false} /></div>
           {(f.description || qty > 1) && <p className="mt-2 text-xs text-muted">{f.description}{qty > 1 ? `${f.description ? ' · ' : ''}${qty} footings, tracked together as one designation` : ''}</p>}
         </div>
-        {discipline === 'construction' && outstanding.length > 0 && <p role="status" className="border-l-2 border-warn pl-3"><span className="font-medium">Anchor bolts: </span>{outstanding.join(' · ')}. Construction is not complete until they are installed.</p>}
+        {discipline === 'construction' && outstanding.length > 0 && <p role="status" className="border-l-2 border-warn pl-3"><span className="font-medium">Post-install: </span>{outstanding.join(' · ')}. Construction is not complete until they are installed.</p>}
         {!access.can('data.edit') && <p role="status" className="border-l-2 border-line pl-3 text-muted">You can view progress. Updating it needs an editor or admin role.</p>}
         {groups.map((g) => (
           <section key={g.key} aria-label={g.title}>

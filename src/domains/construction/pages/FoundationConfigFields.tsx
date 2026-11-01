@@ -4,8 +4,7 @@ import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
 import { footingVolume, hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import { typeHasBolts } from '../anchorageMounts'
-import { INSTALL_METHOD_LABEL } from '../config'
+import { typeHasBolts, typeHasEmbeds } from '../anchorageMounts'
 import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, InstallMethod, LengthUnit, PlateSpec, Plinth } from '../types'
 import type { AnchorageInput, FoundationConfig, FoundationEmbedInput, FootingBoltInput, GroupInput } from '../configActions'
 import { itemsOf } from '../tracker/requirements'
@@ -14,6 +13,15 @@ import { plateText } from '../plates'
 /** Text-box state for a set of dimensions. */
 export interface DimsDraft { length: string; width: string; height: string; unit: LengthUnit }
 /** One anchorage group on the footing or on each plinth of a set: a library type and how many. */
+/** The Post-Install checkbox: unchecked = installed as part of the pour (no installation activity), checked = a separate installation activity in Construction. */
+function PostInstall({ label, checked, onChange, hint }: { label: string; checked: boolean; onChange: (post: boolean) => void; hint?: string }) {
+  return (
+    <label className="flex items-center gap-2 text-xs"><input type="checkbox" aria-label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />Post-Install{hint && <span className="text-muted"> · {hint}</span>}</label>
+  )
+}
+const postOf = (m: InstallMethod | undefined) => m === 'post-installed'
+const methodOf = (post: boolean): InstallMethod => (post ? 'post-installed' : 'wet-set')
+
 export interface AnchorageDraft { id?: string; typeId: string; qty: string; /** How the bolts of this type are installed. */ installMethod: InstallMethod }
 /** What is mounted on the footing, or on each plinth of one set: anchorage groups, individual anchor bolts and embed plates. */
 export interface MountDraft { anchorages: AnchorageDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
@@ -40,13 +48,13 @@ export interface PlateDraft { thickness: string; width: string; length: string; 
 export const blankPlate = (unit: 'mm' | 'in' = 'mm'): PlateDraft => ({ thickness: '', width: '', length: '', unit, studCount: '', studDiameter: '', studLength: '' })
 const plateDraft = (p: PlateSpec): PlateDraft => ({ thickness: String(p.thickness), width: String(p.width), length: String(p.length), unit: p.unit, studCount: p.studCount === null ? '' : String(p.studCount), studDiameter: p.studDiameter === null ? '' : String(p.studDiameter), studLength: p.studLength === null ? '' : String(p.studLength) })
 /** Text-box state for one embed plate configuration on a foundation. `componentId` empty = a plate created here (`plate`), saved to this foundation or to the library. */
-export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total'; plate?: PlateDraft; save?: 'foundation' | 'library' }
-const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode, ...(e.plate ? { plate: plateDraft(e.plate), save: 'foundation' as const } : {}) })
+export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total'; plate?: PlateDraft; save?: 'foundation' | 'library'; installMethod?: InstallMethod }
+const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode, installMethod: e.installMethod ?? 'wet-set', ...(e.plate ? { plate: plateDraft(e.plate), save: 'foundation' as const } : {}) })
 const numOrNullStr = (t: string) => (t.trim() === '' ? null : Number(t))
 const plateSpec = (d: PlateDraft): PlateSpec => ({ thickness: Number(d.thickness), width: Number(d.width), length: Number(d.length), unit: d.unit, studCount: numOrNullStr(d.studCount), studDiameter: numOrNullStr(d.studDiameter), studLength: numOrNullStr(d.studLength) })
 const embedInput = (d: EmbedDraft): FoundationEmbedInput => (d.componentId || !d.plate
-  ? { id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode }
-  : { id: d.id, plate: plateSpec(d.plate), save: d.save ?? 'foundation', qty: Number(d.qty), mode: d.mode })
+  ? { id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode, installMethod: d.installMethod }
+  : { id: d.id, plate: plateSpec(d.plate), save: d.save ?? 'foundation', qty: Number(d.qty), mode: d.mode, installMethod: d.installMethod })
 /** A library embed plate the form can offer: the component and the anchorage type that defines it (none for a plate saved to the library on its own). */
 export interface EmbedOption { component: AnchorageComponent; type: AnchorageType | null }
 export const embedOptionLabel = (o: EmbedOption) => { const it = itemsOf({ ...o.component, qty: 1 })[0]; return `${o.type?.code ?? 'Library'} · ${[it.name !== 'Embed plate' ? it.name : '', it.size, it.spec].filter(Boolean).join(' · ') || 'Embed plate'}` }
@@ -266,11 +274,8 @@ function MountEditor({ value, onChange, types, components, multiplier, unit, lab
                 <Field label={`Per ${where}`}><Input aria-label={`Anchorages per ${where}, ${label} group ${i + 1}`} inputMode="numeric" value={a.qty} onChange={(e) => setRow(i, { qty: e.target.value })} /></Field>
                 <Button variant="ghost" aria-label={`Remove ${label} anchorage group ${i + 1}`} onClick={() => onChange({ ...value, anchorages: value.anchorages.filter((_, j) => j !== i) })}><Trash2 size={15} strokeWidth={1.5} /></Button>
               </div>
-              {a.typeId && typeHasBolts({ anchorageComponents: components }, a.typeId) && (
-                <div className="max-w-xs"><Field label="Anchor bolts are installed">
-                  <Select aria-label={`Bolt installation, ${label} group ${i + 1}`} value={a.installMethod} onChange={(e) => setRow(i, { installMethod: e.target.value as InstallMethod })}>
-                    {(Object.keys(INSTALL_METHOD_LABEL) as InstallMethod[]).map((m) => <option key={m} value={m}>{INSTALL_METHOD_LABEL[m]}</option>)}
-                  </Select></Field></div>
+              {a.typeId && (typeHasBolts({ anchorageComponents: components }, a.typeId) || typeHasEmbeds({ anchorageComponents: components }, a.typeId)) && (
+                <PostInstall label={`Post-Install, ${label} group ${i + 1}`} checked={postOf(a.installMethod)} onChange={(p) => setRow(i, { installMethod: methodOf(p) })} hint="applies to this group’s anchor bolts and embed plates" />
               )}
               {typeError?.row === i && <p role="alert" className="text-xs text-bad">{typeError.message}</p>}
               {a.typeId && <p role="status" aria-live="polite" className="text-xs text-muted">{totals.length ? <>{Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? `${plural(Number(a.qty) * multiplier, 'anchorage')} → ` : ''}<span className="font-medium text-ink">{totals.join(' · ')}</span></> : Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? 'This type has no components yet (add them in the Anchorage Library).' : 'Enter a whole number of 1 or more.'}</p>}
@@ -399,9 +404,9 @@ function BoltCard({ index, prefix = '', unit = 'foundation', value: b, quantity,
       <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[7rem_11rem_11rem_1fr]">
         <Field label="Quantity *"><Input aria-label={`Bolt quantity ${n}`} inputMode="numeric" value={b.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
         <Field label="Quantity is"><Select aria-label={`Bolt quantity method ${n}`} value={b.mode} onChange={(e) => set({ mode: e.target.value as BoltDraft['mode'] })}><option value="per-foundation">{`Per ${word}`}</option><option value="total">Total</option></Select></Field>
-        <Field label="Installation"><Select aria-label={`Bolt installation ${n}`} value={b.installMethod} onChange={(e) => set({ installMethod: e.target.value as InstallMethod })}>{(Object.keys(INSTALL_METHOD_LABEL) as InstallMethod[]).map((m) => <option key={m} value={m}>{INSTALL_METHOD_LABEL[m]}</option>)}</Select></Field>
         <p role="status" aria-live="polite" className="col-span-2 pb-2 text-[13px] sm:col-span-1">{(() => { const q = Number(b.qty); const ok = Number.isInteger(q) && q >= 1; if (!ok) return <span className="text-muted">Enter a whole number of 1 or more.</span>; const t = boltCount(b, quantity); return <><span className="text-muted">{b.mode === 'per-foundation' ? `${q.toLocaleString('en-CA')} per ${word} × ${quantity.toLocaleString('en-CA')} ${word}${quantity === 1 ? '' : 's'} = ` : `${q.toLocaleString('en-CA')} in total across all ${quantity.toLocaleString('en-CA')} = `}</span><span className="font-medium">{t.toLocaleString('en-CA')} bolt{t === 1 ? '' : 's'} required</span>{(Number(b.nutsPerBolt) > 0 || Number(b.washersPerBolt) > 0) && <span className="text-muted"> · {(t * (Number(b.nutsPerBolt) || 0)).toLocaleString('en-CA')} nuts · {(t * (Number(b.washersPerBolt) || 0)).toLocaleString('en-CA')} washers</span>}</> })()}</p>
       </div>
+      <PostInstall label={`Post-Install, bolts ${n}`} checked={postOf(b.installMethod)} onChange={(p) => set({ installMethod: methodOf(p) })} />
       <div className={grid}>
         <Field label="Diameter *"><Input aria-label={`Bolt diameter ${n}`} value={b.diameter} onChange={(e) => set({ diameter: e.target.value })} placeholder={'e.g. M25 or 3/4"'} /></Field>
         <Field label="Total length *"><Input aria-label={`Bolt length ${n}`} inputMode="decimal" value={b.length} onChange={(e) => set({ length: e.target.value })} placeholder="e.g. 900" /></Field>
@@ -460,6 +465,7 @@ function EmbedCard({ index, prefix = '', unit = 'foundation', value: e, quantity
         <Field label="Quantity *"><Input aria-label={`Embed plate quantity ${n}`} inputMode="numeric" value={e.qty} onChange={(ev) => onChange({ ...e, qty: ev.target.value })} /></Field>
         <Field label="Quantity is"><Select aria-label={`Quantity method ${n}`} value={e.mode} onChange={(ev) => onChange({ ...e, mode: ev.target.value as EmbedDraft['mode'] })}><option value="per-foundation">{`Per ${word}`}</option><option value="total">Total</option></Select></Field>
       </div>
+      <PostInstall label={`Post-Install, embed plates ${n}`} checked={postOf(e.installMethod)} onChange={(p) => onChange({ ...e, installMethod: methodOf(p) })} />
       {creating && p && (
         <div className="space-y-3 border-t border-line pt-3">
           <div className={grid}>

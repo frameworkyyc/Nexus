@@ -4,7 +4,7 @@ import * as K from '../actions'
 import { anchoragesOn } from '../anchorageMounts'
 import type { ComponentInput, FoundationConfig } from '../configActions'
 import { emptyConstruction } from '../empty'
-import { blankBolt, configFromDraft, draftFromFoundation, FoundationConfigFields, emptyMount, type ConfigDraft } from '../pages/FoundationConfigFields'
+import { blankBolt, blankPlate, configFromDraft, draftFromFoundation, FoundationConfigFields, emptyMount, type ConfigDraft } from '../pages/FoundationConfigFields'
 import { mountedAnchorageText } from '../pages/MountedAnchorage'
 import type { ConstructionState, Dims, Foundation } from '../types'
 
@@ -112,17 +112,19 @@ describe('the setup form', () => {
   })
 })
 
-describe('the setup form: anchor bolt installation method', () => {
-  it('offers wet-set or post-installed on individual bolts and on anchorage groups whose type has bolts, and saves the choice', () => {
+describe('the setup form: Post-Install checkbox', () => {
+  it('offers a Post-Install checkbox on anchorage groups, individual bolts and embed plates, unchecked by default, and saves the choice', () => {
     const w = world()
     const blank: ConfigDraft = { footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], ...emptyMount() }
     const draft: ConfigDraft = { ...blank, anchorages: [{ typeId: w.A11, qty: '2', installMethod: 'post-installed' }], bolts: [{ ...blankBolt(), diameter: '5/8"', length: '250', thread: 'all-thread', installMethod: 'post-installed' }] }
     const out = renderToStaticMarkup(<FoundationConfigFields draft={draft} onChange={() => undefined} types={w.s.anchorageTypes} components={w.s.anchorageComponents ?? []} quantity={1} preview={null} />)
-    expect(out).toContain('Anchor bolts are installed') // the anchorage group's type (OP1-A11) contains bolts
-    expect(out).toContain('Bolt installation, Footing group 1')
-    expect(out).toContain('Bolt installation 1 (footing)') // the individual bolts
-    expect(out.match(/Wet-set/g)!.length).toBeGreaterThanOrEqual(2)
-    expect(out.match(/Post-installed/g)!.length).toBeGreaterThanOrEqual(2)
+    expect(out).toContain('Post-Install, Footing group 1') // the anchorage group's type (OP1-A11) contains bolts
+    expect(out).toContain('Post-Install, bolts 1 (footing)') // the individual bolts
+    expect(out).not.toContain('Wet-set')
+    expect(out.match(/type="checkbox" aria-label="Post-Install[^>]*checked=""/g)!.length).toBe(2)
+    const withEmbed = renderToStaticMarkup(<FoundationConfigFields draft={{ ...blank, embeds: [{ componentId: '', qty: '2', mode: 'per-foundation', plate: blankPlate(), save: 'foundation' }] }} onChange={() => undefined} types={w.s.anchorageTypes} components={w.s.anchorageComponents ?? []} quantity={1} preview={null} />)
+    expect(withEmbed).toContain('Post-Install, embed plates 1 (footing)')
+    expect(withEmbed).not.toMatch(/aria-label="Post-Install[^>]*checked=""/) // default: installed with the pour
     const cfg = configFromDraft(draft)
     if ('error' in cfg) throw new Error(cfg.error)
     expect(cfg.config.anchorages?.[0]).toMatchObject({ qty: 2, installMethod: 'post-installed' })
@@ -133,12 +135,17 @@ describe('the setup form: anchor bolt installation method', () => {
     const again = draftOf(saved, f)
     expect(again.anchorages[0].installMethod).toBe('post-installed')
     expect(again.bolts[0].installMethod).toBe('post-installed')
+    // An embed plate ticked Post-Install keeps the setting through save and reopen.
+    const e = configFromDraft({ ...blank, embeds: [{ componentId: '', qty: '2', mode: 'per-foundation', plate: { ...blankPlate(), thickness: '16', width: '300', length: '300' }, save: 'foundation', installMethod: 'post-installed' }] })
+    if ('error' in e) throw new Error(e.error)
+    const withPlate = apply(w.s, K.createFoundation(w.areaId, 'OP1-01-07', '', 0, 1, e.config))
+    expect(draftOf(withPlate, withPlate.foundations.find((x) => x.number === 'OP1-01-07') as Foundation).embeds[0].installMethod).toBe('post-installed')
   })
 
-  it('does not ask for a method on an anchorage type that has no bolts', () => {
+  it('does not offer Post-Install on an anchorage type that has no bolts or embed plates', () => {
     const w = world()
     const blank: ConfigDraft = { footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], ...emptyMount() }
     const out = renderToStaticMarkup(<FoundationConfigFields draft={{ ...blank, anchorages: [{ typeId: w.B2, qty: '1', installMethod: 'wet-set' }] }} onChange={() => undefined} types={w.s.anchorageTypes} components={w.s.anchorageComponents ?? []} quantity={1} preview={null} />)
-    expect(out).not.toContain('Anchor bolts are installed')
+    expect(out).not.toContain('Post-Install')
   })
 })

@@ -1,7 +1,7 @@
 import { identity } from '@/app/identity'
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
 import { formatShortDate, pct, percentOf } from '@/lib/format'
-import { ACTIVITY_DEFS, BOLT_KEYS, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
+import { ACTIVITY_DEFS, INSTALL_KEYS, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
 import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
   Foundation, HandoverRecord, HardwareKind, Person, Plinth, PlinthReady, POLine, PurchaseOrder, Supplier,
@@ -277,13 +277,13 @@ export const tallyCategory = (idx: Index, acts: Activity[], category: 'construct
 
 /**
  * Construction progress for a set of activities (0–100).
- * Each element (footing or plinth) = average of equal stages: rebar (built + installed, split evenly), forming, pouring, and — only where anchor bolts are required —
- * anchor bolt installation (its wet-set and post-installed activities split evenly, like rebar). A footing or plinth with outstanding bolts is therefore never complete.
+ * Each element (footing or plinth) = average of equal stages: rebar (built + installed, split evenly), forming, pouring, and — only where post-installed anchor bolts or embed plates
+ * exist — their installation (the bolt and embed activities split evenly, like rebar). A footing or plinth with outstanding post-installed components is therefore never complete.
  */
-/** One element's completion, 0–1: the average of its stages. `bolts` holds 1 or 0 per anchor bolt installation activity it has (empty = no bolts required, no such stage). */
-export function elementStages(done: (key: string) => number, bolts: number[], poured = done('poured')): number {
+/** One element's completion, 0–1: the average of its stages. `installs` holds 1 or 0 per post-install activity it has (anchor bolts, embed plates; empty = nothing post-installed, no such stage). */
+export function elementStages(done: (key: string) => number, installs: number[], poured = done('poured')): number {
   const stages = [(done('rebarBuilt') + done('rebarInstalled')) / 2, done('formed'), poured]
-  if (bolts.length) stages.push(bolts.reduce((t, x) => t + x, 0) / bolts.length)
+  if (installs.length) stages.push(installs.reduce((t, x) => t + x, 0) / installs.length)
   return stages.reduce((t, x) => t + x, 0) / stages.length
 }
 
@@ -297,7 +297,7 @@ export function progressOf(idx: Index, acts: Activity[]): number {
       const a = list.find((x) => x.key === key)
       return a && isDone(effectiveStatus(idx, a)) ? 1 : 0
     }
-    sum += elementStages(done, list.filter((x) => BOLT_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0)))
+    sum += elementStages(done, list.filter((x) => INSTALL_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0)))
   }
   return percentOf(sum, owners.size) ?? 0
 }

@@ -1,5 +1,5 @@
 import { percentOf } from '@/lib/format'
-import { BOLT_KEYS, isConstructionCategory, isDone, getDef } from './config'
+import { INSTALL_KEYS, isConstructionCategory, isDone, getDef } from './config'
 import { concreteOf, compKey, componentVolume, itemKey } from './pours'
 import { elementStages, effectiveStatus, foundationActivities, type Index } from './selectors'
 import { foundationQuantity } from './foundationQuantity'
@@ -80,7 +80,7 @@ function elementsOf(idx: Index, f: Foundation): Element[] {
   const concrete = concreteOf(idx.state, f)
   return [...owners.values()].map(({ plinthId, acts }) => {
     const done = (key: string) => { const a = acts.find((x) => x.key === key); return a && isDone(effectiveStatus(idx, a)) ? 1 : 0 }
-    const bolts = acts.filter((x) => BOLT_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0))
+    const bolts = acts.filter((x) => INSTALL_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0))
     const stages = (poured: number) => elementStages(done, bolts, poured)
     const perUnit = componentVolume(concrete, plinthId)
     return {

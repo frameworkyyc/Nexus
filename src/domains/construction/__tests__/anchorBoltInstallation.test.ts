@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import * as K from '../actions'
-import { boltOwners } from '../anchorageMounts'
+import { installOwners } from '../anchorageMounts'
 import { boltLines, outstandingBolts } from '../boltInstallation'
 import { completionOf } from '../completionBasis'
-import { BOLT_KEYS, getDef, isConstructionCategory } from '../config'
+import { INSTALL_KEYS, getDef, isConstructionCategory } from '../config'
 import type { ComponentInput, FoundationConfig } from '../configActions'
 import { emptyConstruction } from '../empty'
 import { installationIndicator } from '../packageProgress'
@@ -38,12 +38,14 @@ const add = (s: ConstructionState, areaId: string, number: string, plinths: numb
 }
 const idxOf = (s: ConstructionState) => getIndex(s)
 const acts = (s: ConstructionState, f: Foundation) => foundationActivities(idxOf(s), f)
-const boltActs = (s: ConstructionState, f: Foundation) => acts(s, f).filter((a) => BOLT_KEYS.includes(a.key))
+const boltActs = (s: ConstructionState, f: Foundation) => acts(s, f).filter((a) => INSTALL_KEYS.includes(a.key))
+const keys = (s: ConstructionState, f: Foundation) => boltActs(s, f).map((a) => a.key).sort()
+const embed = (qty: number, installMethod?: 'wet-set' | 'post-installed', size = 16) => ({ plate: { thickness: size, width: 300, length: 300, unit: 'mm' as const, studCount: null, studDiameter: null, studLength: null }, save: 'foundation' as const, qty, mode: 'per-foundation' as const, ...(installMethod ? { installMethod } : {}) })
 const mark = (s: ConstructionState, id: string, status: 'complete' | 'approved' | 'not-started' | 'in-progress' = 'complete') => apply(s, K.updateActivity(id, { status }, TODAY))
 /** The pre-pour inspection approved, so the only thing that could hold up the pour is the anchor bolts. */
 const inspected = (s: ConstructionState, f: Foundation) => mark(s, acts(s, f).find((a) => a.key === 'preInspection')!.id, 'approved')
 /** Everything except anchor bolt installation, finished. */
-const finishBuild = (s: ConstructionState, f: Foundation) => s.activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category) && !BOLT_KEYS.includes(a.key)).reduce((acc, a) => mark(acc, a.id), s)
+const finishBuild = (s: ConstructionState, f: Foundation) => s.activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category) && !INSTALL_KEYS.includes(a.key)).reduce((acc, a) => mark(acc, a.id), s)
 const percent = (s: ConstructionState, f: Foundation) => progressOf(idxOf(s), acts(s, f))
 
 describe('OP1-01-06: one footing, four post-installed anchor bolts, no plinths', () => {
@@ -98,23 +100,18 @@ describe('OP1-01-06: one footing, four post-installed anchor bolts, no plinths',
   })
 })
 
-describe('wet-set bolts are in before the pour', () => {
-  it('a wet-set activity is a prerequisite of pouring (shown as waiting), but the record can still be made', () => {
+describe('unchecked Post-Install: installed with the pour, no separate activity', () => {
+  it('wet-set bolts and embed plates add no installation activity, and never hold up the pour or completion', () => {
     const w = world()
-    const added = add(w.s, w.areaId, 'W-1', 0, 1, { bolts: [loose(4)] }) // default method: wet-set
-    const f = added.f
-    const s = inspected(added.s, f)
-    expect(boltActs(s, f).map((a) => a.key)).toEqual(['anchorBoltsWetSet'])
-    const poured = acts(s, f).find((a) => a.key === 'poured')!
-    expect(isReady(idxOf(s), poured)).toBe(false)
-    expect(err(s, K.updateActivity(poured.id, { status: 'complete' }, TODAY))).toBeUndefined()
-    const bolts = mark(s, boltActs(s, f)[0].id)
-    expect(isReady(idxOf(bolts), acts(bolts, f).find((a) => a.key === 'poured')!)).toBe(true)
+    const added = add(w.s, w.areaId, 'W-1', 0, 1, { bolts: [loose(4)], embeds: [embed(2)], anchorages: [{ anchorageTypeId: w.A11, qty: 1 }] })
+    expect(boltActs(added.s, added.f)).toEqual([])
+    expect(percent(finishBuild(added.s, added.f), added.f)).toBe(100)
+    expect(foundationState(idxOf(finishBuild(added.s, added.f)), added.f).state).toBe('constructed')
   })
 })
 
 describe('anchorage groups and individual bolts, on footings and plinths', () => {
-  it('a footing anchorage group with bolts gets the activity; a type with no bolts does not', () => {
+  it('a Post-Install footing anchorage group with bolts gets the activity; a type with no bolts does not', () => {
     const w = world()
     const a = add(w.s, w.areaId, 'G-1', 0, 1, { anchorages: [{ anchorageTypeId: w.A11, qty: 2, installMethod: 'post-installed' }] })
     expect(boltActs(a.s, a.f).map((x) => x.key)).toEqual(['anchorBoltsPostInstalled'])
@@ -128,11 +125,11 @@ describe('anchorage groups and individual bolts, on footings and plinths', () =>
     const w = world()
     const r = add(w.s, w.areaId, 'P-1', null, 2, {
       groups: [
-        { count: 2, anchorages: [{ anchorageTypeId: w.A11, qty: 1 }] },
+        { count: 2, anchorages: [{ anchorageTypeId: w.A11, qty: 1, installMethod: 'post-installed' }] },
         { count: 1, anchorages: [{ anchorageTypeId: w.T, qty: 1 }] },
       ],
     })
-    const owners = boltOwners(r.s)
+    const owners = installOwners(r.s)
     const [p1, p2, p3] = r.s.plinths.filter((p) => p.foundationId === r.f.id)
     expect([...owners.keys()].sort()).toEqual([p1.id, p2.id].sort())
     expect(boltActs(r.s, r.f).map((a) => a.plinthId).sort()).toEqual([p1.id, p2.id].sort())
@@ -140,37 +137,62 @@ describe('anchorage groups and individual bolts, on footings and plinths', () =>
     expect(owners.has(r.f.id)).toBe(false)
   })
 
-  it('different methods on one footing each have their own activity, and progress counts both', () => {
+  it('mixed methods on one footing: only the Post-Install parts are tracked, and progress follows them', () => {
     const w = world()
-    const r = add(w.s, w.areaId, 'M-1', 0, 1, { anchorages: [{ anchorageTypeId: w.A11, qty: 1, installMethod: 'wet-set' }], bolts: [loose(4, 'post-installed')] })
-    expect(boltActs(r.s, r.f).map((a) => a.key).sort()).toEqual(['anchorBoltsPostInstalled', 'anchorBoltsWetSet'])
+    const r = add(w.s, w.areaId, 'M-1', 0, 1, { anchorages: [{ anchorageTypeId: w.A11, qty: 1, installMethod: 'wet-set' }], bolts: [loose(4, 'post-installed')], embeds: [embed(2, 'post-installed'), embed(1, 'wet-set', 20)] })
+    expect(keys(r.s, r.f)).toEqual(['anchorBoltsPostInstalled', 'embedsPostInstalled'])
     const built = finishBuild(r.s, r.f)
-    expect(percent(built, r.f)).toBe(75) // bolt stage 0 of 2 methods
-    const wet = mark(built, boltActs(r.s, r.f).find((a) => a.key === 'anchorBoltsWetSet')!.id)
-    expect(percent(wet, r.f)).toBe(88) // (1 + 1 + 1 + 0.5) / 4
-    expect(foundationState(idxOf(wet), r.f).state).toBe('in-progress')
-    const both = mark(wet, boltActs(r.s, r.f).find((a) => a.key === 'anchorBoltsPostInstalled')!.id)
+    expect(percent(built, r.f)).toBe(75) // install stage 0 of 2 activities
+    const bolts = mark(built, boltActs(r.s, r.f).find((a) => a.key === 'anchorBoltsPostInstalled')!.id)
+    expect(percent(bolts, r.f)).toBe(88) // (1 + 1 + 1 + 0.5) / 4
+    expect(foundationState(idxOf(bolts), r.f).state).toBe('in-progress')
+    expect(outstandingBolts(bolts, r.f, acts(bolts, r.f), (x) => effectiveStatus(idxOf(bolts), x))).toEqual(['2 post-installed embed plates outstanding'])
+    const both = mark(bolts, boltActs(r.s, r.f).find((a) => a.key === 'embedsPostInstalled')!.id)
     expect(percent(both, r.f)).toBe(100)
-    expect(outstandingBolts(wet, r.f, acts(wet, r.f), (x) => effectiveStatus(idxOf(wet), x))).toEqual(['4 post-installed anchor bolts outstanding'])
+    expect(foundationState(idxOf(both), r.f).state).toBe('constructed')
   })
 
-  it('several groups of the same method share one activity: nothing doubles, and the progress already recorded stays when more are added', () => {
+  it('post-installed embed plates: own activity, pour not held up, lines name the plates', () => {
     const w = world()
-    const r = add(w.s, w.areaId, 'S-1', 0, 1, { anchorages: [{ anchorageTypeId: w.A11, qty: 1 }] })
+    const r = add(w.s, w.areaId, 'E-1', 0, 3, { footing: d(1, 1, 1), embeds: [embed(2, 'post-installed')] })
+    expect(keys(r.s, r.f)).toEqual(['embedsPostInstalled'])
+    expect(getDef('footing', 'embedsPostInstalled').label).toBe('Embed plates installed (post-installed)')
+    const act = boltActs(r.s, r.f)[0]
+    expect(boltLines(r.s, r.f, act)).toEqual([expect.objectContaining({ source: 'Individual embed plates', perFoundation: 2, total: 6 })])
+    const s = finishBuild(r.s, r.f)
+    expect(effectiveStatus(idxOf(s), acts(s, r.f).find((a) => a.key === 'poured')!)).toBe('complete')
+    expect(percent(s, r.f)).toBe(75)
+    expect(outstandingBolts(s, r.f, acts(s, r.f), (x) => effectiveStatus(idxOf(s), x))).toEqual(['6 post-installed embed plates outstanding'])
+    expect(percent(mark(s, act.id), r.f)).toBe(100)
+  })
+
+  it('a Post-Install anchorage group covers the embed plates of its type too, on plinths', () => {
+    const w = world()
+    let s = apply(w.s, K.addAnchorageType(w.s.projects[0].id, 'OP1-E', ''))
+    const E = s.anchorageTypes.find((t) => t.code === 'OP1-E')!.id
+    s = apply(s, K.setAnchorageComponents(E, [{ kind: 'embed-plate', qty: 2, studCount: null, studDiameter: null, studLength: null }, bolt(4)]))
+    const r = add(s, w.areaId, 'E-2', null, 1, { groups: [{ count: 2, anchorages: [{ anchorageTypeId: E, qty: 1, installMethod: 'post-installed' }] }] })
+    expect(boltActs(r.s, r.f).map((a) => `${a.plinthId}:${a.key}`).sort()).toEqual(r.s.plinths.filter((p) => p.foundationId === r.f.id).flatMap((p) => [`${p.id}:anchorBoltsPostInstalled`, `${p.id}:embedsPostInstalled`]).sort())
+    const off = apply(r.s, K.configureFoundation(r.f.id, { groups: [{ id: r.s.plinths.find((p) => p.foundationId === r.f.id)!.groupId!, count: 2, anchorages: [{ id: r.s.foundationAnchorages![0].id, anchorageTypeId: E, qty: 1, installMethod: 'wet-set' }] }] }))
+    expect(boltActs(off, r.f)).toEqual([])
+  })
+
+  it('several Post-Install groups share one activity: nothing doubles, and recorded progress stays when more are added or removed', () => {
+    const w = world()
+    const post = { installMethod: 'post-installed' as const }
+    const r = add(w.s, w.areaId, 'S-1', 0, 1, { anchorages: [{ anchorageTypeId: w.A11, qty: 1, ...post }] })
     const id = boltActs(r.s, r.f)[0].id
     let s = apply(mark(r.s, id), K.updateActivity(id, { notes: 'north bolts set' }, TODAY))
     const before = s.activities.find((a) => a.id === id)!
-    // A second group of the same method, then one with a different method: the first activity keeps its status, date and notes.
-    s = apply(s, K.configureFoundation(r.f.id, { anchorages: [{ anchorageTypeId: w.A11, qty: 1 }, { anchorageTypeId: w.A11, qty: 2 }] }))
+    s = apply(s, K.configureFoundation(r.f.id, { anchorages: [{ anchorageTypeId: w.A11, qty: 1, ...post }, { anchorageTypeId: w.A11, qty: 2, ...post }] }))
     expect(boltActs(s, r.f)).toHaveLength(1)
     expect(s.activities.find((a) => a.id === id)).toEqual(before)
-    s = apply(s, K.configureFoundation(r.f.id, { anchorages: [{ anchorageTypeId: w.A11, qty: 1 }, { anchorageTypeId: w.A11, qty: 2 }], bolts: [loose(4, 'post-installed')] }))
-    expect(boltActs(s, r.f).map((a) => a.key).sort()).toEqual(['anchorBoltsPostInstalled', 'anchorBoltsWetSet'])
+    s = apply(s, K.configureFoundation(r.f.id, { embeds: [embed(2, 'post-installed')] }))
+    expect(keys(s, r.f)).toEqual(['anchorBoltsPostInstalled', 'embedsPostInstalled'])
     expect(s.activities.find((a) => a.id === id)).toEqual(before)
-    expect(boltActs(s, r.f).find((a) => a.key === 'anchorBoltsPostInstalled')!.status).toBe('not-started')
-    // Taking the post-installed bolts away again leaves the wet-set record alone.
-    s = apply(s, K.configureFoundation(r.f.id, { bolts: [] }))
-    expect(boltActs(s, r.f).map((a) => a.key)).toEqual(['anchorBoltsWetSet'])
+    expect(boltActs(s, r.f).find((a) => a.key === 'embedsPostInstalled')!.status).toBe('not-started')
+    s = apply(s, K.configureFoundation(r.f.id, { embeds: [] }))
+    expect(keys(s, r.f)).toEqual(['anchorBoltsPostInstalled'])
     expect(s.activities.find((a) => a.id === id)).toEqual(before)
   })
 
@@ -182,17 +204,17 @@ describe('anchorage groups and individual bolts, on footings and plinths', () =>
     expect(kept.foundationAnchorages![0]).toMatchObject({ qty: 3, installMethod: 'post-installed' })
     expect(boltActs(kept, r.f).map((a) => a.key)).toEqual(['anchorBoltsPostInstalled'])
     const moved = apply(kept, K.configureFoundation(r.f.id, { anchorages: [{ id: gid, anchorageTypeId: w.A11, qty: 3, installMethod: 'wet-set' }] }))
-    expect(boltActs(moved, r.f).map((a) => a.key)).toEqual(['anchorBoltsWetSet'])
+    expect(boltActs(moved, r.f)).toEqual([]) // unchecked: installed with the pour
     expect(err(r.s, K.configureFoundation(r.f.id, { anchorages: [{ anchorageTypeId: w.A11, qty: 1, installMethod: 'drilled' as never }] }))).toMatch(/wet-set or post-installed/)
     expect(err(r.s, K.configureFoundation(r.f.id, { bolts: [loose(2, 'glued' as never)] }))).toMatch(/wet-set or post-installed/)
   })
 
   it('a library type that gains or loses its bolts adds or removes the activities everywhere it is used', () => {
     const w = world()
-    const r = add(w.s, w.areaId, 'L-1', 0, 1, { anchorages: [{ anchorageTypeId: w.T, qty: 1 }] })
+    const r = add(w.s, w.areaId, 'L-1', 0, 1, { anchorages: [{ anchorageTypeId: w.T, qty: 1, installMethod: 'post-installed' }] })
     expect(boltActs(r.s, r.f)).toEqual([])
     const gained = apply(r.s, K.setAnchorageComponents(w.T, [bolt(4), { kind: 'template', qty: 1 }]))
-    expect(boltActs(gained, r.f).map((a) => a.key)).toEqual(['anchorBoltsWetSet'])
+    expect(boltActs(gained, r.f).map((a) => a.key)).toEqual(['anchorBoltsPostInstalled'])
     const lost = apply(gained, K.setAnchorageComponents(w.T, [{ kind: 'template', qty: 1 }]))
     expect(boltActs(lost, r.f)).toEqual([])
   })
@@ -202,7 +224,7 @@ describe('progress and the completion bases', () => {
   /** A: 10 foundations, bolts outstanding, everything else built. B: 2 foundations, no bolts, built. */
   const mixed = () => {
     const w = world()
-    const a = add(w.s, w.areaId, 'A', 0, 10, { footing: d(1, 1, 1), anchorages: [{ anchorageTypeId: w.A11, qty: 1 }] })
+    const a = add(w.s, w.areaId, 'A', 0, 10, { footing: d(1, 1, 1), anchorages: [{ anchorageTypeId: w.A11, qty: 1, installMethod: 'post-installed' }] })
     const b = add(a.s, w.areaId, 'B', 0, 2, { footing: d(1, 1, 1) })
     return { s: finishBuild(finishBuild(b.s, b.f), a.f), a: a.f, b: b.f }
   }

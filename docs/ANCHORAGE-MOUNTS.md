@@ -37,21 +37,22 @@ Production is at schema 27 and needs 0028 too, before it receives the new code.
   Time Travel bookmark taken before any write: `0000002b-00000000-00005116-b1a1609244f6c689c39bc1c5c7be464f`. Migration 0028 applied atomically (schema 28, 28 ledger rows, 49 anchorage groups = the 49 typed plinth sets, `foreign_key_check` empty), then the pre-flighted version `db06d5fd-90b9-4edd-b098-a59197a53f40` was deployed at 100% (previous: `21f40bde-631a-4d13-b61b-62c5bf55286d`).
   All 28 `scripts/preflight.mjs` checks passed on `https://nexus.frameworktools.ca`. Rollback of the schema, if ever needed: drop `foundation_anchorages`, set `schema_version` to 27 and delete the ledger row (the empty `mount_group_id` columns stay); do not restore the bookmark, which would also discard what users saved since.
 
-## Anchor bolt installation (migration 0029)
-Anchor bolts have an **installation method**: *wet-set* (cast into the concrete as it is poured) or *post-installed* (set into hardened concrete afterwards). It is set per individual-bolt entry (`foundation_bolts.install_method`) and per anchorage group,
-for the bolts of its library type (`foundation_anchorages.install_method`); the default is wet-set.
+## Post-Install: anchor bolts and embed plates (migrations 0029, 0030)
+Foundation Setup has one **Post-Install** checkbox on each anchorage group, each individual anchor-bolt entry and each embed-plate entry (footing or plinth set). It is stored as `install_method`
+(`foundation_anchorages`, `foundation_bolts`, `foundation_embeds`): `'wet-set'` = unchecked (default), `'post-installed'` = checked. The column values are unchanged from 0029, so settings already saved are kept as they are.
 
-* Wherever anchor bolts are required, the footing or plinth gets an **Anchor bolts installed** construction activity per method present there: `anchorBoltsWetSet` and `anchorBoltsPostInstalled`. Where no bolts are required there is no such activity.
-  Required means an anchorage group whose type contains a bolt component, or an individual-bolt entry, mounted on that footing or plinth (`boltOwners` in `anchorageMounts.ts`).
-* They are construction activities, tracked independently of forming, rebar and pouring. Wet-set installation is a prerequisite of the pour (shown as waiting, never blocking the record); post-installed installation follows the pour and never holds it up.
-* Progress: installation is a further equal stage of a footing or plinth that needs bolts (its two methods split the stage evenly, like built/installed rebar), so outstanding bolts keep the foundation below 100% and out of the Complete state, under every completion basis.
-  Foundations that need no bolts have exactly the figures they had.
-* The activities are generated from the configuration, not stored as rows; recorded status, dates and notes are stored like any other activity and kept when groups or bolts are added or edited. Changing an item's method moves its work to the other activity; removing all bolts of a method removes that activity.
-* Migration 0029 is additive: existing bolts and groups become wet-set, no row is rewritten, and existing activity records and material quantities are untouched. **Existing foundations that need bolts will show the new activity as not started**, so their progress drops until installation is recorded (OP1-01-06: 100% → 75%).
-  Where bolts are really post-installed, set the method in Foundation Setup.
-* The construction panel lists the bolts each activity covers (source, count, specification) and, at the top, which are outstanding by method.
+* **Unchecked:** installed as part of the pour. No installation activity; it never holds up the pour or completion.
+* **Checked:** the footing or plinth gets an installation activity in Construction: `anchorBoltsPostInstalled` (anchor bolts, including those of an anchorage group's library type) and/or `embedsPostInstalled` (embed plates, including those of a group's type).
+  A group's checkbox covers both its bolts and its embed plates. Where nothing is post-installed there is no such activity (`installOwners` in `anchorageMounts.ts`).
+* Mixed methods on one footing or plinth are supported: only the checked parts are tracked; each activity keeps its recorded status, dates and notes when other items are added, edited or removed.
+* Post-install activities follow the pour (`after: ['poured']`) and never hold it up: concrete can be marked poured while they are outstanding.
+* Progress: installation is a further equal stage of a footing or plinth that has post-installed items (the bolt and embed activities split the stage evenly, like built/installed rebar), so outstanding items keep the foundation below 100% and out of the Complete state, under every completion basis. Foundations with none have exactly the figures they had.
+* Material quantities are independent of the method.
+* The activities are generated from the configuration, not stored as rows; recorded status is stored like any other activity. The construction panel lists what each activity covers and which post-installed items are outstanding.
+* Migration 0030 is additive (`foundation_embeds.install_method`, default `'wet-set'`); no row is rewritten. The earlier wet-set activity (`anchorBoltsWetSet`, 0029) no longer exists: wet-set means "installed with the pour". A recorded wet-set activity row, if any, is ignored.
 
 ### Rollout log (anchor bolt installation)
 * **2026-11-02, staging.** Time Travel bookmark taken first: `000000e9-00000000-00005116-808bb11749bc8bac003b3b214a7165c3`. Migration 0029 applied to `nexus-staging` (schema 29, 29 ledger rows); every existing bolt and anchorage group is wet-set; counts unchanged (749 activity rows, 50 foundations, 78 plinths); `foreign_key_check` empty.
   Code deployed to the staging preview (deployment 117) after the migration. On the staging data, 21 of 50 designations need bolts and drop until installation is recorded (OP1-01-06 100% → 75%; OP1-21-03 to -08 from 100% to 80–88%); foundations without bolts are unchanged.
 * **Production** is at schema 28 on version `db06d5fd` and has not received this change. On a copy of the production data, 36 of 52 designations need bolts; OP1-01-06 goes 100% → 75% and, once set to post-installed, stays at 75% with the pour complete until the bolts are recorded.
+* **Post-Install checkbox (0030), staging.** Time Travel bookmark taken first: `000000ec-00000000-00005116-b90613bfe9f1f8870918d3c23d8c5247`. Migration 0030 applied to `nexus-staging` (schema 30, ledger row 30); the one embed plate is wet-set (installed with the pour); the post-installed bolt already saved is kept; 749 activity rows unchanged (none were wet-set records); `foreign_key_check` empty. Production stays at schema 28.

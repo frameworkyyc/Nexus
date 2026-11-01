@@ -1,5 +1,5 @@
 import { percentOf } from '@/lib/format'
-import { BOLT_ACTIVITY_KEY, BOLT_KEYS, getDef, isConstructionCategory } from './config'
+import { getDef, isConstructionCategory } from './config'
 import { effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
 import { areaMaterialsSummary } from './tracker/procurement'
 import type { TrackerState } from './tracker/types'
@@ -52,11 +52,12 @@ export function installationIndicator(idx: Index, areaId: string): PackageIndica
     const g = acts.filter((x) => keys.includes(x.act.key))
     return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : NOT_TRACKED }
   }
+  const install = (label: string, key: string): Metric => { const g = acts.filter((x) => x.act.key === key); return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : 'None post-installed' } }
   return {
     key: 'installation', title: 'Construction',
     basis: 'Completed activities against applicable activities across every footing and plinth.',
     percent: ratio(doneOf(acts), acts.length),
-    rows: [group('Formwork', ['formed']), group('Rebar', ['rebarBuilt', 'rebarInstalled']), group('Concrete pours', ['poured']), (() => { const g = acts.filter((x) => BOLT_KEYS.includes(x.act.key)); return { label: 'Anchor bolts installed', value: g.length ? `${doneOf(g)} / ${g.length}` : 'None required', note: g.length ? `wet-set ${doneOf(g.filter((x) => x.act.key === BOLT_ACTIVITY_KEY['wet-set']))} / ${g.filter((x) => x.act.key === BOLT_ACTIVITY_KEY['wet-set']).length} · post-installed ${doneOf(g.filter((x) => x.act.key === BOLT_ACTIVITY_KEY['post-installed']))} / ${g.filter((x) => x.act.key === BOLT_ACTIVITY_KEY['post-installed']).length}` : undefined } })()],
+    rows: [group('Formwork', ['formed']), group('Rebar', ['rebarBuilt', 'rebarInstalled']), group('Concrete pours', ['poured']), install('Anchor bolts installed', 'anchorBoltsPostInstalled'), install('Embed plates installed', 'embedsPostInstalled')],
     gaps: [],
   }
 }

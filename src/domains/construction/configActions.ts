@@ -25,7 +25,7 @@ const methodProblem = (m: unknown) => (m === undefined || METHODS.includes(m as 
 export const MAX_FOOTING_BOLTS = 10
 /** An embed plate added directly to a foundation. `id` names an existing entry; absent = new. */
 /** An embed plate entry: a library plate (`componentId`), or a plate created here (`plate`) saved only to this foundation or to the Anchorage Library. */
-export interface FoundationEmbedInput { id?: string; componentId?: string; plate?: PlateSpec; save?: 'foundation' | 'library'; qty: number; mode: 'per-foundation' | 'total' }
+export interface FoundationEmbedInput { id?: string; componentId?: string; plate?: PlateSpec; save?: 'foundation' | 'library'; qty: number; mode: 'per-foundation' | 'total'; /** Post-installed (own installation activity) or installed with the pour; absent = unchanged for an existing entry, with the pour for a new one. */ installMethod?: InstallMethod }
 const dimOk = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= 100_000
 /** What is wrong with a plate specification created in the form, or null. */
 export function plateProblem(p: PlateSpec | undefined): string | null {
@@ -111,6 +111,8 @@ export function embedsProblem(s: ConstructionState, f: Foundation, embeds: Found
     const at = `${label} ${i + 1}`
     if (!e || typeof e !== 'object') return `${at}: choose an embed plate.`
     if (e.mode !== 'per-foundation' && e.mode !== 'total') return `${at}: choose per foundation or total.`
+    const mp = methodProblem(e.installMethod)
+    if (mp) return `${at}: ${mp}`
     if (!Number.isInteger(e.qty) || e.qty < 1 || e.qty > 1_000_000) return `${at}: enter a whole number of 1 or more.`
     if (e.componentId) {
       const existing = (s.foundationEmbeds ?? []).some((x) => x.foundationId === f.id && x.componentId === e.componentId)
@@ -120,7 +122,7 @@ export function embedsProblem(s: ConstructionState, f: Foundation, embeds: Found
       if (bad) return `${at}: ${bad}`
       if (e.save !== undefined && e.save !== 'foundation' && e.save !== 'library') return `${at}: choose where to save the plate.`
     }
-    const key = `${e.componentId || plateText(e.plate as PlateSpec)}|${e.mode}`
+    const key = `${e.componentId || plateText(e.plate as PlateSpec)}|${e.mode}|${e.installMethod ?? (s.foundationEmbeds ?? []).find((x) => x.id === e.id)?.installMethod ?? ''}`
     if (seen.has(key)) return `${at}: that embed plate is already listed with the same quantity method. Combine them.`
     seen.add(key)
     if (e.id && !(s.foundationEmbeds ?? []).some((x) => x.id === e.id && x.foundationId === f.id)) return `${at} no longer exists. Reload and try again.`
@@ -276,7 +278,7 @@ export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: Foundat
   for (const [i, e] of inputs.entries()) {
     let id = e.id ?? ''
     if (!id) { let n = mine.length + i + 1; id = `${f.id}-em${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-em${++n}` }
-    const at = mount ? { mountGroupId: mount } : {}
+    const at = { ...(mount ? { mountGroupId: mount } : {}), ...((e.installMethod ?? mine.find((x) => x.id === e.id)?.installMethod) === 'post-installed' ? { installMethod: 'post-installed' as const } : {}) }
     if (e.componentId) next.push({ id, foundationId: f.id, componentId: e.componentId, qty: e.qty, mode: e.mode, ...at })
     else if (e.save === 'library') next.push({ id, foundationId: f.id, componentId: libraryPlate(e.plate as PlateSpec), qty: e.qty, mode: e.mode, ...at })
     else next.push({ id, foundationId: f.id, componentId: '', qty: e.qty, mode: e.mode, plate: cleanPlate(e.plate as PlateSpec), ...at })

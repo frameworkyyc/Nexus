@@ -797,7 +797,7 @@ describe('anchorage mounted on footings and plinths, on the server', () => {
 })
 
 describe('anchor bolt installation on the server', () => {
-  const boltsOf = (state: { activities: { id: string; key: string; status: string; scope: string; foundationId: string }[] }, fid: string) => state.activities.filter((a) => a.foundationId === fid && /^anchorBolts(WetSet|PostInstalled)$/.test(a.key) && a.scope === 'footing')
+  const boltsOf = (state: { activities: { id: string; key: string; status: string; scope: string; foundationId: string }[] }, fid: string) => state.activities.filter((a) => a.foundationId === fid && /^(anchorBoltsPostInstalled|embedsPostInstalled)$/.test(a.key) && a.scope === 'footing')
   const mk = (installMethod: string) => ({ qty: 4, diameter: '5/8"', length: 250, lengthUnit: 'mm', thread: 'all-thread', nutsPerBolt: 2, washersPerBolt: 1, installMethod })
 
   it('saves the method, creates the installation activity, and keeps recorded progress across reloads and edits', async () => {
@@ -821,10 +821,12 @@ describe('anchor bolt installation on the server', () => {
     c = await get(db, 'construction')
     expect(boltsOf(c, fid)[0].status).toBe('complete')
     expect(progress(c)).toBe(100)
-    // Adding wet-set bolts on the same footing adds a second activity and leaves the first alone.
-    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { bolts: [mk('post-installed'), { ...mk('wet-set'), qty: 2 }] }])).status).toBe(200)
+    // Adding a post-installed embed plate on the same footing adds a second activity and leaves the first alone; a plate installed with the pour adds none.
+    const plate = (qty: number, installMethod: string, thickness: number) => ({ plate: { thickness, width: 300, length: 300, unit: 'mm' }, save: 'foundation', qty, mode: 'per-foundation', installMethod })
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { embeds: [plate(2, 'post-installed', 16), plate(1, 'wet-set', 20)] }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT install_method FROM foundation_embeds WHERE foundation_id = ? ORDER BY seq').all(fid)).toEqual([{ install_method: 'post-installed' }, { install_method: 'wet-set' }])
     c = await get(db, 'construction')
-    expect(boltsOf(c, fid).map((a) => [a.key, a.status]).sort()).toEqual([['anchorBoltsPostInstalled', 'complete'], ['anchorBoltsWetSet', 'not-started']])
+    expect(boltsOf(c, fid).map((a) => [a.key, a.status]).sort()).toEqual([['anchorBoltsPostInstalled', 'complete'], ['embedsPostInstalled', 'not-started']])
     expect(progress(c)).toBeLessThan(100)
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
   })
@@ -832,8 +834,8 @@ describe('anchor bolt installation on the server', () => {
   it('refuses an unknown installation method and a viewer cannot record installation', async () => {
     const { db, aid } = await setup()
     expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'BAD-1', '', 0, 1, { bolts: [mk('glued')] }])).status).toBe(422)
-    expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'OK-1', '', 0, 1, { bolts: [mk('wet-set')] }])).status).toBe(200)
+    expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'OK-1', '', 0, 1, { bolts: [mk('post-installed')] }])).status).toBe(200)
     const fid = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'OK-1'").get() as { id: string }).id
-    expect((await cmd(db, 'viewer@example.com', 'construction', 'updateActivity', [`${fid}:anchorBoltsWetSet`, { status: 'complete' }, TODAY])).status).toBe(403)
+    expect((await cmd(db, 'viewer@example.com', 'construction', 'updateActivity', [`${fid}:anchorBoltsPostInstalled`, { status: 'complete' }, TODAY])).status).toBe(403)
   })
 })

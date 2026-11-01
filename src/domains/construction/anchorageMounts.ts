@@ -1,3 +1,4 @@
+import type { InstallItem } from './config'
 import type { ConstructionState, Foundation, FoundationAnchorage, InstallMethod, MountGroupId } from './types'
 
 /**
@@ -26,7 +27,7 @@ export interface MountedAnchorage {
   qty: number
   /** Anchorages of this group on ONE physical foundation: qty × (1 footing, or the plinths in the set). */
   perFoundation: number
-  /** How this group's anchor bolts are installed. */
+  /** How this group's bolts and embed plates are installed. */
   method: InstallMethod
 }
 
@@ -62,28 +63,41 @@ export const anchoragesOn = (c: Pick<ConstructionState, 'foundationAnchorages'>,
 /** The anchorage type a set of plinths is known by in older views: its first anchorage's, or null when it has none. */
 export const primaryType = (c: Pick<ConstructionState, 'foundationAnchorages'>, foundationId: string, groupId: string): string | null => anchoragesOn(c, foundationId, groupId)[0]?.anchorageTypeId ?? null
 
-/** What the anchor bolt installation tracking needs from the configuration. */
-export type BoltSource = MountSource & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts'>>
+/** What the post-install tracking needs from the configuration. */
+export type InstallSource = MountSource & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationEmbeds'>>
 
 /** Whether an anchorage type contains anchor bolts (a bolt component of one or more per anchorage). */
 export const typeHasBolts = (c: Partial<Pick<ConstructionState, 'anchorageComponents'>>, typeId: string): boolean =>
   (c.anchorageComponents ?? []).some((x) => x.anchorageTypeId === typeId && x.kind === 'bolt' && x.qty > 0)
+/** Whether an anchorage type contains embed plates. */
+export const typeHasEmbeds = (c: Partial<Pick<ConstructionState, 'anchorageComponents'>>, typeId: string): boolean =>
+  (c.anchorageComponents ?? []).some((x) => x.anchorageTypeId === typeId && x.kind === 'embed-plate' && x.qty > 0)
 
 /**
- * Where anchor bolts are required, and by which installation methods: for each footing (owner = the foundation id) and each plinth (owner = the plinth id),
- * the methods of the anchorage groups whose type contains bolts and of the individual anchor bolts mounted there. An owner with no bolts is absent, so it
- * has no installation activity at all. Several groups with different methods on one owner each keep their own method.
+ * Where post-installed components are, and which: for each footing (owner = the foundation id) and each plinth (owner = the plinth id), whether it has post-installed
+ * anchor bolts and/or embed plates (anchorage groups whose type contains them, individual bolts, individual embed plates, each ticked "Post-Install"). An owner with
+ * none is absent and has no installation activity. Components not ticked are installed with the pour and are never listed. Mixed methods on one owner are fine.
  */
-export function boltOwners(c: BoltSource): Map<string, Set<InstallMethod>> {
-  const out = new Map<string, Set<InstallMethod>>()
-  const add = (owner: string, m: InstallMethod) => { const s = out.get(owner) ?? new Set<InstallMethod>(); s.add(m); out.set(owner, s) }
+export function installOwners(c: InstallSource): Map<string, Set<InstallItem>> {
+  const out = new Map<string, Set<InstallItem>>()
+  const add = (owner: string, i: InstallItem) => { const s = out.get(owner) ?? new Set<InstallItem>(); s.add(i); out.set(owner, s) }
   const plinthsOf = (groupId: string | null, foundationId: string) => (groupId ? c.plinths.filter((p) => p.groupId === groupId) : c.plinths.filter((p) => p.foundationId === foundationId && !p.groupId))
   const ownersOf = (foundationId: string, mount: 'footing' | 'plinths', groupId: string | null, legacyType?: string) =>
     mount === 'footing' ? [foundationId] : plinthsOf(groupId, foundationId).filter((p) => !legacyType || p.anchorageTypeId === legacyType).map((p) => p.id)
-  for (const a of resolveAnchorages(c)) if (typeHasBolts(c, a.typeId)) for (const o of ownersOf(a.foundationId, a.mount, a.mountGroupId, c.foundationAnchorages === undefined || !a.mountGroupId ? a.typeId : undefined)) add(o, a.method)
+  for (const a of resolveAnchorages(c)) {
+    if (a.method !== 'post-installed') continue
+    for (const o of ownersOf(a.foundationId, a.mount, a.mountGroupId, c.foundationAnchorages === undefined || !a.mountGroupId ? a.typeId : undefined)) {
+      if (typeHasBolts(c, a.typeId)) add(o, 'bolts')
+      if (typeHasEmbeds(c, a.typeId)) add(o, 'embeds')
+    }
+  }
   for (const b of c.foundationBolts ?? []) {
-    if (b.qty < 1) continue
-    for (const o of ownersOf(b.foundationId, b.mountGroupId ? 'plinths' : 'footing', b.mountGroupId ?? null)) add(o, b.installMethod ?? 'wet-set')
+    if (b.qty < 1 || b.installMethod !== 'post-installed') continue
+    for (const o of ownersOf(b.foundationId, b.mountGroupId ? 'plinths' : 'footing', b.mountGroupId ?? null)) add(o, 'bolts')
+  }
+  for (const e of c.foundationEmbeds ?? []) {
+    if (e.qty < 1 || e.installMethod !== 'post-installed') continue
+    for (const o of ownersOf(e.foundationId, e.mountGroupId ? 'plinths' : 'footing', e.mountGroupId ?? null)) add(o, 'embeds')
   }
   return out
 }
