@@ -13,6 +13,7 @@ import { formatShortDate, pct } from '@/lib/format'
 import { FOUNDATION_COMPLETE_DEFINITION } from '../config'
 import { deriveExceptions } from '../exceptions'
 import { paths } from '../paths'
+import { completionOf } from '../completionBasis'
 import { computeStats, foundationActivities, foundationState, foundationsOf, tally, upcomingWork, type Index } from '../selectors'
 import { useConstruction } from '../store'
 import { ExceptionList, fraction, TextLink } from '../ui'
@@ -21,6 +22,7 @@ import { foundationTotals } from '../foundationQuantity'
 import { PackageDashboard } from './PackageDashboard'
 import { AddFoundationButton, ManageAreaButton } from './AddFoundation'
 import { AreaHandover } from './HandoverPage'
+import { BasisFigures, CompletionBasisSelector, percentText, useCompletionBasis } from './CompletionBasis'
 import { FoundationRegister } from './FoundationRegister'
 import { BoltTable, BulkTable } from './materials/Tables'
 import { PurchaseOrders } from './materials/Purchasing'
@@ -73,6 +75,8 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
   const server = useIsServer()
   const foundations = foundationsOf(idx, areaId)
   const stats = computeStats(idx, foundations)
+  const [basis] = useCompletionBasis()
+  const completion = completionOf(idx, foundations, basis)
   const total = stats.foundations
   const items = deriveExceptions(idx, today, projectId).filter((e) => e.areaId === areaId)
   const segments = [
@@ -83,10 +87,12 @@ function Overview({ projectId, areaId }: { projectId: string; areaId: string }) 
   return (
     <>
       <PackageDashboard idx={idx} projectId={projectId} areaId={areaId} />
+      <CompletionBasisSelector className="mb-4" />
       <dl className="grid grid-cols-2 gap-x-6 gap-y-6 border-y border-line py-6 lg:grid-cols-4 lg:gap-x-0 lg:divide-x lg:divide-line [&>div]:lg:px-6 [&>div:first-child]:lg:pl-0">
         <div>
-          <Stat label="Construction progress" value={<>{stats.progress}<span className="text-2xl text-muted">%</span></>} />
-          <div className="mt-3 h-px bg-line lg:mr-2" role="progressbar" aria-label="Construction progress" aria-valuenow={stats.progress} aria-valuemin={0} aria-valuemax={100}><div className="-mt-px h-0.5 bg-ink" style={{ width: `${stats.progress}%` }} /></div>
+          <Stat label="Construction progress" value={<>{percentText(completion)}{completion.percent !== null && <span className="text-2xl text-muted">%</span>}</>} />
+          <div className="mt-3 h-px bg-line lg:mr-2" role="progressbar" aria-label="Construction progress" aria-valuenow={completion.percent ?? undefined} aria-valuemin={0} aria-valuemax={100}><div className="-mt-px h-0.5 bg-ink" style={{ width: `${completion.percent ?? 0}%` }} /></div>
+          <BasisFigures result={completion} className="mt-2 lg:mr-2" />
         </div>
         <Stat label="Foundations complete" value={<>{stats.constructed}<span className="text-2xl text-muted"> / {total}</span></>} sub={`${pct(stats.constructed, total)}% fully built`} />
         <Stat label="In progress" value={stats.inProgress} />

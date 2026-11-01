@@ -4,10 +4,12 @@ import { Section } from '@/components/ui/Section'
 import { PROGRESS_BASIS } from '../config'
 import { deriveExceptions } from '../exceptions'
 import { paths } from '../paths'
-import { areaStatus, computeStats, foundationsOfProject, foundationsOf } from '../selectors'
+import { basisFigures, basisWarning, completionOf } from '../completionBasis'
+import { areaStatus, foundationsOfProject, foundationsOf } from '../selectors'
 import { useConstruction, useRun } from '../store'
 import { ExceptionList } from '../ui'
 import { StatusEditor } from '../StatusEditor'
+import { BasisFigures, CompletionBasisSelector, percentText, useCompletionBasis } from './CompletionBasis'
 import { Input, Select, Textarea } from '@/components/ui/Field'
 import { Button } from '@/components/ui/Button'
 import { setProjectIssueStatus, addProjectIssue, setReportedProgress } from '../actions'
@@ -37,8 +39,9 @@ export function ProjectDashboard() {
   const { projectId = '' } = useParams()
   const { state, idx, today } = useConstruction()
   const project = state.projects.find((p) => p.id === projectId)!
-  const overall = computeStats(idx, foundationsOfProject(idx, projectId))
-  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).map((area) => ({ area, progress: computeStats(idx, foundationsOf(idx, area.id)).progress, status: areaStatus(idx, area.id) }))
+  const [basis] = useCompletionBasis()
+  const overall = completionOf(idx, foundationsOfProject(idx, projectId), basis)
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).map((area) => ({ area, progress: completionOf(idx, foundationsOf(idx, area.id), basis), status: areaStatus(idx, area.id) }))
   const exceptions = deriveExceptions(idx, today, projectId)
   const critical = exceptions.filter((e) => e.severity === 'high').length
 
@@ -60,13 +63,15 @@ export function ProjectDashboard() {
     <>
       <ProjectHeader projectId={projectId} />
 
-      <dl className="mt-8 grid grid-cols-1 border-y border-line sm:grid-cols-3 sm:divide-x sm:divide-line">
+      <CompletionBasisSelector className="mt-8" />
+      <dl className="mt-4 grid grid-cols-1 border-y border-line sm:grid-cols-3 sm:divide-x sm:divide-line">
         <div className="py-6 sm:pr-8">
           <dt className="t-label">Overall progress</dt>
-          <dd className="t-metric mt-2">{overall.progress}<span className="text-2xl text-muted">%</span></dd>
-          <div className="mt-3 h-px bg-line" role="progressbar" aria-label="Overall progress" aria-valuenow={overall.progress} aria-valuemin={0} aria-valuemax={100}>
-            <div className="-mt-px h-0.5 bg-ink" style={{ width: `${overall.progress}%` }} />
+          <dd className="t-metric mt-2">{percentText(overall)}{overall.percent !== null && <span className="text-2xl text-muted">%</span>}</dd>
+          <div className="mt-3 h-px bg-line" role="progressbar" aria-label="Overall progress" aria-valuenow={overall.percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+            <div className="-mt-px h-0.5 bg-ink" style={{ width: `${overall.percent ?? 0}%` }} />
           </div>
+          <BasisFigures result={overall} className="mt-2" />
         </div>
         <div className="border-t border-line py-6 sm:border-t-0 sm:px-8">
           <dt className="t-label mb-2">Status</dt>
@@ -86,11 +91,12 @@ export function ProjectDashboard() {
                 <span>
                   <span className="block text-[13px] font-medium">{area.name}</span>
                   <span className="block text-xs text-muted">{status.label}</span>
+                  <span className="mt-0.5 block text-xs tabular-nums text-muted">{basisFigures(progress)}</span>
                 </span>
-                <span className="h-3 bg-line" role="progressbar" aria-label={`${area.name} progress`} aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-                  <span className="block h-full bg-ink transition-[width]" style={{ width: `${progress}%` }} />
+                <span className="h-3 bg-line" role="progressbar" aria-label={`${area.name} progress`} aria-valuenow={progress.percent ?? undefined} aria-valuemin={0} aria-valuemax={100}>
+                  <span className="block h-full bg-ink transition-[width]" style={{ width: `${progress.percent ?? 0}%` }} />
                 </span>
-                <span className="text-right text-xl font-light tabular-nums tracking-tight">{progress}%</span>
+                <span className="text-right text-xl font-light tabular-nums tracking-tight">{percentText(progress)}{progress.percent !== null && '%'}{progress.missing && <span className="text-xs text-muted" title={basisWarning(progress) ?? ''} aria-label={basisWarning(progress) ?? ''}> *</span>}</span>
               </Link>
             </li>
           ))}
@@ -105,6 +111,7 @@ export function ProjectDashboard() {
         <Disclosure summary={<span className="text-xs text-muted">How progress is calculated</span>}>
           <ul className="max-w-2xl list-disc space-y-1.5 pl-5 text-xs leading-relaxed text-muted">
             {PROGRESS_BASIS.map((line) => <li key={line}>{line}</li>)}
+            <li>The Completion basis selector changes only how elements are weighted: by element (the default, as described above), by how many individual foundations each type represents, or by concrete volume. Where concrete has been recorded as poured, count and volume credit what was actually placed.</li>
           </ul>
         </Disclosure>
       </div>

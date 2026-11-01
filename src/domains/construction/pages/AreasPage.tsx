@@ -5,9 +5,11 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { ProgressBar } from '@/components/ui/Progress'
 import { foundationTotals } from '../foundationQuantity'
 import { paths } from '../paths'
-import { computeStats, foundationsOf } from '../selectors'
+import { basisFigures, basisWarning, completionOf } from '../completionBasis'
+import { foundationsOf } from '../selectors'
 import { useConstruction } from '../store'
 import { AddAreaButton, ManageAreaButton } from './AddFoundation'
+import { CompletionBasisSelector, useCompletionBasis } from './CompletionBasis'
 
 const n = (v: number) => v.toLocaleString('en-CA')
 
@@ -19,17 +21,19 @@ export function AreasPage() {
   const { projectId = '' } = useParams()
   const { state, idx } = useConstruction()
   const [showArchived, setShowArchived] = useState(false)
+  const [basis] = useCompletionBasis()
   const all = state.areas.filter((a) => a.projectId === projectId).sort((a, b) => a.sequence - b.sequence)
   const archived = all.filter((a) => a.archived).length
   const areas = all.filter((a) => showArchived || !a.archived)
   const cards = areas.map((a) => {
     const foundations = foundationsOf(idx, a.id)
     const totals = foundationTotals(foundations, foundations.flatMap((f) => idx.plinthsByFoundation.get(f.id) ?? []))
-    return { a, totals, progress: foundations.length ? computeStats(idx, foundations).progress : null }
+    return { a, totals, progress: foundations.length ? completionOf(idx, foundations, basis) : null }
   })
   return (
     <>
       <PageHeader title="Areas" description="Every area of this project at a glance. Open an area for its foundations, construction, materials and handover." actions={<AddAreaButton projectId={projectId} prominent />} />
+      {cards.length > 0 && <CompletionBasisSelector className="mb-4" />}
       {archived > 0 && <label className="mb-4 flex items-center gap-2 text-[13px] text-muted"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show {archived} archived area{archived === 1 ? '' : 's'}</label>}
       {cards.length === 0 ? (
         <EmptyState title="No areas yet" description="An area is a part of the site, such as a building or a pipe rack, that holds foundations. Add the first area to start tracking foundations, materials and procurement." action={<AddAreaButton projectId={projectId} prominent />} />
@@ -45,8 +49,9 @@ export function AreasPage() {
                   <div><dt className="t-label">Plinths</dt><dd className="mt-1 text-2xl font-light tabular-nums">{n(totals.knownPlinths)}{totals.unknownDesignations > 0 && <span className="ml-1 align-middle text-xs text-muted" title={`${totals.unknownDesignations} foundation name${totals.unknownDesignations === 1 ? ' has' : 's have'} no plinth count yet`}>+ not known</span>}</dd></div>
                 </dl>
                 <div className="mt-5">
-                  <div className="mb-1.5 flex items-baseline justify-between text-xs"><span className="t-label">Construction progress</span><span className="tabular-nums">{progress === null ? 'No foundations' : `${progress}%`}</span></div>
-                  <div className="[&>div]:w-full"><ProgressBar value={progress ?? 0} width="w-full" showValue={false} /></div>
+                  <div className="mb-1.5 flex items-baseline justify-between text-xs"><span className="t-label">Construction progress</span><span className="tabular-nums" title={progress ? basisWarning(progress) ?? undefined : undefined}>{progress === null ? 'No foundations' : progress.percent === null ? '—' : `${progress.percent}%`}{progress?.missing && ' *'}</span></div>
+                  <div className="[&>div]:w-full"><ProgressBar value={progress?.percent ?? 0} width="w-full" showValue={false} /></div>
+                  {progress && <p className="mt-1.5 text-xs tabular-nums text-muted">{basisFigures(progress)}</p>}
                 </div>
               </Link>
               <div className="absolute right-3 top-3 phone:static phone:px-5 phone:pb-4"><ManageAreaButton areaId={a.id} label="Edit" variant="ghost" className="!h-8 phone:!h-11" /></div>
