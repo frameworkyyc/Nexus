@@ -252,7 +252,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
     <Modal title={`Foundation ${f.number}`} onClose={onClose} form>
       <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default Foundations view. Every record keeps pointing at it.</p>}
-        <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
+        <p className="text-muted">Renaming changes the name everywhere; records stay attached. Changing the quantity never changes material quantities.</p>
         <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} area={{ value: areaId, onChange: setAreaId, options: areaOptions }} />
         <FoundationConfigFields draft={draft} onChange={setDraft} types={types} components={state.anchorageComponents ?? []} embedOptions={embedChoices(state, project).map((x) => ({ component: x.component, type: x.type }))} foundationName={f.number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
         <div className="border-t border-line pt-5"><Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field></div>
