@@ -13,7 +13,7 @@ describe('completion basis selector', () => {
     for (const label of ['Foundation type', 'Foundation count', 'Concrete volume']) expect(html).toContain(label)
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
     expect(html).toMatch(/aria-pressed="true"[^>]*><span class="sm:hidden">Type/)
-    expect(html).toContain('Existing calculation')
+    expect(html).toContain('Each foundation type counts equally')
   })
 
   it('is responsive: short names on a phone, full names from sm up, three equal columns', () => {

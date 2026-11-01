@@ -13,7 +13,8 @@ import { formatDate } from '@/lib/format'
 import { addDeficiency, addRequirement, recordAcceptance, removeRequirement, renameRequirement, reopenHandover, setDeficiencyStatus, setHandoverNotes, setRequirementDone, submitHandover } from '../actions'
 import { ACCEPTANCE_LABEL, AUTO_METRIC_LABEL } from '../config'
 import { paths } from '../paths'
-import { evaluateHandover, type HandoverEvaluation } from '../selectors'
+import { completionOf } from '../completionBasis'
+import { evaluateHandover, foundationsOf, type HandoverEvaluation } from '../selectors'
 import { useConstruction, useRun } from '../store'
 import { fraction, phaseTone } from '../ui'
 import type { AutoMetric } from '../types'
@@ -25,7 +26,7 @@ export function HandoverPage() {
   const rows = state.areas.map((a) => ({ area: a, ev: evaluateHandover(idx, a.id) }))
   const columns: Column<(typeof rows)[number]>[] = [
     { key: 'a', header: 'Area', render: (r) => <span className="font-medium">{r.area.name}</span> },
-    { key: 'c', header: 'Construction', render: (r) => <span className="tabular-nums">{r.ev.stats.progress}%</span> },
+    { key: 'c', header: 'Construction', render: (r) => <span className="tabular-nums">{completionOf(idx, foundationsOf(idx, r.area.id), 'type').percent ?? 0}%</span> },
     { key: 'f', header: 'Outstanding foundations', render: (r) => r.ev.outstandingFoundations },
     { key: 's', header: 'Survey', hideOnMobile: true, render: (r) => <span className="tabular-nums text-muted">{fraction(r.ev.stats.survey)}</span> },
     { key: 'q', header: 'QA/QC', hideOnMobile: true, render: (r) => <span className="tabular-nums text-muted">{fraction(r.ev.stats.qaqc)}</span> },
@@ -61,7 +62,7 @@ export function AreaHandover({ areaId }: { areaId: string }) {
         <div>
           <h3 className="t-label mb-3">Construction completion</h3>
           <dl className="grid grid-cols-2 gap-5">
-            <Stat label="Construction progress" value={`${ev.stats.progress}%`} sub={`${ev.stats.elementsPoured.done} of ${ev.stats.elementsPoured.total} elements poured`} />
+            <Stat label="Construction progress" value={`${completionOf(idx, foundationsOf(idx, areaId), 'type').percent ?? 0}%`} sub={`${ev.stats.elementsPoured.done} of ${ev.stats.elementsPoured.total} elements poured`} />
             <Stat label="Outstanding foundations" value={ev.outstandingFoundations} sub={`of ${ev.stats.foundations}`} />
             <Stat label="Survey" value={fraction(ev.stats.survey)} />
             <Stat label="QA/QC approved" value={fraction(ev.stats.qaqc)} />

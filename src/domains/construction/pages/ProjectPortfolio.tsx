@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { IN_DELIVERY, PROJECT_STATUS_LABEL, PROJECT_STATUS_RANK, PROJECT_STATUS_TONE } from '../config'
 import { deriveExceptions } from '../exceptions'
 import { paths } from '../paths'
+import { completionOf } from '../completionBasis'
 import { foundationsOfProject, projectSummaries, type ProjectSummary } from '../selectors'
 import { useConstruction } from '../store'
 import type { ProjectStatus } from '../types'
@@ -28,7 +29,8 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
   const [shown, setShown] = useState(pageSize)
 
   const hasFoundations = (id: string) => foundationsOfProject(idx, id).length > 0
-  const all = useMemo(() => projectSummaries(idx, (id) => deriveExceptions(idx, today, id)), [idx, today])
+  // Calculated progress uses the default completion basis (each foundation type counts once), the same figure the project dashboard opens with.
+  const all = useMemo(() => projectSummaries(idx, (id) => deriveExceptions(idx, today, id)).map((r) => (r.progressSource === 'derived' ? { ...r, progress: completionOf(idx, foundationsOfProject(idx, r.project.id), 'type').percent ?? 0 } : r)), [idx, today])
   const q = query.trim().toLowerCase()
   const rows = useMemo(() => {
     const value = (r: ProjectSummary) => (sort.key === 'name' ? r.project.name.toLowerCase() : sort.key === 'job' ? Number(r.project.jobNumber) : sort.key === 'completion' ? r.progress : PROJECT_STATUS_RANK[r.project.status])

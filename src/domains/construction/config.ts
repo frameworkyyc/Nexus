@@ -171,9 +171,9 @@ export const HANDOVER_PHASES: { id: HandoverPhase; label: string }[] = [
 
 /** Shown beside the progress figures so the basis is never hidden. */
 export const PROGRESS_BASIS = [
-  'Every footing and every plinth is an element with three construction stages: rebar, forming and pouring.',
+  'Every footing and every plinth record has three construction stages: rebar, forming and pouring. Concrete recorded as poured in a pour counts toward the pouring stage.',
   'The three stages count equally. The rebar stage is split evenly between "built" and "installed", so rebar is not counted twice as heavily as forming or pouring.',
-  'Area progress is the average across all elements in the area. Overall progress is the average across every element, so areas with more foundations carry proportionally more weight (it is not an average of the area percentages).',
+  'Each foundation type (one designation) has one progress figure: the average of its footing and plinth records. How the types are combined depends on the Completion basis: each type counts once (Foundation type), by how many individual foundations it represents (Foundation count), or by concrete volume (Concrete volume). Overall progress combines every foundation of every area directly; it is not an average of the area percentages.',
   'No quantities, hours or costs are available, so there is no effort weighting. Survey, QA/QC and handover are tracked separately and never change this figure.',
 ]
 

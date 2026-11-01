@@ -5,7 +5,7 @@ import { basisFigures, basisWarning, completionOf, COMPLETION_BASES, DEFAULT_BAS
 import { concreteOf } from '../pours'
 import { getDef, isConstructionCategory } from '../config'
 import { emptyConstruction } from '../empty'
-import { foundationsOf, getIndex, progressOf } from '../selectors'
+import { foundationsOf, getIndex } from '../selectors'
 import type { ConstructionState, Dims, Foundation } from '../types'
 
 function apply(s: ConstructionState, r: K.Reducer): ConstructionState { const o = r(s, {}); if (o.error !== undefined) throw new Error(o.error); return o.state }
@@ -44,18 +44,15 @@ function unequal() {
 describe('completion basis: unequal counts and unequal volumes', () => {
   it('weights the same progress three ways', () => {
     const { s } = unequal()
-    expect(run(s, 'type')).toMatchObject({ percent: 50, done: 1, total: 2, unit: 'footings and plinths' }) // 1 of 2 elements
+    expect(run(s, 'type')).toMatchObject({ percent: 50, done: 1, total: 2, unit: 'foundation types' }) // 1 of 2 designations
     expect(run(s, 'count')).toMatchObject({ percent: 83, done: 10, total: 12, unit: 'foundations' }) // 10 of 12 foundations
     expect(run(s, 'volume')).toMatchObject({ percent: 33, unit: 'm³', missing: null }) // 20 of 60 m³
     expect(run(s, 'volume').done).toBeCloseTo(20)
     expect(run(s, 'volume').total).toBeCloseTo(60)
   })
 
-  it('is the existing calculation, to the digit, under the default basis', () => {
-    const { s } = unequal()
-    const { idx, foundations } = all(s)
+  it('defaults to foundation type and offers the three bases in order', () => {
     expect(DEFAULT_BASIS).toBe('type')
-    expect(run(s, 'type').percent).toBe(progressOf(idx, foundations.flatMap((f) => (idx.activitiesByOwner.get(f.id) ?? []).concat((idx.plinthsByFoundation.get(f.id) ?? []).flatMap((p) => idx.activitiesByOwner.get(p.id) ?? [])))))
     expect(COMPLETION_BASES.map((b) => b.id)).toEqual(['type', 'count', 'volume'])
   })
 
@@ -69,7 +66,7 @@ describe('completion basis: unequal counts and unequal volumes', () => {
 
   it('shows the figures behind each percentage', () => {
     const { s } = unequal()
-    expect(basisFigures(run(s, 'type'))).toBe('1 of 2 footings and plinths')
+    expect(basisFigures(run(s, 'type'))).toBe('1 of 2 foundation types')
     expect(basisFigures(run(s, 'count'))).toBe('10 of 12 foundations')
     expect(basisFigures(run(s, 'volume'))).toBe('20.0 of 60.0 m³')
   })
@@ -83,10 +80,11 @@ describe('completion basis: plinths and double counting', () => {
     return { ...w, s: finish(r.s, r.f.id), f: r.f }
   }
 
-  it('counts each foundation once however many plinths it has, and each element once for type', () => {
+  it('counts each foundation (type) and each physical foundation (count) once however many plinths there are', () => {
     const { s } = withPlinths()
-    expect(run(s, 'count')).toMatchObject({ done: expect.closeTo(4 / 3, 6), total: 4 }) // footing done, 2 plinths not: (1+0+0)/3 elements
-    expect(run(s, 'type')).toMatchObject({ total: 3 }) // 1 footing + 2 plinth records (a record is one plinth on each of the 4 foundations)
+    // Footing done, two plinth records not: 1 of 3 records = 1/3 of the designation.
+    expect(run(s, 'count')).toMatchObject({ done: expect.closeTo(4 / 3, 6), total: 4 })
+    expect(run(s, 'type')).toMatchObject({ done: expect.closeTo(1 / 3, 6), total: 1, percent: 33 })
   })
 
   it('volume uses footing + plinths across the quantity, and never counts a plinth standing in the footing twice', () => {
@@ -144,11 +142,11 @@ describe('completion basis: partial pours use the concrete actually placed', () 
     expect(run(s, 'volume').done).toBeCloseTo(40 / 3) // the poured stage is whole, not 5/20 of it
   })
 
-  it('leaves the type basis alone: pours do not change the existing figure', () => {
+  it('credits poured concrete in every basis, so only the weighting differs', () => {
     const w = world()
     const r = add(w.s, w.areaId, 'Y', 2, { footing: d(5, 4, 1) })
     const s = pours(r.s, w.pid, r.f, [[1, null, true]])
-    expect(run(s, 'type').percent).toBe(run(r.s, 'type').percent)
+    for (const b of ['type', 'count', 'volume'] as const) expect(run(s, b).percent, b).toBe(17) // one footing of two poured: (0.5 of one stage in three) = 16.7%
   })
 })
 
@@ -170,7 +168,7 @@ describe('completion basis: missing volumes are stated, never treated as zero', 
   it('count and type are unaffected by missing volumes', () => {
     const s = mixed()
     expect(run(s, 'count')).toMatchObject({ total: 7, missing: null })
-    expect(run(s, 'type').missing).toBeNull()
+    expect(run(s, 'type')).toMatchObject({ total: 2, missing: null })
   })
 
   it('has no percentage at all when no volume is known', () => {
@@ -188,5 +186,60 @@ describe('completion basis: missing volumes are stated, never treated as zero', 
     const v = run(r.s, 'volume')
     expect(v.missing).toMatchObject({ elements: 1, of: 2, foundations: ['M'] })
     expect(v.total).toBeCloseTo(4) // the footings only: 2 × 2 m³
+  })
+})
+
+describe('completion basis: the three weightings on one mixed project', () => {
+  /**
+   * A: 3 foundations, footing 2 m³ + 3 plinth records of 0.25 m³; only the footing finished        → 1 of 4 records = 25%
+   * B: 1 foundation, footing 4 m³, rebar built + forming done                                         → (0.5 + 1 + 0) / 3 = 50%
+   * C: 10 foundations, footing 1 m³; finished                                                         → 100%
+   */
+  const mixed = (a = { qty: 3, footing: d(2, 1, 1) }) => {
+    const w = world()
+    const A = add(w.s, w.areaId, 'A', a.qty, { footing: a.footing, groups: [{ anchorageTypeId: w.A, count: 3, dims: d(0.5, 0.5, 1) }] })
+    const B = add(A.s, w.areaId, 'B', 1, { footing: d(4, 1, 1) })
+    const C = add(B.s, w.areaId, 'C', 10, { footing: d(1, 1, 1) })
+    let s = finish(C.s, A.f.id)
+    s = finish(s, B.f.id, ['rebarBuilt', 'formed'])
+    s = finish(s, C.f.id)
+    return s
+  }
+
+  it('foundation type: each designation counts once, a half-finished one contributes half', () => {
+    const r = run(mixed(), 'type')
+    expect(r.done).toBeCloseTo(0.25 + 0.5 + 1)
+    expect(r).toMatchObject({ total: 3, percent: 58, unit: 'foundation types' })
+    expect(basisFigures(r)).toBe('1.8 of 3 foundation types')
+  })
+
+  it('foundation count: weighted by the physical foundations each designation represents', () => {
+    const r = run(mixed(), 'count')
+    expect(r.done).toBeCloseTo(3 * 0.25 + 1 * 0.5 + 10 * 1) // 11.25
+    expect(r).toMatchObject({ total: 14, percent: 80, unit: 'foundations' })
+  })
+
+  it('concrete volume: weighted by m³ (the footing of every A is finished, its plinths are not)', () => {
+    const r = run(mixed(), 'volume')
+    // A: 3 × 2 = 6 m³ footing + 3 plinths × 3 units × 0.25 = 2.25 m³; B: 4 m³; C: 10 × 1 = 10 m³. Done: 6 + 4 × 0.5 + 10 = 18 of 22.25.
+    expect(r.total).toBeCloseTo(22.25)
+    expect(r.done).toBeCloseTo(18)
+    expect(r.percent).toBe(81)
+  })
+
+  it('type ignores quantity, plinth count and volume: changing them does not move it, while count and volume do', () => {
+    const base = mixed()
+    const big = mixed({ qty: 30, footing: d(20, 10, 1) }) // A becomes 30 foundations of 200 m³ footings
+    expect(run(big, 'type').percent).toBe(run(base, 'type').percent)
+    expect(run(big, 'type').done).toBeCloseTo(run(base, 'type').done)
+    expect(run(big, 'count').percent).not.toBe(run(base, 'count').percent)
+    expect(run(big, 'volume').percent).not.toBe(run(base, 'volume').percent)
+  })
+
+  it('uses the same stages in all three: a single designation gives the same percentage under every weighting', () => {
+    const w = world()
+    const r = add(w.s, w.areaId, 'Z', 4, { footing: d(3, 3, 1) })
+    const s = finish(r.s, r.f.id, ['rebarBuilt', 'rebarInstalled', 'formed'])
+    expect([run(s, 'type').percent, run(s, 'count').percent, run(s, 'volume').percent]).toEqual([67, 67, 67])
   })
 })
