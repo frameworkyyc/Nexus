@@ -16,6 +16,69 @@ export function boxVolumeM3(d: Dims | null | undefined): number | null {
   return toMetres(d.length, d.unit) * toMetres(d.width, d.unit) * toMetres(d.height, d.unit)
 }
 
+const MM = 0.001
+const okMm = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 1_000_000
+
+/** Octagon area factor: a regular octagon with across-flats distance a has area 2(√2 − 1)·a². */
+export const OCTAGON_FACTOR = 2 * (Math.SQRT2 - 1)
+
+export interface FootingVolume {
+  /** The base shape's volume, m³; null while its dimensions are missing. */
+  base: number | null
+  /** Each addition (+) or deduction (−), in m³ (null while one of its dimensions is missing), in the order entered. */
+  adjustments: { id: string; mode: 'add' | 'deduct'; m3: number | null }[]
+  /** Base plus additions minus deductions, m³; null while anything is missing. */
+  total: number | null
+}
+
+/** Footprint area (m²) and height (m) of the footing's base shape, for the plinth rules; null where they cannot be known (a custom volume has neither). */
+export function footingExtent(f: Pick<Foundation, 'footing' | 'footingShape'>): { footprint: number | null; height: number | null } {
+  const s = f.footingShape
+  if (!s || s.kind === 'rectangle') {
+    const d = f.footing
+    return { footprint: d && valid(d.length) && valid(d.width) ? toMetres(d.length, d.unit) * toMetres(d.width, d.unit) : null, height: d && valid(d.height) ? toMetres(d.height, d.unit) : null }
+  }
+  if (s.kind === 'circle') return { footprint: okMm(s.diameter) ? Math.PI * (s.diameter * MM / 2) ** 2 : null, height: okMm(s.height) ? s.height * MM : null }
+  if (s.kind === 'octagon') return { footprint: okMm(s.acrossFlats) ? OCTAGON_FACTOR * (s.acrossFlats * MM) ** 2 : null, height: okMm(s.height) ? s.height * MM : null }
+  return { footprint: null, height: null }
+}
+
+/**
+ * The footing's concrete volume in m³: the base shape (the rectangle, circle, regular octagon or a custom volume) plus its additions less its deductions.
+ * Everything is converted to metres before multiplying. Anything missing makes the total null; it is never treated as zero.
+ */
+export function footingVolume(f: Pick<Foundation, 'footing' | 'footingShape'>): FootingVolume {
+  const s = f.footingShape
+  const kind = s?.kind ?? 'rectangle'
+  const { footprint, height } = footingExtent(f)
+  const base = kind === 'rectangle' ? boxVolumeM3(f.footing) : kind === 'custom' ? (typeof s?.volumeM3 === 'number' && Number.isFinite(s.volumeM3) && s.volumeM3 > 0 ? s.volumeM3 : null) : footprint !== null && height !== null ? footprint * height : null
+  const adjustments = (s?.adjustments ?? []).map((a) => ({ id: a.id, mode: a.mode, m3: okMm(a.length) && okMm(a.width) && okMm(a.height) ? a.length * MM * a.width * MM * a.height * MM : null }))
+  const known = base !== null && adjustments.every((a) => a.m3 !== null)
+  return { base, adjustments, total: known ? base! + adjustments.reduce((t, a) => t + (a.mode === 'add' ? 1 : -1) * a.m3!, 0) : null }
+}
+
+/** What is wrong with a footing shape as entered, or null. Blank dimensions are allowed (they are optional); a total that is not positive is not. */
+export function shapeProblem(f: Pick<Foundation, 'footing' | 'footingShape'>): string | null {
+  const s = f.footingShape
+  if (!s) return null
+  if (!['rectangle', 'circle', 'octagon', 'custom'].includes(s.kind)) return 'Choose a footing shape.'
+  const blankOr = (v: unknown, label: string, unit: string) => (v === null || v === undefined || okMm(v) ? null : `${label} must be a number greater than zero in ${unit}, or left blank.`)
+  const bad = s.kind === 'circle' ? blankOr(s.diameter, 'Diameter', 'mm') ?? blankOr(s.height, 'Height', 'mm')
+    : s.kind === 'octagon' ? blankOr(s.acrossFlats, 'Across flats', 'mm') ?? blankOr(s.height, 'Height', 'mm')
+    : s.kind === 'custom' ? (s.volumeM3 === null || s.volumeM3 === undefined || (typeof s.volumeM3 === 'number' && Number.isFinite(s.volumeM3) && s.volumeM3 > 0 && s.volumeM3 <= 1_000_000) ? null : 'Volume must be a number greater than zero in m³, or left blank.')
+    : null
+  if (bad) return bad
+  const adj = s.adjustments ?? []
+  if (adj.length > 1000) return 'Too many additions and deductions.'
+  for (const [i, a] of adj.entries()) {
+    if (a.mode !== 'add' && a.mode !== 'deduct') return `Adjustment ${i + 1}: choose addition or deduction.`
+    for (const [k, v] of [['length', a.length], ['width', a.width], ['height', a.height]] as const) if (!okMm(v)) return `${a.mode === 'add' ? 'Addition' : 'Deduction'} ${i + 1}: enter the ${k} in mm (a number greater than zero).`
+  }
+  const v = footingVolume(f)
+  if (v.total !== null && v.total <= 0) return 'The deductions are as large as the footing or larger, so no concrete would remain. Reduce a deduction.'
+  return null
+}
+
 /** What is wrong with a set of dimensions the user entered, or null. Blank is allowed (dimensions are optional). */
 export function dimsProblem(d: Dims | null | undefined, label: string): string | null {
   if (!d) return null
@@ -83,8 +146,8 @@ export function effectivePlinthDims(p: Plinth, groups: AnchorageGroup[]): { dims
  */
 export function foundationConcrete(f: Foundation, plinths: Plinth[], groups: AnchorageGroup[]): FoundationConcrete {
   const quantity = foundationQuantity(f)
-  const footing = boxVolumeM3(f.footing)
-  const footingHeightM = f.footing && valid(f.footing.height) ? toMetres(f.footing.height, f.footing.unit) : null
+  const footing = footingVolume(f).total
+  const footingHeightM = footingExtent(f).height
   const fromBase = (f.plinthBase ?? 'above-footing') === 'from-footing-base'
   const warnings: string[] = []
   const missing: string[] = []
@@ -101,13 +164,13 @@ export function foundationConcrete(f: Foundation, plinths: Plinth[], groups: Anc
     }
     return { plinthId: p.id, index: p.index, anchorageTypeId: p.anchorageTypeId, groupId: p.groupId ?? null, dims, source, gross, net, note: p.notes }
   })
-  if (footing === null) missing.push('footing dimensions')
+  if (footing === null) missing.push(f.footingShape?.kind === 'custom' ? 'footing volume' : 'footing dimensions')
   const plinthsMissing = rows.filter((r) => r.net === null).length
   if (plinthsMissing) missing.push(fromBase && footingHeightM === null && rows.some((r) => r.gross !== null && r.net === null) ? `footing height (needed to deduct the part of the plinths inside the footing) and ${plinthsMissing} plinth${plinthsMissing === 1 ? '' : 's'} with dimensions` : `${plinthsMissing} plinth${plinthsMissing === 1 ? '' : 's'} without complete dimensions`)
   const plinthsKnown = rows.reduce((t, r) => t + (r.net ?? 0), 0)
   // Overlap sanity: plinths cannot cover more than the footing they stand on.
-  if (f.footing && valid(f.footing.length) && valid(f.footing.width)) {
-    const footprint = toMetres(f.footing.length, f.footing.unit) * toMetres(f.footing.width, f.footing.unit)
+  const footprint = footingExtent(f).footprint
+  if (footprint !== null) {
     const covered = rows.reduce((t, r) => t + (r.dims && valid(r.dims.length) && valid(r.dims.width) ? toMetres(r.dims.length, r.dims.unit) * toMetres(r.dims.width, r.dims.unit) : 0), 0)
     if (covered > footprint * (1 + 1e-9)) warnings.push('The plinth footprints add up to more than the footing area. Check the dimensions.')
   }

@@ -72,6 +72,25 @@ export interface AnchorageGroup {
   dims: Dims | null
 }
 
+/** A rectangular piece of concrete added to, or taken from, a footing's base shape. Millimetres. */
+export interface FootingAdjustment { id: string; mode: 'add' | 'deduct'; length: number | null; width: number | null; height: number | null }
+/**
+ * The footing's base shape when it is not the plain rectangle, plus any additions and deductions. Dimensions are in millimetres; a custom shape holds
+ * its volume in m³ directly. Absent = the rectangle in `footing`, as before.
+ */
+export interface FootingShape {
+  kind: 'rectangle' | 'circle' | 'octagon' | 'custom'
+  /** Circle. */
+  diameter?: number | null
+  /** Regular octagon: the distance between two parallel sides. */
+  acrossFlats?: number | null
+  /** Circle and octagon. */
+  height?: number | null
+  /** Custom: the concrete volume in m³. */
+  volumeM3?: number | null
+  adjustments?: FootingAdjustment[]
+}
+
 export interface Foundation {
   id: string
   areaId: string
@@ -87,6 +106,8 @@ export interface Foundation {
   plinthsPerFoundation?: number | null
   /** Footing length × width × height; absent/null = not entered. */
   footing?: Dims | null
+  /** The footing's shape and its additions and deductions; absent = the rectangle above. */
+  footingShape?: FootingShape | null
   /** Whether a plinth's height is measured above the footing (default) or from the bottom of the footing (the part inside the footing is not counted twice). */
   plinthBase?: 'above-footing' | 'from-footing-base'
 }

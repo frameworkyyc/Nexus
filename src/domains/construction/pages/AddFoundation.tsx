@@ -30,7 +30,7 @@ async function createAnchorageType(projectId: string, code: string): Promise<{ i
 function previewOf(draft: ConfigDraft, run: (cfg: FoundationConfig) => { state?: ConstructionState; error?: string }, pick: (s: ConstructionState) => Foundation | undefined) {
   const cfg = configFromDraft(draft)
   if ('error' in cfg) return cfg.error
-  if (!cfg.config.footing && (cfg.config.groups ?? []).every((g) => !g.dims)) return null
+  if (!cfg.config.footing && !cfg.config.footingShape && (cfg.config.groups ?? []).every((g) => !g.dims)) return null
   const r = run({ ...cfg.config, bolts: undefined, embeds: undefined }) // bolts do not affect concrete; an unfinished bolt entry must not hide the calculation
   if (r.error !== undefined || !r.state) return r.error ?? null
   const f = pick(r.state)

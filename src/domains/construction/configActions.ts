@@ -1,7 +1,7 @@
 import { blankActivitiesFor } from './blankActivities'
-import { dimsProblem, hasAnyDim } from './concrete'
+import { dimsProblem, hasAnyDim, shapeProblem } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, LibraryEmbedPlate, PlateSpec, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, FootingShape, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, LibraryEmbedPlate, PlateSpec, Plinth } from './types'
 import { plateText, plateAsComponent, samePlate } from './plates'
 
 const fail = (error: string) => ({ error }) as const
@@ -32,10 +32,24 @@ export function plateProblem(p: PlateSpec | undefined): string | null {
   return null
 }
 export const MAX_FOUNDATION_EMBEDS = 10
-export interface FoundationConfig { footing?: Dims | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[]; /** Absent = unchanged; a list replaces the foundation's embed plates (empty = none). */ embeds?: FoundationEmbedInput[] }
+export interface FoundationConfig { footing?: Dims | null; /** The footing's shape and additions/deductions; null = back to the plain rectangle; absent = unchanged. */ footingShape?: FootingShape | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[]; /** Absent = unchanged; a list replaces the foundation's embed plates (empty = none). */ embeds?: FoundationEmbedInput[] }
 
 export const groupsOf = (s: ConstructionState, foundationId: string): AnchorageGroup[] => (s.anchorageGroups ?? []).filter((g) => g.foundationId === foundationId)
 
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+/** A tidy copy of a shape to store: a plain rectangle with no additions or deductions is stored as nothing at all (the footing dimensions are the shape). */
+export function cleanShape(sh: FootingShape | null | undefined): FootingShape | null {
+  if (!sh) return null
+  const adjustments = (sh.adjustments ?? []).map((a, i) => ({ id: a.id || `adj-${Date.now().toString(36)}-${i}`, mode: a.mode, length: num(a.length), width: num(a.width), height: num(a.height) }))
+  if (sh.kind === 'rectangle' && adjustments.length === 0) return null
+  return {
+    kind: sh.kind,
+    ...(sh.kind === 'circle' ? { diameter: num(sh.diameter), height: num(sh.height) } : {}),
+    ...(sh.kind === 'octagon' ? { acrossFlats: num(sh.acrossFlats), height: num(sh.height) } : {}),
+    ...(sh.kind === 'custom' ? { volumeM3: num(sh.volumeM3) } : {}),
+    ...(adjustments.length ? { adjustments } : {}),
+  }
+}
 const cleanDims = (d: Dims | null | undefined): Dims | null => (hasAnyDim(d) ? { length: d!.length ?? null, width: d!.width ?? null, height: d!.height ?? null, unit: d!.unit } : null)
 const projectOfFoundation = (s: ConstructionState, f: Foundation) => s.areas.find((a) => a.id === f.areaId)?.projectId
 
@@ -50,6 +64,10 @@ export function plinthTouched(s: ConstructionState, p: Plinth): boolean {
 export function configProblem(s: ConstructionState, f: Foundation, cfg: FoundationConfig): string | null {
   const bad = dimsProblem(cfg.footing, 'Footing')
   if (bad) return bad
+  if (cfg.footingShape) {
+    const shaped = shapeProblem({ footing: cfg.footing !== undefined ? cfg.footing : f.footing, footingShape: cfg.footingShape })
+    if (shaped) return shaped
+  }
   if (cfg.plinthBase !== undefined && cfg.plinthBase !== 'above-footing' && cfg.plinthBase !== 'from-footing-base') return 'Choose how plinth height is measured.'
   if (cfg.bolts !== undefined) {
     if (!Array.isArray(cfg.bolts) || cfg.bolts.length > MAX_FOOTING_BOLTS) return `A foundation can have up to ${MAX_FOOTING_BOLTS} anchor bolt configurations.`
@@ -254,6 +272,7 @@ export const configureFoundation = (id: string, cfg: FoundationConfig & { descri
       ...(cfg.description !== undefined ? { description: String(cfg.description).trim().slice(0, 300) } : {}),
       ...(cfg.quantity !== undefined ? { quantity: cfg.quantity } : {}),
       ...(cfg.footing !== undefined ? { footing: cleanDims(cfg.footing) } : {}),
+      ...(cfg.footingShape !== undefined ? { footingShape: cleanShape(cfg.footingShape) } : {}),
       ...(cfg.plinthBase !== undefined ? { plinthBase: cfg.plinthBase } : {}),
     } : x)),
   }

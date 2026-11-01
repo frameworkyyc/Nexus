@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
-import { hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, Foundation, FoundationBolt, FoundationEmbed, LengthUnit, PlateSpec, Plinth } from '../types'
+import { footingVolume, hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
+import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, FootingShape, Foundation, FoundationBolt, FoundationEmbed, LengthUnit, PlateSpec, Plinth } from '../types'
 import type { FoundationConfig, FoundationEmbedInput, FootingBoltInput, GroupInput } from '../configActions'
 import { itemsOf } from '../tracker/requirements'
 import { plateText } from '../plates'
@@ -41,7 +41,22 @@ const embedInput = (d: EmbedDraft): FoundationEmbedInput => (d.componentId || !d
 /** A library embed plate the form can offer: the component and the anchorage type that defines it (none for a plate saved to the library on its own). */
 export interface EmbedOption { component: AnchorageComponent; type: AnchorageType | null }
 export const embedOptionLabel = (o: EmbedOption) => { const it = itemsOf({ ...o.component, qty: 1 })[0]; return `${o.type?.code ?? 'Library'} · ${[it.name !== 'Embed plate' ? it.name : '', it.size, it.spec].filter(Boolean).join(' · ') || 'Embed plate'}` }
-export interface ConfigDraft { footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
+/** Text-box state for the footing shape: its kind, dimensions in mm (or the custom volume in m³) and rectangular additions and deductions in mm. */
+export interface AdjustmentDraft { id?: string; mode: 'add' | 'deduct'; length: string; width: string; height: string }
+export interface ShapeDraft { kind: 'rectangle' | 'circle' | 'octagon' | 'custom'; diameter: string; acrossFlats: string; height: string; volume: string; adjustments: AdjustmentDraft[] }
+export const blankShape = (): ShapeDraft => ({ kind: 'rectangle', diameter: '', acrossFlats: '', height: '', volume: '', adjustments: [] })
+const s2 = (v: number | null | undefined) => (v === null || v === undefined ? '' : String(v))
+export const shapeDraft = (s: FootingShape | null | undefined): ShapeDraft => s ? ({ kind: s.kind, diameter: s2(s.diameter), acrossFlats: s2(s.acrossFlats), height: s2(s.height), volume: s2(s.volumeM3), adjustments: (s.adjustments ?? []).map((a) => ({ id: a.id, mode: a.mode, length: s2(a.length), width: s2(a.width), height: s2(a.height) })) }) : blankShape()
+const n0 = (t: string) => (t.trim() === '' ? null : Number(t))
+/** Draft → the shape to save (null = the plain rectangle), or what is wrong with it. */
+export function shapeFrom(d: ShapeDraft | undefined): { shape: FootingShape | null } | { error: string } {
+  const x = d ?? blankShape()
+  const fields = [x.diameter, x.acrossFlats, x.height, x.volume, ...x.adjustments.flatMap((a) => [a.length, a.width, a.height])]
+  if (fields.some((t) => t.trim() !== '' && !Number.isFinite(Number(t)))) return { error: 'Footing shape: enter dimensions as numbers.' }
+  if (x.kind === 'rectangle' && x.adjustments.length === 0) return { shape: null }
+  return { shape: { kind: x.kind, diameter: n0(x.diameter), acrossFlats: n0(x.acrossFlats), height: n0(x.height), volumeM3: n0(x.volume), adjustments: x.adjustments.map((a) => ({ id: a.id ?? '', mode: a.mode, length: n0(a.length), width: n0(a.width), height: n0(a.height) })) } }
+}
+export interface ConfigDraft { shape?: ShapeDraft; footing: DimsDraft; plinthBase: 'above-footing' | 'from-footing-base'; groups: GroupDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
 
 const num = (v: number | null) => (v === null ? '' : String(v))
 export const dimsDraft = (d: Dims | null | undefined, unit: LengthUnit = 'mm'): DimsDraft => ({ length: num(d?.length ?? null), width: num(d?.width ?? null), height: num(d?.height ?? null), unit: d?.unit ?? unit })
@@ -59,13 +74,15 @@ export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: An
   const list: GroupDraft[] = groups.length
     ? groups.map((g) => ({ id: g.id, typeId: g.anchorageTypeId ?? '', count: String(g.count), dims: dimsDraft(g.dims) }))
     : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ typeId: t, count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null) }))
-  return { footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, bolts: bolts.filter((b) => b.foundationId === f.id).map(boltDraft), embeds: embeds.filter((e) => e.foundationId === f.id).map(embedDraft) }
+  return { shape: shapeDraft(f.footingShape), footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, bolts: bolts.filter((b) => b.foundationId === f.id).map(boltDraft), embeds: embeds.filter((e) => e.foundationId === f.id).map(embedDraft) }
 }
 
 /** Draft → the command's configuration, or what is wrong with it. */
 export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | { error: string } {
   const foot = dimsFrom(d.footing, 'Footing')
   if ('error' in foot) return foot
+  const shaped = shapeFrom(d.shape)
+  if ('error' in shaped) return shaped
   const groups: GroupInput[] = []
   for (const [i, g] of d.groups.entries()) {
     const count = Number(g.count)
@@ -79,10 +96,61 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
     const nums = [e.plate.thickness, e.plate.width, e.plate.length, e.plate.studCount, e.plate.studDiameter, e.plate.studLength].filter((t) => t.trim() !== '')
     if (nums.some((t) => !Number.isFinite(Number(t)))) return { error: `Embed plates ${i + 1}: enter the plate and stud sizes as numbers.` }
   }
-  return { config: { footing: foot.dims, plinthBase: d.plinthBase, groups, bolts: (d.bolts ?? []).map(boltInput), embeds: (d.embeds ?? []).map(embedInput) } }
+  return { config: { footing: foot.dims, footingShape: shaped.shape, plinthBase: d.plinthBase, groups, bolts: (d.bolts ?? []).map(boltInput), embeds: (d.embeds ?? []).map(embedInput) } }
 }
 
 export const totalPlinthsOf = (d: ConfigDraft) => d.groups.reduce((t, g) => t + (Number.isInteger(Number(g.count)) && Number(g.count) > 0 ? Number(g.count) : 0), 0)
+
+const KIND_LABEL = { rectangle: 'Rectangle', circle: 'Circle', octagon: 'Regular octagon', custom: 'Custom volume' } as const
+const m3 = (v: number) => `${v.toLocaleString('en-CA', { minimumFractionDigits: 3, maximumFractionDigits: 3 })} m³`
+
+/**
+ * The footing: its shape (rectangle, circle, regular octagon or a custom volume), rectangular additions and deductions in mm, and a live breakdown ending in
+ * the total concrete volume in m³. The rectangle keeps its existing length × width × height and unit.
+ */
+export function FootingShapeEditor({ draft, onChange }: { draft: ConfigDraft; onChange: (d: ConfigDraft) => void }) {
+  const shape = draft.shape ?? blankShape()
+  const set = (patch: Partial<ShapeDraft>) => onChange({ ...draft, shape: { ...shape, ...patch } })
+  const adj = (i: number, patch: Partial<AdjustmentDraft>) => set({ adjustments: shape.adjustments.map((a, j) => (j === i ? { ...a, ...patch } : a)) })
+  const foot = dimsFrom(draft.footing, 'Footing')
+  const sh = shapeFrom(shape)
+  const v = footingVolume({ footing: 'dims' in foot ? foot.dims : null, footingShape: 'shape' in sh ? (sh.shape ?? { kind: 'rectangle' }) : { kind: 'rectangle' } })
+  const baseLabel = shape.kind === 'circle' ? `Circle Ø${shape.diameter || '?'} × ${shape.height || '?'} mm` : shape.kind === 'octagon' ? `Octagon ${shape.acrossFlats || '?'} across flats × ${shape.height || '?'} mm` : shape.kind === 'custom' ? 'Custom volume' : `Rectangle ${draft.footing.length || '?'} × ${draft.footing.width || '?'} × ${draft.footing.height || '?'} ${draft.footing.unit}`
+  const negative = v.total !== null && v.total <= 0
+  const mm = (label: string, value: string, key: keyof ShapeDraft, aria: string) => <Field label={label}><Input aria-label={aria} inputMode="decimal" value={value} onChange={(e) => set({ [key]: e.target.value } as Partial<ShapeDraft>)} placeholder="—" /></Field>
+  return (
+    <div className="space-y-4">
+      <div className="max-w-xs"><Field label="Footing shape"><Select aria-label="Footing shape" value={shape.kind} onChange={(e) => set({ kind: e.target.value as ShapeDraft['kind'] })}>{(Object.keys(KIND_LABEL) as (keyof typeof KIND_LABEL)[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}</Select></Field></div>
+      {shape.kind === 'rectangle' && <DimsRow label="Footing dimensions" value={draft.footing} onChange={(footing) => onChange({ ...draft, footing })} idPrefix="footing" />}
+      {shape.kind === 'circle' && <div className="grid max-w-lg grid-cols-2 gap-2">{mm('Diameter (mm)', shape.diameter, 'diameter', 'Footing diameter (mm)')}{mm('Height (mm)', shape.height, 'height', 'Footing height (mm)')}</div>}
+      {shape.kind === 'octagon' && <div className="grid max-w-lg grid-cols-2 gap-2">{mm('Across flats (mm)', shape.acrossFlats, 'acrossFlats', 'Footing across flats (mm)')}{mm('Height (mm)', shape.height, 'height', 'Footing height (mm)')}</div>}
+      {shape.kind === 'custom' && <div className="max-w-xs">{mm('Concrete volume (m³)', shape.volume, 'volume', 'Footing custom volume (m³)')}</div>}
+
+      <div className="space-y-2" role="group" aria-label="Additions and deductions">
+        <p className="t-label">Additions and deductions (mm)</p>
+        {shape.adjustments.map((a, i) => (
+          <div key={a.id ?? `new-${i}`} className="grid grid-cols-[6.5rem_repeat(3,minmax(0,1fr))_2.25rem] items-end gap-2 phone:grid-cols-2">
+            <Field label={i === 0 ? 'Type' : ''}><Select aria-label={`Adjustment ${i + 1} type`} value={a.mode} onChange={(e) => adj(i, { mode: e.target.value as 'add' | 'deduct' })}><option value="add">Addition</option><option value="deduct">Deduction</option></Select></Field>
+            <Field label={i === 0 ? 'Length' : ''}><Input aria-label={`Adjustment ${i + 1} length (mm)`} inputMode="decimal" value={a.length} onChange={(e) => adj(i, { length: e.target.value })} placeholder="mm" /></Field>
+            <Field label={i === 0 ? 'Width' : ''}><Input aria-label={`Adjustment ${i + 1} width (mm)`} inputMode="decimal" value={a.width} onChange={(e) => adj(i, { width: e.target.value })} placeholder="mm" /></Field>
+            <Field label={i === 0 ? 'Height' : ''}><Input aria-label={`Adjustment ${i + 1} height (mm)`} inputMode="decimal" value={a.height} onChange={(e) => adj(i, { height: e.target.value })} placeholder="mm" /></Field>
+            <button type="button" aria-label={`Remove adjustment ${i + 1}`} onClick={() => set({ adjustments: shape.adjustments.filter((_, j) => j !== i) })} className="grid h-9 w-9 place-items-center text-muted hover:text-ink phone:h-11 phone:w-11"><Trash2 size={15} strokeWidth={1.5} /></button>
+          </div>
+        ))}
+        <Button variant="ghost" onClick={() => set({ adjustments: [...shape.adjustments, { mode: 'add', length: '', width: '', height: '' }] })}><Plus size={14} strokeWidth={1.5} />Add addition or deduction</Button>
+      </div>
+
+      {(v.base !== null || v.adjustments.length > 0) && (
+        <dl aria-label="Footing concrete" className="max-w-lg space-y-1 rounded-nx bg-hover p-3 text-xs" aria-live="polite">
+          <div className="flex justify-between gap-3"><dt className="text-muted">{baseLabel}</dt><dd className="tabular-nums">{v.base === null ? 'incomplete' : m3(v.base)}</dd></div>
+          {v.adjustments.map((a, i) => <div key={a.id || i} className="flex justify-between gap-3"><dt className="text-muted">{a.mode === 'add' ? 'Addition' : 'Deduction'} {i + 1}</dt><dd className="tabular-nums">{a.m3 === null ? 'incomplete' : `${a.mode === 'add' ? '+' : '−'} ${m3(a.m3)}`}</dd></div>)}
+          <div className="flex justify-between gap-3 border-t border-line pt-1 font-medium"><dt>Footing concrete (each)</dt><dd className="tabular-nums">{v.total === null ? 'incomplete' : m3(v.total)}</dd></div>
+        </dl>
+      )}
+      {negative && <p role="alert" className="border-l-2 border-bad pl-3 text-xs">The deductions are as large as the footing or larger, so no concrete would remain. Reduce a deduction.</p>}
+    </div>
+  )
+}
 
 /** Foundation name, quantity and description, together. */
 export function FoundationBasics({ number, onNumber, quantity, onQuantity, description, onDescription, autoFocus, required, area }: {
@@ -151,8 +219,8 @@ export function FoundationConfigFields({ draft, onChange, types, quantity, previ
   return (
     <div className="space-y-6">
       <fieldset className="min-w-0 space-y-2 border-t border-line pt-5">
-        <legend className="t-label mb-2 p-0">Footing dimensions (optional)</legend>
-        <DimsRow label="Footing dimensions" value={draft.footing} onChange={(footing) => onChange({ ...draft, footing })} idPrefix="footing" />
+        <legend className="t-label mb-2 p-0">Footing shape and dimensions (optional)</legend>
+        <FootingShapeEditor draft={draft} onChange={onChange} />
       </fieldset>
 
       <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
