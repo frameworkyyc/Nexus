@@ -1,15 +1,18 @@
-import { ChevronRight, RotateCcw } from 'lucide-react'
+import { ChevronRight, Lock, RotateCcw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
 import { DEMO_DESCRIPTION, DEMO_LABEL } from '@/app/demoConfig'
 import { moreItems } from '@/app/moreItems'
-import { operationalNodes } from '@/app/navTree'
+import { applyLocks, operationalNodes } from '@/app/navTree'
 import { useProjectContext } from '@/app/projectContext'
 import { useTenant } from '@/app/tenant'
 import { BottomSheet } from '@/components/ui/BottomSheet'
 import { useBackend } from '@/lib/dataSource'
 import { resetWholeDemo } from './DemoBadge'
 
+const lockedRow = (label: string, Icon: React.ElementType) => (
+  <div aria-disabled="true" title="Coming Soon" className="flex min-h-[52px] items-center justify-between gap-3 border-b border-line px-4 text-[16px] text-muted"><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}</span><span className="flex items-center gap-1.5 text-[13px]"><Lock size={14} strokeWidth={1.5} aria-hidden="true" />Coming Soon</span></div>
+)
 const row = 'flex min-h-[52px] items-center justify-between gap-3 border-b border-line px-4 text-[16px]'
 
 /** Phone menu: everything that is not one of the four sections in the bottom bar, the demo controls and where the data lives. Primary destinations are in the bottom bar. */
@@ -17,9 +20,9 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
   const tenant = useTenant()
   const { mode, environment } = useBackend()
   const { projectId } = useProjectContext()
-  const items = moreItems(projectId, mode === 'server')
+  const items = moreItems(projectId, mode === 'server', environment)
   // Materials is in the bottom bar; the other operational pages are here.
-  const operational = projectId ? operationalNodes(projectId).filter((n) => n.id !== 'op-materials') : []
+  const operational = projectId ? applyLocks(operationalNodes(projectId), environment).filter((n) => n.id !== 'op-materials') : []
   const reset = () => {
     if (!window.confirm('Reset the demo? All sample data returns to its original state and your changes are lost.')) return
     resetWholeDemo()
@@ -38,16 +41,16 @@ export function MoreSheet({ onClose }: { onClose: () => void }) {
         <>
           <p className="t-label px-4 pb-1 pt-4">Operational pages</p>
           <ul>
-            {operational.map(({ id, label, icon: Icon, to, future }) => Icon && (
-              <li key={id}><Link to={to} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}{future && <span className="rounded-full border border-line px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">Future</span>}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
+            {operational.map(({ id, label, icon: Icon, to, future, locked }) => Icon && (
+              locked ? <li key={id}>{lockedRow(label, Icon)}</li> : <li key={id}><Link to={to} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}{future && <span className="rounded-full border border-line px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">Future</span>}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
             ))}
           </ul>
           <p className="t-label px-4 pb-1 pt-5">Tools & setup</p>
         </>
       )}
       <ul>
-        {items.map(({ id, label, icon: Icon, to }) => (
-          <li key={id}><Link to={to} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
+        {items.map(({ id, label, icon: Icon, to, locked }) => (
+          locked ? <li key={id}>{lockedRow(label, Icon)}</li> : <li key={id}><Link to={to} onClick={onClose} className={row}><span className="flex items-center gap-3"><Icon size={20} strokeWidth={1.5} />{label}</span><ChevronRight size={18} strokeWidth={1.5} className="text-muted" /></Link></li>
         ))}
       </ul>
       <div className="px-4 py-5 text-[14px] text-muted">

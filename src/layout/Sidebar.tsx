@@ -1,8 +1,8 @@
-import { ChevronRight, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
+import { ChevronRight, Lock, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { IS_PUBLIC_DEMO } from '@/app/bundle'
-import { containsCurrent, isCurrent, primarySections, toolNodes, type NavNode, type NavSection } from '@/app/navTree'
+import { applyLocks, containsCurrent, isCurrent, primarySections, toolNodes, type NavNode, type NavSection } from '@/app/navTree'
 import { useProjectContext } from '@/app/projectContext'
 import { sectionOf } from '@/domains/construction/navigation'
 import { useConstruction } from '@/domains/construction/store'
@@ -17,6 +17,11 @@ const writePref = (collapsed: boolean) => { try { localStorage.setItem(KEY, coll
 const row = (active: boolean) => `flex h-9 items-center gap-3 rounded-nx px-3 text-[13px] transition-colors ${active ? 'bg-white/10 text-sidebar-ink' : 'text-neutral-400 hover:bg-white/5 hover:text-sidebar-ink'}`
 const subRow = (active: boolean) => `${row(active)} !h-8 !px-2 text-[12.5px]`
 
+/** A module that is switched off in production: not a link, with a lock and "Coming Soon". */
+function LockedTag() {
+  return <span className="ml-auto flex shrink-0 items-center gap-1 text-[10px] text-sidebar-muted"><Lock size={11} strokeWidth={1.5} aria-hidden="true" />Coming Soon</span>
+}
+
 function FutureTag() {
   return <span className="ml-auto shrink-0 rounded-full border border-sidebar-line px-1.5 py-px text-[9px] uppercase tracking-wide text-sidebar-muted">Future</span>
 }
@@ -25,6 +30,16 @@ function FutureTag() {
 function Entry({ node, gap = false, active, open, onToggle, pathname, search, onNavigate }: { node: NavNode; gap?: boolean; active: boolean; open: boolean; onToggle: () => void; pathname: string; search: string; onNavigate: () => void }) {
   const Icon = node.icon
   const kids = node.children ?? []
+  if (node.locked) {
+    return (
+      <li className={gap ? 'mt-3' : undefined}>
+        <div aria-disabled="true" title="Coming Soon" className={`${row(false)} cursor-not-allowed opacity-60 hover:!bg-transparent hover:!text-neutral-400`}>
+          {Icon && <Icon size={16} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />}
+          <span className="truncate">{node.label}</span><LockedTag />
+        </div>
+      </li>
+    )
+  }
   return (
     <li className={gap ? 'mt-3' : undefined}>
       <div className="flex items-center">
@@ -91,6 +106,7 @@ export function SidebarView({ sections, tools, pathname, search, rail, onToggle,
   if (rail) {
     const icon = (n: NavNode, active: boolean, gap = false) => {
       const Icon = n.icon!
+      if (n.locked) return <li key={n.id} className={gap ? 'mt-3' : undefined}><span aria-disabled="true" aria-label={`${n.label} (Coming Soon)`} title={`${n.label} · Coming Soon`} className="relative grid h-9 w-10 cursor-not-allowed place-items-center rounded-nx text-neutral-600"><Icon size={16} strokeWidth={1.5} aria-hidden="true" /><Lock size={9} strokeWidth={2} className="absolute bottom-1.5 right-2" aria-hidden="true" /></span></li>
       return (
         <li key={n.id} className={gap ? 'mt-3' : undefined}>
           <Link to={n.to} title={n.label} aria-label={n.label} aria-current={isCurrent(n, pathname, search) ? 'page' : undefined} className={`grid h-9 w-10 place-items-center rounded-nx transition-colors ${active ? 'bg-white/10 text-sidebar-ink' : 'text-neutral-400 hover:bg-white/5 hover:text-sidebar-ink'}`}><Icon size={17} strokeWidth={1.5} aria-hidden="true" /></Link>
@@ -153,8 +169,8 @@ export function Sidebar() {
   const [overlayOpen, setOverlayOpen] = useState(false)
   const collapsed = wide ? pref === true : !overlayOpen
   const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence).map((a) => ({ id: a.id, name: a.name }))
-  const sections = primarySections(projectId, areas)
-  const tools = toolNodes(projectId, mode === 'server')
+  const sections = applyLocks(primarySections(projectId, areas), environment)
+  const tools = applyLocks(toolNodes(projectId, mode === 'server'), environment)
   const footer = mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'
   const overlay = !wide && overlayOpen
 

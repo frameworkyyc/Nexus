@@ -3,7 +3,9 @@ import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-r
 import { useProjectContext } from '@/app/projectContext'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { useIsServer } from '@/lib/dataSource'
+import { useBackend, useIsServer } from '@/lib/dataSource'
+import { useAccess } from '@/lib/access'
+import { isProductionEnv } from '@/shared/lock'
 import { redirectFor } from '../navigation'
 import { paths } from '../paths'
 import { foundationsOf } from '../selectors'
@@ -23,7 +25,11 @@ export function LegacyRedirect() {
 /** `/` opens the last-used project's Project Progress. With no project yet it shows the onboarding overview instead. */
 export function RootRedirect() {
   const { projectId } = useProjectContext()
-  return projectId ? <Navigate to={paths.progress(projectId)} replace /> : <OverviewPage />
+  const { environment } = useBackend()
+  if (projectId) return <Navigate to={paths.progress(projectId)} replace />
+  // Company overview is Coming Soon in production, so someone with no project sees a plain message rather than a locked page.
+  if (isProductionEnv(environment)) return <EmptyState title="No projects yet" description="You haven’t been given access to a project. Ask an administrator to add you to one." />
+  return <OverviewPage />
 }
 
 /** A project-less path (the old global /procurement) goes to the same page of the project in context, or to the project list. */
@@ -109,11 +115,13 @@ export function FoundationSelector() {
 export function SetupHub() {
   const { projectId = '' } = useParams()
   const server = useIsServer()
+  const access = useAccess()
   const cards = [
     { to: paths.register(projectId), title: 'Foundations', text: 'Create, edit and configure foundation designations, quantities and anchorage.' },
     { to: paths.areas(projectId), title: 'Areas', text: 'Add, rename and archive the areas of this project.' },
     { to: paths.anchorage(projectId), title: 'Anchorage types & library', text: 'Anchorage types, their components and embed plates.' },
     { to: paths.pours(projectId), title: 'Concrete pours', text: 'Plan pours, group foundations and record what was poured.' },
+    ...(server && access.can('access.manage') ? [{ to: paths.team(projectId), title: 'Team members', text: 'Invite people, set what they can do, choose their projects and revoke access.' }] : []),
   ]
   return (
     <>

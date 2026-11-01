@@ -1,3 +1,4 @@
+import { Locked } from '@/layout/Locked'
 import { Navigate, Outlet, type Params, type RouteObject } from 'react-router-dom'
 import type { CrumbHandle } from '@/layout/TopBar'
 import { AnchoragePage } from './pages/AnchoragePage'
@@ -18,6 +19,7 @@ import { ProjectLayout } from './pages/ProjectLayout'
 import { projectFleetRoutes } from '../fleet/routes'
 import { DemoOnly } from './pages/DemoOnly'
 import { useConstruction } from './store'
+import { TeamMembers } from './pages/TeamMembers'
 import { FoundationSelector, LegacyRedirect, ManageDiscipline, ProjectContextRedirect, RootRedirect, SetupHub } from './pages/Sections'
 import { LEGACY_PROJECT_PATHS } from './navigation'
 import { paths } from './paths'
@@ -48,14 +50,14 @@ function FoundationCrumb({ params }: { params: Params<string> }) {
 
 export const constructionRoutes: RouteObject[] = [
   { index: true, element: <RootRedirect />, handle: text('Dashboard') },
-  { path: 'overview', element: <OverviewPage />, handle: text('Company overview') },
+  { path: 'overview', element: <Locked id="overview"><OverviewPage /></Locked>, handle: text('Company overview') },
   // The old global /procurement opens Procurement of the project in context.
   ...(IS_PUBLIC_DEMO ? [] : [{ path: 'procurement', element: <ProjectContextRedirect to={paths.procurement} />, handle: { legacy: true } }]),
   {
     path: 'projects',
     handle: text('Projects'),
     children: [
-      { index: true, element: <ProjectsPage /> },
+      { index: true, element: <Locked id="projects"><ProjectsPage /></Locked> },
       {
         path: ':projectId',
         element: <ProjectLayout />,
@@ -88,8 +90,8 @@ export const constructionRoutes: RouteObject[] = [
               ] },
               { path: 'construction', element: <ManageDiscipline kind="construction" />, handle: text('Construction') },
               { path: 'survey', element: <ManageDiscipline kind="survey" />, handle: text('Survey') },
-              { path: 'qaqc', element: <ManageDiscipline kind="qaqc" />, handle: text('QA/QC') },
-              { path: 'civil', element: <ManageDiscipline kind="civil" />, handle: text('Civil / Earthworks') },
+              { path: 'qaqc', element: <Locked id="qaqc"><ManageDiscipline kind="qaqc" /></Locked>, handle: text('QA/QC') },
+              { path: 'civil', element: <Locked id="civil"><ManageDiscipline kind="civil" /></Locked>, handle: text('Civil / Earthworks') },
             ],
           },
           // ── Foundation Overview ──
@@ -97,7 +99,8 @@ export const constructionRoutes: RouteObject[] = [
             path: 'foundation',
             handle: text('Foundation Overview'),
             children: [
-              { index: true, element: <FoundationSelector /> },
+              // Only the overview is locked: a single foundation's page stays open because Construction and Setup → Foundations link to it.
+              { index: true, element: <Locked id="foundation"><FoundationSelector /></Locked> },
               { path: ':foundationId', element: <FoundationPage />, handle: { crumb: FoundationCrumb } satisfies CrumbHandle },
             ],
           },
@@ -108,6 +111,7 @@ export const constructionRoutes: RouteObject[] = [
             children: [
               { index: true, element: <SetupHub /> },
               { path: 'foundations', element: <RegisterPage />, handle: text('Foundations') },
+              { path: 'team', element: <TeamMembers />, handle: text('Team members') },
               { path: 'areas', element: <AreasPage />, handle: text('Areas') },
               { path: 'anchorage', element: <AnchoragePage />, handle: text('Anchorage types') },
               { path: 'pours', handle: text('Concrete pours'), children: [{ index: true, element: <PoursPage /> }, { path: ':pourId', element: <PourPage />, handle: { crumb: PourCrumb } satisfies CrumbHandle }] },
@@ -116,8 +120,8 @@ export const constructionRoutes: RouteObject[] = [
           // ── Other project pages, unchanged ──
           { path: 'fabrication', element: <DemoOnly><FabricationPage /></DemoOnly>, handle: text('Fabrication') },
           { path: 'handover', element: <DemoOnly><HandoverPage /></DemoOnly>, handle: text('Handover') },
-          { path: 'issues', element: <IssuesPage />, handle: text('Issues') },
-          ...projectFleetRoutes,
+          { path: 'issues', element: <Locked id="issues"><IssuesPage /></Locked>, handle: text('Issues') },
+          ...projectFleetRoutes.map((r) => ({ ...r, element: <Locked id="project-fleet"><Outlet /></Locked> })),
           // ── Paths from before the redesign: still work, and land on the new page ──
           ...LEGACY_PROJECT_PATHS.map((path) => ({ path, element: <LegacyRedirect />, handle: { legacy: true } })),
         ],

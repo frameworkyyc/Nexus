@@ -9,11 +9,11 @@ export const ROLES = ['viewer', 'editor', 'admin'] as const
 export type Role = (typeof ROLES)[number]
 export const isRole = (v: unknown): v is Role => typeof v === 'string' && (ROLES as readonly string[]).includes(v)
 
-export const ROLE_LABEL: Record<Role, string> = { viewer: 'Viewer', editor: 'Editor', admin: 'Admin' }
+export const ROLE_LABEL: Record<Role, string> = { viewer: 'View Only', editor: 'Edit', admin: 'Admin' }
 export const ROLE_SUMMARY: Record<Role, string> = {
-  viewer: 'Can view, search, filter, open details and read history. Cannot change anything.',
-  editor: 'Viewer, plus add and edit materials, update quantities, record deliveries, add notes and use bulk edits. Cannot archive, manage access or configuration.',
-  admin: 'Editor, plus archive materials, void receipts, preferred suppliers, foundations and areas, and manage who has access.',
+  viewer: 'Can read every enabled module for the projects they are assigned to. Cannot change anything.',
+  editor: 'View Only, plus update Procurement, Construction and Survey for their projects. Cannot change project setup or manage users.',
+  admin: 'Edit, plus project setup, archiving, voiding receipts, every project, and managing who has access.',
 }
 
 export type Permission =

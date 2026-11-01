@@ -152,3 +152,17 @@ project, its areas and foundations, the anchorage library, materials and fleet a
 * **Still required for real sign-in**: a Cloudflare Access application for `staging.nexus.frameworktools.ca`, then `ACCESS_TEAM_DOMAIN` and
   `ACCESS_AUD` in `previews.vars`. Until then the API refuses every request (fail closed).
 * **Local full-stack run** (real Worker, local SQLite D1): `npm run build && npx wrangler d1 migrations apply DB --local --config wrangler.dev.jsonc && npx wrangler dev --config wrangler.dev.jsonc`.
+
+## Team members, project access and production locks (v1.0)
+
+* **Team members** (Setup → Team members, administrators only): invitations are manual (no email). Status is Invited → Active on the person's first
+  verified sign-in, or Revoked. A revoked person is refused on their very next request even though Cloudflare Access still signs them in
+  (`user_roles.status`, checked on every request). Cloudflare Access must also allow an invited person's email.
+* **Permissions**: Admin (everything, every project), Edit (`editor`: update Procurement, Construction and Survey; no project setup, no user management),
+  View Only (`viewer`: read only). Enforced by the Worker (`src/shared/rbac.ts`, `src/worker/roles.ts`).
+* **Project access** (`user_projects`, migration 0026): non-administrators see and change only their assigned projects. The Worker filters what they
+  read and refuses a change that touches another project (`src/worker/scope.ts`). Records that belong to no project stay shared. Importing a
+  workbook needs access to every project.
+* **Production locks** (`NEXUS_ENV=production`; `src/shared/lock.ts`): QA/QC, Civil / Earthworks, Foundation Overview, Issues, Fleet on this project, All projects,
+  Company overview, Crew and Safety show a lock and "Coming Soon", their routes show a Coming Soon page, and the Worker refuses QA/QC and Civil
+  activity updates and project fleet assignment. Staging keeps every module.

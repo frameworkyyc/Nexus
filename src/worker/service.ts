@@ -2,6 +2,8 @@ import { loadRows, TABLES, writeStatements, type D1, type D1Statement, type Row,
 import { MODULES } from './modules'
 import { isRequestId, validateImportMeta, validateParsedTracker } from './validate'
 import { requireCommandPermission, type Actor } from './roles'
+import { lockedCommandProblem } from './locks'
+import { assertWritable, loadIndex, overlay, scopeOf, scopeRows, type ProjectScope } from './scope'
 import { MODULE_NAMES, SERVER_COMMANDS, type ModuleName } from '@/shared/registry'
 
 export class HttpError extends Error {
@@ -18,7 +20,7 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10)
 export interface Snapshot { rows: RowSet; version: number; // eslint-disable-next-line @typescript-eslint/no-explicit-any
   state: any }
 
-export async function readModule(db: D1, module: ModuleName): Promise<Snapshot> {
+export async function readModule(db: D1, module: ModuleName, scope: ProjectScope = 'all'): Promise<Snapshot> {
   const spec = MODULES[module]
   // Both reads are started inside async functions so that a failure while preparing either one rejects the Promise.all instead of throwing
   // after the other read has already started, which would leave that read's rejection unhandled.
@@ -26,7 +28,8 @@ export async function readModule(db: D1, module: ModuleName): Promise<Snapshot> 
     loadRows(db, spec.tables),
     (async () => db.prepare('SELECT version FROM module_versions WHERE module = ?').bind(module).first<{ version: number }>())(),
   ])
-  return { rows, version: Number(v?.version ?? 0), state: spec.fromRows(rows) }
+  // `rows` stays complete (the next write is computed against it); only the state handed to a project-scoped reader is filtered.
+  return { rows, version: Number(v?.version ?? 0), state: spec.fromRows(scope === 'all' ? rows : scopeRows(rows, await loadIndex(db), scope)) }
 }
 
 export async function versions(db: D1): Promise<Record<string, number>> {
@@ -54,7 +57,7 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
  * a single transaction together with its audit entry, and refused if another change landed first (it is then re-evaluated
  * against the newer records). A repeated request id is answered, not applied twice.
  */
-export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, clock: Clock = systemClock) {
+export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, clock: Clock = systemClock, environment?: string) {
   const actor = actorIn.email
   const module = req.module as ModuleName
   if (!MODULE_NAMES.includes(module)) throw new HttpError(400, 'Unknown module.', 'bad-request')
@@ -63,6 +66,9 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
   if (!creator) throw new HttpError(400, `“${name}” cannot be saved to the server.`, 'unsupported')
   // Authorization comes first and uses only the role the server resolved for the verified identity.
   requireCommandPermission(actorIn, module, name)
+  const scope = scopeOf(actorIn)
+  // The workbook import replaces records that belong to no single project, so only someone with access to every project may run it.
+  if (scope !== 'all' && module === 'materials' && name === 'importTracker') throw new HttpError(403, 'Importing a workbook needs access to every project.', 'project-forbidden')
   if (!isRequestId(req.requestId)) throw new HttpError(400, 'Missing or invalid request id.', 'bad-request')
   if (!Array.isArray(req.args)) throw new HttpError(400, 'Command arguments must be a list.', 'bad-request')
   const now = clock.now()
@@ -70,7 +76,7 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
   if (!/^\d{4}-\d{2}-\d{2}$/.test(clientToday) || Math.abs((Date.parse(clientToday) - Date.parse(isoDate(now))) / 86_400_000) > 1) throw new HttpError(400, 'This device’s date differs from the server’s by more than a day. Check the device clock.', 'clock')
 
   const answered = async () => {
-    const snap = await readModule(db, module)
+    const snap = await readModule(db, module, scope)
     return { version: snap.version, state: snap.state, replayed: true as const }
   }
   const prior = await db.prepare('SELECT id FROM change_log WHERE request_id = ?').bind(req.requestId).first()
@@ -93,6 +99,9 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
 
   for (let attempt = 0; attempt < 4; attempt++) {
     const snap = await readModule(db, module)
+    // Production keeps some modules switched off ("Coming Soon"): refused here whatever the browser shows.
+    const locked = lockedCommandProblem(environment, module, name, args, snap.state)
+    if (locked) throw new HttpError(403, locked, 'coming-soon')
     let result: { state?: unknown; error?: string }
     // Rules that look at another module's records get them from the server's own database, never from the request.
     const refs: Record<string, unknown> = {}
@@ -104,6 +113,11 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
     if (result.error !== undefined) throw new HttpError(422, result.error, 'rejected')
     const spec = MODULES[module]
     const next = spec.toRows(result.state, { prevRows: snap.rows, isImport: !!importBatchId, importBatchId })
+    if (scope !== 'all') {
+      const ix = await loadIndex(db)
+      overlay(ix, next)
+      assertWritable(snap.rows, next, ix, scope, (t) => spec.tables.find((x) => x.name === t)?.pk ?? 'id')
+    }
     const statements = [
       guardStatement(db, module, snap.version),
       ...writeStatements(db, snap.rows, next, spec.tables),
@@ -118,7 +132,7 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
       if (/change_log\.request_id/i.test(m)) return answered() // the same request already landed
       throw new HttpError(409, `The change conflicts with saved records and was not saved (${m.replace(/^D1_ERROR: /, '').slice(0, 200)}).`, 'integrity')
     }
-    const fresh = await readModule(db, module)
+    const fresh = await readModule(db, module, scope)
     return { version: fresh.version, state: fresh.state }
   }
   throw new HttpError(409, 'The records are changing too quickly to save. Try again.', 'busy')

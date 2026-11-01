@@ -13,6 +13,7 @@ export const paths = {
     `/projects/${p}/manage/${section === 'records' ? 'materials/records' : section}${areaId ? `?area=${areaId}` : ''}`,
   foundations: (p: string) => `/projects/${p}/foundation`,
   setup: (p: string) => `/projects/${p}/setup`,
+  team: (p: string) => `/projects/${p}/setup/team`,
   register: (p: string) => `/projects/${p}/setup/foundations`,
   materials: (p: string) => `/projects/${p}/progress/materials`,
   materialRecords: (p: string) => `/projects/${p}/manage/materials/records`,

@@ -2,7 +2,8 @@ import { authenticate, AuthError, type AuthEnv } from './auth'
 import type { D1 } from './db'
 import { applyMigration, previewMigration, type MigrationBundle } from './migrate'
 import { checkIntegrity, createBackup, HttpError, readModule, runCommand, systemClock, versions, type Clock } from './service'
-import { listRoles, requirePermission, resolveActor, setRole, type RoleEnv } from './roles'
+import { inviteMember, listMembers, listRoles, requirePermission, resolveActor, restoreMember, revokeMember, setRole, updateMember, type RoleEnv } from './roles'
+import { scopeOf } from './scope'
 import { ROLE_PERMISSIONS } from '@/shared/rbac'
 import { MODULE_NAMES, type ModuleName } from '@/shared/registry'
 
@@ -50,24 +51,31 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
 
     if (path === '/api/session' && request.method === 'GET') {
       const info = await db.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>()
-      return json({ ok: true, user: who.email, role: actor.role, permissions: actor.role ? ROLE_PERMISSIONS[actor.role] : [], environment: env.NEXUS_ENV ?? 'unknown', schemaVersion: info?.value ?? 'unknown', versions: await versions(db), serverDate: clock.now().toISOString().slice(0, 10) })
+      return json({ ok: true, user: who.email, role: actor.role, permissions: actor.role ? ROLE_PERMISSIONS[actor.role] : [], revoked: !!actor.revoked, projects: scopeOf(actor), environment: env.NEXUS_ENV ?? 'unknown', schemaVersion: info?.value ?? 'unknown', versions: await versions(db), serverDate: clock.now().toISOString().slice(0, 10) })
     }
     if (path === '/api/roles' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json({ roles: await listRoles(db) }) }
     if (path === '/api/roles' && request.method === 'POST') {
       const body = (await readJson(request)) as { email?: unknown; role?: unknown }
       return json({ roles: await setRole(db, actor, body.email, body.role ?? null, clock.now()) })
     }
+    if (path === '/api/members' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json({ members: await listMembers(db) }) }
+    const memberAction = /^\/api\/members\/(invite|update|revoke|restore)$/.exec(path)
+    if (memberAction && request.method === 'POST') {
+      const body = (await readJson(request)) as Record<string, unknown>
+      const act = { invite: inviteMember, update: updateMember, revoke: revokeMember, restore: restoreMember }[memberAction[1] as 'invite']
+      return json({ members: await act(db, actor, body, clock.now()) })
+    }
     const stateMatch = /^\/api\/state\/(\w+)$/.exec(path)
     if (stateMatch && request.method === 'GET') {
       const module = stateMatch[1] as ModuleName
       requirePermission(actor, 'view')
       if (!MODULE_NAMES.includes(module)) throw new HttpError(404, 'Unknown module.', 'not-found')
-      const snap = await readModule(db, module)
+      const snap = await readModule(db, module, scopeOf(actor))
       return json({ version: snap.version, state: snap.state })
     }
     if (path === '/api/commands' && request.method === 'POST') {
       const body = (await readJson(request)) as Record<string, unknown>
-      const result = await runCommand(db, body as never, actor, clock)
+      const result = await runCommand(db, body as never, actor, clock, env.NEXUS_ENV)
       return json(result)
     }
     if (path === '/api/backup' && request.method === 'GET') {

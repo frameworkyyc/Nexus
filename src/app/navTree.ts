@@ -1,5 +1,6 @@
 import { Activity, BarChart3, Briefcase, Building2, ClipboardCheck, Database, FileText, FolderKanban, Hammer, HardHat, LayoutGrid, Ruler, Settings2, ShieldCheck, Shovel, ShoppingCart, Truck, type LucideIcon } from 'lucide-react'
 import { IS_PUBLIC_DEMO } from './bundle'
+import { isLocked, NAV_LOCK } from '@/shared/lock'
 import { paths } from '@/domains/construction/paths'
 import type { SectionId } from '@/domains/construction/navigation'
 
@@ -15,6 +16,8 @@ export interface NavNode {
   prefix?: boolean
   /** Planned, not built: shown with a "Future" tag. */
   future?: boolean
+  /** Switched off in this environment (production): shown with a lock and "Coming Soon", not a link. */
+  locked?: boolean
   children?: NavNode[]
 }
 /** A primary entry. `section` is set for the groups that own a whole part of the app (Status, Foundation, Fleet); the operational pages are plain links. */
@@ -91,3 +94,8 @@ export function isCurrent(node: NavNode, pathname: string, search: string): bool
 /** Whether a node or anything inside it is the current page (so its group opens by itself). */
 export const containsCurrent = (node: NavNode, pathname: string, search: string): boolean =>
   isCurrent(node, pathname, search) || !!node.children?.some((c) => containsCurrent(c, pathname, search))
+
+/** Marks the entries that are "Coming Soon" in this environment. Only production locks anything; staging and the demo are returned unchanged. */
+export function applyLocks<T extends NavNode>(nodes: T[], environment: string | undefined): T[] {
+  return nodes.map((n) => (NAV_LOCK[n.id] && isLocked(NAV_LOCK[n.id], environment) ? { ...n, locked: true, children: undefined } : n))
+}
