@@ -95,3 +95,16 @@ Open Deployments → that version → copy its test URL, and by hand open `/api/
   All 28 `scripts/preflight.mjs` checks passed against it: production + WorkOS, `nexus-production` bound, every protected endpoint refused an unauthenticated request, WorkOS login redirect with the Production client id and callback, forged callback refused.
   The version has the three production secrets as `secret_text` and the `nexus-production` D1 binding (`d3f3ed8d-…`). Live traffic was not changed (the live deployment is still version `d7c30510`, the old site). The staging preview (Access, `nexus-staging`) and both databases were unaffected.
   The live hostname has no Cloudflare Access in front of it (`production-reachability` run). Not done: promotion, merge, release gate, first-administrator sign-in.
+
+## Launch workflow (GitHub Actions): `production-launch.yml`
+Does the final staging export, production backup, data migration, verification and release of the pinned, pre-flighted Worker version, with rollback. It starts only from a push to `release/preflight` whose head commit message contains
+`[launch-rehearsal]` (everything except production writes and deployment) or `[launch-production]` (the full launch). Start it with:
+```
+git checkout -B release/preflight staging && git commit --allow-empty -m "Launch [launch-production]" && git push --force origin release/preflight
+```
+* Needs the `production-preflight` environment's Cloudflare token to have **Account · Workers Scripts · Edit** and **Account · D1 · Edit** (a Workers-only token fails the first step with "Authentication error 10000" and changes nothing).
+* Safeguards: production must still be empty (27 migrations, no data or members); a Time Travel bookmark is recorded first; staging is exported twice and must be identical; the plan must insert exactly 1,234 rows with zero problems; the SQL is rehearsed on a copy; the live apply is atomic;
+  live counts and `foreign_key_check` must equal the rehearsal. On failure: unchanged check, then `rollback.sql`, then Time Travel restore. Only the pinned version is deployed (`versions deploy`, never a new build); if the live checks fail the previous deployment is restored (migrated data is kept).
+* Exports and SQL never leave the runner (the repository is public): no artifacts are uploaded and logs show counts only.
+* The pinned version (`TARGET_VERSION`) and the pre-flighted commit are set at the top of the workflow; a changed application file since that commit stops the run.
+* Release log, 2026-11-01: the first rehearsal run stopped at the permission check (token lacked D1 access). Production was not touched.
