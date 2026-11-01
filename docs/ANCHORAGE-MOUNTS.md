@@ -50,3 +50,8 @@ for the bolts of its library type (`foundation_anchorages.install_method`); the 
 * Migration 0029 is additive: existing bolts and groups become wet-set, no row is rewritten, and existing activity records and material quantities are untouched. **Existing foundations that need bolts will show the new activity as not started**, so their progress drops until installation is recorded (OP1-01-06: 100% → 75%).
   Where bolts are really post-installed, set the method in Foundation Setup.
 * The construction panel lists the bolts each activity covers (source, count, specification) and, at the top, which are outstanding by method.
+
+### Rollout log (anchor bolt installation)
+* **2026-11-02, staging.** Time Travel bookmark taken first: `000000e9-00000000-00005116-808bb11749bc8bac003b3b214a7165c3`. Migration 0029 applied to `nexus-staging` (schema 29, 29 ledger rows); every existing bolt and anchorage group is wet-set; counts unchanged (749 activity rows, 50 foundations, 78 plinths); `foreign_key_check` empty.
+  Code deployed to the staging preview (deployment 117) after the migration. On the staging data, 21 of 50 designations need bolts and drop until installation is recorded (OP1-01-06 100% → 75%; OP1-21-03 to -08 from 100% to 80–88%); foundations without bolts are unchanged.
+* **Production** is at schema 28 on version `db06d5fd` and has not received this change. On a copy of the production data, 36 of 52 designations need bolts; OP1-01-06 goes 100% → 75% and, once set to post-installed, stays at 75% with the pour complete until the bolts are recorded.
