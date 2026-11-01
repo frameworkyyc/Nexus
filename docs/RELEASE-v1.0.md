@@ -61,17 +61,17 @@ the `d1_migrations` ledger is created and filled, and the schema is compared wit
 
 ## Pre-flight without a local terminal (GitHub Actions)
 Two workflows run from GitHub; neither can deploy.
-* **`production-reachability.yml`** (no credentials, read-only): push a tag `check-<n>`. It sends GET requests to the live hostname and fails if Cloudflare Access redirects it (`cloudflareaccess.com`), which would intercept the WorkOS routes.
-* **`production-preflight.yml`**: push a tag `preflight-<n>`. It uploads the tagged code as an **undeployed** version of the production Worker (`wrangler versions upload`), waits for its test URL, and runs `scripts/preflight.mjs` against it. Wrangler keeps the Worker's existing
+* **`production-reachability.yml`** (no credentials, read-only): run it (Actions → Production reachability check → Run workflow, branch `staging`), or push a tag `check-<n>`. It sends GET requests to the live hostname and fails if Cloudflare Access redirects it (`cloudflareaccess.com`), which would intercept the WorkOS routes.
+* **`production-preflight.yml`**: run it (Actions → Production pre-flight → Run workflow, branch `staging`), or push a tag `preflight-<n>`. It uploads the tagged code as an **undeployed** version of the production Worker (`wrangler versions upload`), waits for its test URL, and runs `scripts/preflight.mjs` against it. Wrangler keeps the Worker's existing
   secrets on the new version, so the production secrets never pass through GitHub. A test fails the build if the workflow ever contains a deploy, promote or rollback command. The result and the version id are in the run summary.
 
 **One-time setup (browser only, about five minutes):**
 1. Cloudflare dashboard → your profile (top right) → API Tokens → Create Token → Create Custom Token. Name it "GitHub Nexus pre-flight". Permission: **Account · Workers Scripts · Edit**. Account Resources: include only the Framework account. Create it and copy the token once.
 2. GitHub → `frameworkyyc/Nexus` → Settings → Environments → New environment, named exactly `production-preflight`.
-   * Deployment branches and tags → Selected branches and tags → Add rule → type **Tag**, pattern `preflight-*`.
+   * Deployment branches and tags → Selected branches and tags → add a **Branch** rule `staging` and a **Tag** rule `preflight-*`.
    * Optional: Required reviewers → add yourself, so every run waits for your approval before it touches Cloudflare.
    * Environment secrets → add `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (`8d8d61851e9e56969b4a6bf9a985e9a4`).
-3. Tell Claude. It pushes the tag `preflight-1`, watches the run and reports every check.
+3. Tell Claude. It starts the run on `staging`, watches it and reports every check.
 
 **Promotion stays manual:** after the run passes, Cloudflare dashboard → Workers & Pages → `nexus` → Deployments → find the version named "pre-flight preflight-… " → **Deploy version** → 100%. Nothing in GitHub or Cloudflare promotes it for you,
 and the same page shows the previous version for rollback. After promoting, push a tag `check-<n>` for the live-host checks, or run `node scripts/preflight.mjs https://nexus.frameworktools.ca` anywhere.

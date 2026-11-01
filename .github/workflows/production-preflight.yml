@@ -3,12 +3,13 @@
 #   2. Runs scripts/preflight.mjs against that version's URL: health, every protected endpoint refuses an unauthenticated request, WorkOS login redirect.
 # It never deploys, promotes or rolls back: there is no `wrangler deploy` or `versions deploy` in this file, and a test fails the build if one appears. Promotion is a separate, manual
 # click in the Cloudflare dashboard (Workers & Pages -> nexus -> Deployments -> Deploy version), after you have read this run.
-# Run it by pushing a tag named preflight-* (git tag preflight-1 && git push origin preflight-1). Production secrets stay in Cloudflare: Wrangler keeps the Worker's existing secrets on a
+# Run it from GitHub (Actions -> this workflow -> Run workflow, on branch staging) or by pushing a tag named preflight-*. Production secrets stay in Cloudflare: Wrangler keeps the Worker's existing secrets on a
 # new version and this workflow never sees their values. The only secrets it uses are the Cloudflare API token and account id, held in the GitHub Environment `production-preflight`
-# (restrict that environment to tags matching preflight-*, and optionally require a reviewer there to approve each run).
+# (restrict that environment to the staging branch and tags matching preflight-*, and optionally require a reviewer there to approve each run).
 name: Production pre-flight (undeployed version)
 
 on:
+  workflow_dispatch:
   push:
     tags: ['preflight-*']
 
@@ -21,7 +22,7 @@ concurrency:
 
 jobs:
   preflight:
-    if: github.repository == 'frameworkyyc/Nexus' && startsWith(github.ref, 'refs/tags/preflight-')
+    if: github.repository == 'frameworkyyc/Nexus' && (startsWith(github.ref, 'refs/tags/preflight-') || github.ref == 'refs/heads/staging')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production-preflight
