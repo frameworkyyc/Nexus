@@ -66,8 +66,8 @@ jobs:
             const url = v && (v.preview_url || v.preview_alias_url);
             if (!v || !url) { console.error("::error::The upload did not report a version test URL. Check that Version URLs (workers.dev preview URLs) are enabled for the nexus Worker."); process.exit(1) }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, "id=" + v.version_id + "\nurl=" + url.replace(/\/+$/, "") + "\n");
+            console.log("Version " + v.version_id + " uploaded (NOT deployed): " + url);
           '
-          echo "Version ${{ steps.version.outputs.id }} (not deployed)"
 
       - name: Wait for the version to answer
         run: |

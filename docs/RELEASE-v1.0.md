@@ -91,3 +91,7 @@ Open Deployments → that version → copy its test URL, and by hand open `/api/
   backup table, `odometer_readings_before_0011`, which production correctly lacks. Data: 0 projects, 0 members, 1 supplier (Nucor) and 1 preference (bolts → Nucor), module versions all 0.
   The production Worker was not touched: still on its 2026-10-23 deployment, with no secrets set yet.
 * To restore the database to the empty state if ever needed: `npx wrangler d1 time-travel restore nexus-production --bookmark=00000004-00000000-00005116-a830b642c49efc16c45b0f7946866ea1`.
+* **2026-11-01, production pre-flight (GitHub Actions run on `release/preflight`).** An undeployed version `21f40bde-631a-4d13-b61b-62c5bf55286d` of the production Worker was uploaded (test URL `https://21f40bde-nexus.plain-poetry-2054.workers.dev`).
+  All 28 `scripts/preflight.mjs` checks passed against it: production + WorkOS, `nexus-production` bound, every protected endpoint refused an unauthenticated request, WorkOS login redirect with the Production client id and callback, forged callback refused.
+  The version has the three production secrets as `secret_text` and the `nexus-production` D1 binding (`d3f3ed8d-…`). Live traffic was not changed (the live deployment is still version `d7c30510`, the old site). The staging preview (Access, `nexus-staging`) and both databases were unaffected.
+  The live hostname has no Cloudflare Access in front of it (`production-reachability` run). Not done: promotion, merge, release gate, first-administrator sign-in.
