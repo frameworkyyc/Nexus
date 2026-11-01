@@ -4,7 +4,8 @@ import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
 import { footingVolume, hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, LengthUnit, PlateSpec, Plinth } from '../types'
+import { typeHasBolts, typeHasEmbeds } from '../anchorageMounts'
+import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, InstallMethod, LengthUnit, PlateSpec, Plinth } from '../types'
 import type { AnchorageInput, FoundationConfig, FoundationEmbedInput, FootingBoltInput, GroupInput } from '../configActions'
 import { itemsOf } from '../tracker/requirements'
 import { plateText } from '../plates'
@@ -12,7 +13,34 @@ import { plateText } from '../plates'
 /** Text-box state for a set of dimensions. */
 export interface DimsDraft { length: string; width: string; height: string; unit: LengthUnit }
 /** One anchorage group on the footing or on each plinth of a set: a library type and how many. */
-export interface AnchorageDraft { id?: string; typeId: string; qty: string }
+/**
+ * Layout shared by every card in the form, so labels, inputs and selects line up from card to card: one four-column grid (two on a phone), a header with the
+ * component's name and its Post-Install checkbox, subtle captions between groups of fields, and a footer with the live total on the left and Remove on the right.
+ */
+const GRID = 'grid grid-cols-2 items-end gap-x-3 gap-y-3 sm:grid-cols-4 [&>*]:min-w-0'
+const cardClass = (nested?: boolean) => `space-y-4 rounded-nx p-4 phone:p-3 ${nested ? 'bg-hover' : 'border border-line'}`
+function CardHeader({ title, children }: { title: string; children?: React.ReactNode }) {
+  return <div className="flex min-h-6 flex-wrap items-center justify-between gap-x-4 gap-y-1"><p className="text-[13px] font-medium">{title}</p>{children}</div>
+}
+function Caption({ children }: { children: React.ReactNode }) { return <p className="t-label border-t border-line pt-4">{children}</p> }
+function CardFooter({ removeLabel, onRemove, children }: { removeLabel: string; onRemove: () => void; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 text-xs">{children}</div>
+      <Button variant="ghost" className="shrink-0" aria-label={removeLabel} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button>
+    </div>
+  )
+}
+/** The Post-Install checkbox: unchecked = installed as part of the pour (no installation activity), checked = a separate installation activity in Construction. */
+function PostInstall({ label, checked, onChange, hint }: { label: string; checked: boolean; onChange: (post: boolean) => void; hint?: string }) {
+  return (
+    <label title={hint} className="flex cursor-pointer items-center gap-2 text-xs"><input type="checkbox" aria-label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />Post-Install</label>
+  )
+}
+const postOf = (m: InstallMethod | undefined) => m === 'post-installed'
+const methodOf = (post: boolean): InstallMethod => (post ? 'post-installed' : 'wet-set')
+
+export interface AnchorageDraft { id?: string; typeId: string; qty: string; /** How the bolts of this type are installed. */ installMethod: InstallMethod }
 /** What is mounted on the footing, or on each plinth of one set: anchorage groups, individual anchor bolts and embed plates. */
 export interface MountDraft { anchorages: AnchorageDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
 /** A set of identical plinths, with what is mounted on each of them. */
@@ -23,26 +51,28 @@ export interface BoltDraft {
   nutsPerBolt: string; nutSize: string; washersPerBolt: string; washerSize: string
   /** How the bolt quantity counts: per foundation (× the number of physical foundations) or a total. */
   mode: 'per-foundation' | 'total'
+  /** Wet-set (cast in as the concrete is poured) or post-installed (set into hardened concrete). */
+  installMethod: InstallMethod
 }
-export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '', mode: 'per-foundation' })
-const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize, mode: b.mode ?? 'per-foundation' })
+export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '', mode: 'per-foundation', installMethod: 'wet-set' })
+const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize, mode: b.mode ?? 'per-foundation' , installMethod: b.installMethod ?? 'wet-set' })
 const numOrNull = (t: string) => (t.trim() === '' ? null : Number(t))
 const boltInput = (d: BoltDraft): FootingBoltInput => ({
   id: d.id, qty: Number(d.qty), diameter: d.diameter, length: numOrNull(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? numOrNull(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? numOrNull(d.bottomThread) : null,
-  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize, mode: d.mode,
+  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize, mode: d.mode, installMethod: d.installMethod,
 })
 /** Text-box state for a plate created in the form: size and optional headed studs. */
 export interface PlateDraft { thickness: string; width: string; length: string; unit: 'mm' | 'in'; studCount: string; studDiameter: string; studLength: string }
 export const blankPlate = (unit: 'mm' | 'in' = 'mm'): PlateDraft => ({ thickness: '', width: '', length: '', unit, studCount: '', studDiameter: '', studLength: '' })
 const plateDraft = (p: PlateSpec): PlateDraft => ({ thickness: String(p.thickness), width: String(p.width), length: String(p.length), unit: p.unit, studCount: p.studCount === null ? '' : String(p.studCount), studDiameter: p.studDiameter === null ? '' : String(p.studDiameter), studLength: p.studLength === null ? '' : String(p.studLength) })
 /** Text-box state for one embed plate configuration on a foundation. `componentId` empty = a plate created here (`plate`), saved to this foundation or to the library. */
-export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total'; plate?: PlateDraft; save?: 'foundation' | 'library' }
-const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode, ...(e.plate ? { plate: plateDraft(e.plate), save: 'foundation' as const } : {}) })
+export interface EmbedDraft { id?: string; componentId: string; qty: string; mode: 'per-foundation' | 'total'; plate?: PlateDraft; save?: 'foundation' | 'library'; installMethod?: InstallMethod }
+const embedDraft = (e: FoundationEmbed): EmbedDraft => ({ id: e.id, componentId: e.componentId, qty: String(e.qty), mode: e.mode, installMethod: e.installMethod ?? 'wet-set', ...(e.plate ? { plate: plateDraft(e.plate), save: 'foundation' as const } : {}) })
 const numOrNullStr = (t: string) => (t.trim() === '' ? null : Number(t))
 const plateSpec = (d: PlateDraft): PlateSpec => ({ thickness: Number(d.thickness), width: Number(d.width), length: Number(d.length), unit: d.unit, studCount: numOrNullStr(d.studCount), studDiameter: numOrNullStr(d.studDiameter), studLength: numOrNullStr(d.studLength) })
 const embedInput = (d: EmbedDraft): FoundationEmbedInput => (d.componentId || !d.plate
-  ? { id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode }
-  : { id: d.id, plate: plateSpec(d.plate), save: d.save ?? 'foundation', qty: Number(d.qty), mode: d.mode })
+  ? { id: d.id, componentId: d.componentId, qty: Number(d.qty), mode: d.mode, installMethod: d.installMethod }
+  : { id: d.id, plate: plateSpec(d.plate), save: d.save ?? 'foundation', qty: Number(d.qty), mode: d.mode, installMethod: d.installMethod })
 /** A library embed plate the form can offer: the component and the anchorage type that defines it (none for a plate saved to the library on its own). */
 export interface EmbedOption { component: AnchorageComponent; type: AnchorageType | null }
 export const embedOptionLabel = (o: EmbedOption) => { const it = itemsOf({ ...o.component, qty: 1 })[0]; return `${o.type?.code ?? 'Library'} · ${[it.name !== 'Embed plate' ? it.name : '', it.size, it.spec].filter(Boolean).join(' · ') || 'Embed plate'}` }
@@ -85,11 +115,11 @@ export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: An
     embeds: myEmbeds.filter((e) => (e.mountGroupId ?? null) === mount).map(embedDraft),
   })
   const anchoragesOn = (mount: string | null, legacyType: string | null): AnchorageDraft[] => anchorages
-    ? anchorages.filter((a) => a.foundationId === f.id && (a.mountGroupId ?? null) === mount).map((a) => ({ id: a.id, typeId: a.anchorageTypeId, qty: String(a.qty) }))
-    : legacyType ? [{ typeId: legacyType, qty: '1' }] : []
+    ? anchorages.filter((a) => a.foundationId === f.id && (a.mountGroupId ?? null) === mount).map((a) => ({ id: a.id, typeId: a.anchorageTypeId, qty: String(a.qty), installMethod: a.installMethod ?? 'wet-set' as InstallMethod }))
+    : legacyType ? [{ typeId: legacyType, qty: '1', installMethod: 'wet-set' as InstallMethod }] : []
   const list: GroupDraft[] = groups.length
     ? groups.map((g) => ({ id: g.id, count: String(g.count), dims: dimsDraft(g.dims), anchorages: anchoragesOn(g.id, g.anchorageTypeId), ...on(g.id) }))
-    : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null), anchorages: t ? [{ typeId: t, qty: '1' }] : [], bolts: [], embeds: [] }))
+    : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null), anchorages: t ? [{ typeId: t, qty: '1', installMethod: 'wet-set' as InstallMethod }] : [], bolts: [], embeds: [] }))
   return { shape: shapeDraft(f.footingShape), footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, anchorages: anchoragesOn(null, null), ...on(null), noPlinths: f.plinthsPerFoundation === 0 && list.length === 0 }
 }
 
@@ -105,7 +135,7 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
       const qty = Number(a.qty)
       if (!a.typeId) return { error: `${label} anchorage group ${i + 1}: choose an anchorage type from the library.` }
       if (a.qty.trim() === '' || !Number.isInteger(qty) || qty < 1) return { error: `${label} anchorage group ${i + 1}: enter the number of anchorages (a whole number of 1 or more).` }
-      anchorages.push({ id: a.id, anchorageTypeId: a.typeId, qty })
+      anchorages.push({ id: a.id, anchorageTypeId: a.typeId, qty, installMethod: a.installMethod })
     }
     for (const [i, e] of (m.embeds ?? []).entries()) {
       if (e.componentId || !e.plate) continue
@@ -150,21 +180,21 @@ export function FootingShapeEditor({ draft, onChange }: { draft: ConfigDraft; on
   const mm = (label: string, value: string, key: keyof ShapeDraft, aria: string) => <Field label={label}><Input aria-label={aria} inputMode="decimal" value={value} onChange={(e) => set({ [key]: e.target.value } as Partial<ShapeDraft>)} placeholder="—" /></Field>
   return (
     <div className="space-y-4">
-      <div className="max-w-xs"><Field label="Footing shape"><Select aria-label="Footing shape" value={shape.kind} onChange={(e) => set({ kind: e.target.value as ShapeDraft['kind'] })}>{(Object.keys(KIND_LABEL) as (keyof typeof KIND_LABEL)[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}</Select></Field></div>
+      <div className={GRID}><div className="col-span-2"><Field label="Footing shape"><Select aria-label="Footing shape" value={shape.kind} onChange={(e) => set({ kind: e.target.value as ShapeDraft['kind'] })}>{(Object.keys(KIND_LABEL) as (keyof typeof KIND_LABEL)[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}</Select></Field></div></div>
       {shape.kind === 'rectangle' && <DimsRow label="Footing dimensions" value={draft.footing} onChange={(footing) => onChange({ ...draft, footing })} idPrefix="footing" />}
-      {shape.kind === 'circle' && <div className="grid max-w-lg grid-cols-2 gap-2">{mm('Diameter (mm)', shape.diameter, 'diameter', 'Footing diameter (mm)')}{mm('Height (mm)', shape.height, 'height', 'Footing height (mm)')}</div>}
-      {shape.kind === 'octagon' && <div className="grid max-w-lg grid-cols-2 gap-2">{mm('Across flats (mm)', shape.acrossFlats, 'acrossFlats', 'Footing across flats (mm)')}{mm('Height (mm)', shape.height, 'height', 'Footing height (mm)')}</div>}
-      {shape.kind === 'custom' && <div className="max-w-xs">{mm('Concrete volume (m³)', shape.volume, 'volume', 'Footing custom volume (m³)')}</div>}
+      {shape.kind === 'circle' && <div className={GRID}>{mm('Diameter (mm)', shape.diameter, 'diameter', 'Footing diameter (mm)')}{mm('Height (mm)', shape.height, 'height', 'Footing height (mm)')}</div>}
+      {shape.kind === 'octagon' && <div className={GRID}>{mm('Across flats (mm)', shape.acrossFlats, 'acrossFlats', 'Footing across flats (mm)')}{mm('Height (mm)', shape.height, 'height', 'Footing height (mm)')}</div>}
+      {shape.kind === 'custom' && <div className={GRID}><div className="col-span-2">{mm('Concrete volume (m³)', shape.volume, 'volume', 'Footing custom volume (m³)')}</div></div>}
 
-      <div className="space-y-2" role="group" aria-label="Additions and deductions">
+      <div className="space-y-3" role="group" aria-label="Additions and deductions">
         <p className="t-label">Additions and deductions (mm)</p>
         {shape.adjustments.map((a, i) => (
-          <div key={a.id ?? `new-${i}`} className="grid grid-cols-[6.5rem_repeat(3,minmax(0,1fr))_2.25rem] items-end gap-2 phone:grid-cols-2">
-            <Field label={i === 0 ? 'Type' : ''}><Select aria-label={`Adjustment ${i + 1} type`} value={a.mode} onChange={(e) => adj(i, { mode: e.target.value as 'add' | 'deduct' })}><option value="add">Addition</option><option value="deduct">Deduction</option></Select></Field>
-            <Field label={i === 0 ? 'Length' : ''}><Input aria-label={`Adjustment ${i + 1} length (mm)`} inputMode="decimal" value={a.length} onChange={(e) => adj(i, { length: e.target.value })} placeholder="mm" /></Field>
-            <Field label={i === 0 ? 'Width' : ''}><Input aria-label={`Adjustment ${i + 1} width (mm)`} inputMode="decimal" value={a.width} onChange={(e) => adj(i, { width: e.target.value })} placeholder="mm" /></Field>
-            <Field label={i === 0 ? 'Height' : ''}><Input aria-label={`Adjustment ${i + 1} height (mm)`} inputMode="decimal" value={a.height} onChange={(e) => adj(i, { height: e.target.value })} placeholder="mm" /></Field>
-            <button type="button" aria-label={`Remove adjustment ${i + 1}`} onClick={() => set({ adjustments: shape.adjustments.filter((_, j) => j !== i) })} className="grid h-9 w-9 place-items-center text-muted hover:text-ink phone:h-11 phone:w-11"><Trash2 size={15} strokeWidth={1.5} /></button>
+          <div key={a.id ?? `new-${i}`} className="grid grid-cols-2 items-end gap-x-3 gap-y-3 sm:grid-cols-[repeat(4,minmax(0,1fr))_2.25rem] [&>*]:min-w-0">
+            <Field label="Type"><Select aria-label={`Adjustment ${i + 1} type`} value={a.mode} onChange={(e) => adj(i, { mode: e.target.value as 'add' | 'deduct' })}><option value="add">Addition</option><option value="deduct">Deduction</option></Select></Field>
+            <Field label="Length"><Input aria-label={`Adjustment ${i + 1} length (mm)`} inputMode="decimal" value={a.length} onChange={(e) => adj(i, { length: e.target.value })} placeholder="mm" /></Field>
+            <Field label="Width"><Input aria-label={`Adjustment ${i + 1} width (mm)`} inputMode="decimal" value={a.width} onChange={(e) => adj(i, { width: e.target.value })} placeholder="mm" /></Field>
+            <Field label="Height"><Input aria-label={`Adjustment ${i + 1} height (mm)`} inputMode="decimal" value={a.height} onChange={(e) => adj(i, { height: e.target.value })} placeholder="mm" /></Field>
+            <button type="button" aria-label={`Remove adjustment ${i + 1}`} onClick={() => set({ adjustments: shape.adjustments.filter((_, j) => j !== i) })} className="col-span-2 grid h-9 w-9 place-items-center justify-self-end text-muted hover:text-ink phone:h-11 phone:w-11 sm:col-span-1"><Trash2 size={15} strokeWidth={1.5} /></button>
           </div>
         ))}
         <Button variant="ghost" onClick={() => set({ adjustments: [...shape.adjustments, { mode: 'add', length: '', width: '', height: '' }] })}><Plus size={14} strokeWidth={1.5} />Add addition or deduction</Button>
@@ -189,11 +219,11 @@ export function FoundationBasics({ number, onNumber, quantity, onQuantity, descr
   area?: { value: string; onChange: (id: string) => void; options: { id: string; name: string }[] }
 }) {
   return (
-    <div className="grid items-end gap-x-3 gap-y-3 sm:grid-cols-[1fr_11rem]">
-      <Field label={required ? 'Foundation Name *' : 'Foundation Name'}><Input autoFocus={autoFocus} value={number} onChange={(e) => onNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
-      <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => onQuantity(e.target.value)} /></Field>
-      {area && <div className="sm:col-span-2"><Field label="Area"><Select aria-label="Area" value={area.value} onChange={(e) => area.onChange(e.target.value)}>{area.options.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field></div>}
-      <div className="sm:col-span-2"><Field label="Description (optional)"><Input value={description} onChange={(e) => onDescription(e.target.value)} /></Field></div>
+    <div className={GRID}>
+      <div className="col-span-2 sm:col-span-3"><Field label={required ? 'Foundation Name *' : 'Foundation Name'}><Input autoFocus={autoFocus} value={number} onChange={(e) => onNumber(e.target.value)} placeholder="e.g. FND-101" /></Field></div>
+      <div className="col-span-2 sm:col-span-1"><Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => onQuantity(e.target.value)} /></Field></div>
+      {area && <div className="col-span-2 sm:col-span-4"><Field label="Area"><Select aria-label="Area" value={area.value} onChange={(e) => area.onChange(e.target.value)}>{area.options.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field></div>}
+      <div className="col-span-2 sm:col-span-4"><Field label="Description (optional)"><Input value={description} onChange={(e) => onDescription(e.target.value)} /></Field></div>
     </div>
   )
 }
@@ -201,7 +231,7 @@ export function FoundationBasics({ number, onNumber, quantity, onQuantity, descr
 export function DimsRow({ label, value, onChange, idPrefix }: { label: string; value: DimsDraft; onChange: (d: DimsDraft) => void; idPrefix: string }) {
   const set = (k: 'length' | 'width' | 'height') => (e: { target: { value: string } }) => onChange({ ...value, [k]: e.target.value })
   return (
-    <div role="group" aria-label={label} className="grid max-w-lg grid-cols-[repeat(3,minmax(0,1fr))_5rem] items-end gap-2 phone:max-w-none">
+    <div role="group" aria-label={label} className={GRID}>
       <Field label="Length"><Input id={`${idPrefix}-l`} inputMode="decimal" value={value.length} onChange={set('length')} placeholder="—" /></Field>
       <Field label="Width"><Input id={`${idPrefix}-w`} inputMode="decimal" value={value.width} onChange={set('width')} placeholder="—" /></Field>
       <Field label="Height"><Input id={`${idPrefix}-h`} inputMode="decimal" value={value.height} onChange={set('height')} placeholder="—" /></Field>
@@ -222,8 +252,8 @@ function anchorageTotals(components: AnchorageComponent[], typeId: string, qty: 
  * What is mounted on one place — the footing, or each plinth of one set: anchorage groups (a library type and a quantity; several, of different types, are fine),
  * individual anchor bolts and embed plates. `multiplier` is how many of that place there are across the foundation (its quantity, or quantity × plinths in the set).
  */
-function MountEditor({ value, onChange, types, components, multiplier, unit, label, embedOptions, foundationName, allTypeIds, onCreateType }: {
-  value: MountDraft; onChange: (v: MountDraft) => void; types: AnchorageType[]; components: AnchorageComponent[]; multiplier: number; unit: 'foundation' | 'plinth'; label: string
+function MountEditor({ value, onChange, types, components, multiplier, unit, label, embedOptions, foundationName, allTypeIds, onCreateType, nested }: {
+  nested?: boolean; value: MountDraft; onChange: (v: MountDraft) => void; types: AnchorageType[]; components: AnchorageComponent[]; multiplier: number; unit: 'foundation' | 'plinth'; label: string
   embedOptions: EmbedOption[]; foundationName: string; allTypeIds: Set<string>; onCreateType?: (code: string) => Promise<{ id: string } | { error: string }>
 }) {
   const [typeError, setTypeError] = useState<{ row: number; message: string } | null>(null)
@@ -243,47 +273,54 @@ function MountEditor({ value, onChange, types, components, multiplier, unit, lab
     if ('error' in r) setTypeError({ row: i, message: r.error }); else setRow(i, { typeId: r.id })
   }
   const boltsTotal = value.bolts.reduce((t, b) => t + boltCount(b, multiplier), 0)
+  const card = cardClass(nested)
+  const heading = 'text-[13px] font-medium'
   return (
-    <div className="space-y-5">
-      <div className="space-y-2">
-        <p className="text-xs font-medium">Anchorage groups</p>
-        {value.anchorages.length === 0 && <p className="text-xs text-muted">None. Add the anchorage types mounted on each {where}; bolt and template totals come from the type in the Anchorage Library.</p>}
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <p className={heading}>Anchorage groups</p>
+        {value.anchorages.length === 0 && <p className="text-xs text-muted">None. Bolt and template totals come from the type in the Anchorage Library.</p>}
         {value.anchorages.map((a, i) => {
           const totals = anchorageTotals(components, a.typeId, Number(a.qty), multiplier)
+          const post = a.typeId && (typeHasBolts({ anchorageComponents: components }, a.typeId) || typeHasEmbeds({ anchorageComponents: components }, a.typeId))
           return (
-            <div key={a.id ?? `new-${i}`} role="group" aria-label={`${label} anchorage group ${i + 1}`} className="space-y-1.5 rounded-nx border border-line p-3">
-              <div className="grid grid-cols-[1fr_6.5rem_auto] items-end gap-3 phone:grid-cols-[1fr_5.5rem_auto] phone:gap-2">
-                <Field label="Anchorage type">
-                  <SearchSelect label={`Anchorage type, ${label} group ${i + 1}`} value={a.typeId} emptyLabel="Choose a type" placeholder="Type or choose a code…"
-                    options={types.filter((t) => !t.archived || t.id === a.typeId).map((t) => ({ value: t.id, label: t.code, hint: t.description || undefined }))}
-                    onChange={(v) => { setTypeError(null); setRow(i, { typeId: v }) }}
-                    onCreate={onCreateType ? (code) => void createType(i, code) : undefined} createLabel={(t) => `Add new anchorage type “${t}”`} />
-                </Field>
-                <Field label={`Per ${where}`}><Input aria-label={`Anchorages per ${where}, ${label} group ${i + 1}`} inputMode="numeric" value={a.qty} onChange={(e) => setRow(i, { qty: e.target.value })} /></Field>
-                <Button variant="ghost" aria-label={`Remove ${label} anchorage group ${i + 1}`} onClick={() => onChange({ ...value, anchorages: value.anchorages.filter((_, j) => j !== i) })}><Trash2 size={15} strokeWidth={1.5} /></Button>
+            <div key={a.id ?? `new-${i}`} role="group" aria-label={`${label} anchorage group ${i + 1}`} className={card}>
+              <CardHeader title={`Group ${i + 1}`}>
+                {post && <PostInstall label={`Post-Install, ${label} group ${i + 1}`} checked={postOf(a.installMethod)} onChange={(p) => setRow(i, { installMethod: methodOf(p) })} hint="Applies to this group’s anchor bolts and embed plates" />}
+              </CardHeader>
+              <div className={GRID}>
+                <div className="col-span-2 sm:col-span-3">
+                  <Field label="Anchorage type">
+                    <SearchSelect label={`Anchorage type, ${label} group ${i + 1}`} value={a.typeId} emptyLabel="Choose a type" placeholder="Type or choose a code…"
+                      options={types.filter((t) => !t.archived || t.id === a.typeId).map((t) => ({ value: t.id, label: t.code, hint: t.description || undefined }))}
+                      onChange={(v) => { setTypeError(null); setRow(i, { typeId: v }) }}
+                      onCreate={onCreateType ? (code) => void createType(i, code) : undefined} createLabel={(t) => `Add new anchorage type “${t}”`} />
+                  </Field>
+                </div>
+                <div className="col-span-2 sm:col-span-1"><Field label={`Per ${where}`}><Input aria-label={`Anchorages per ${where}, ${label} group ${i + 1}`} inputMode="numeric" value={a.qty} onChange={(e) => setRow(i, { qty: e.target.value })} /></Field></div>
               </div>
               {typeError?.row === i && <p role="alert" className="text-xs text-bad">{typeError.message}</p>}
-              {a.typeId && <p role="status" aria-live="polite" className="text-xs text-muted">{totals.length ? <>{Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? `${plural(Number(a.qty) * multiplier, 'anchorage')} → ` : ''}<span className="font-medium text-ink">{totals.join(' · ')}</span></> : Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? 'This type has no components yet (add them in the Anchorage Library).' : 'Enter a whole number of 1 or more.'}</p>}
+              <CardFooter removeLabel={`Remove ${label} anchorage group ${i + 1}`} onRemove={() => onChange({ ...value, anchorages: value.anchorages.filter((_, j) => j !== i) })}>
+                {a.typeId && <p role="status" aria-live="polite" className="text-muted">{totals.length ? <>{Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? `${plural(Number(a.qty) * multiplier, 'anchorage')} → ` : ''}<span className="font-medium text-ink">{totals.join(' · ')}</span></> : Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? 'This type has no components yet (add them in the Anchorage Library).' : 'Enter a whole number of 1 or more.'}</p>}
+              </CardFooter>
             </div>
           )
         })}
-        <Button onClick={() => onChange({ ...value, anchorages: [...value.anchorages, { typeId: '', qty: '1' }] })}><Plus size={14} strokeWidth={1.5} />Add anchorage group</Button>
+        <Button onClick={() => onChange({ ...value, anchorages: [...value.anchorages, { typeId: '', qty: '1', installMethod: 'wet-set' }] })}><Plus size={14} strokeWidth={1.5} />Add anchorage group</Button>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium">Individual anchor bolts</p>
-        <p className="text-xs text-muted">Bolts that are not part of an anchorage type. Count each per {where} or as a total; they are added to what the anchorage groups already require.</p>
-        {value.bolts.map((b, i) => <BoltCard key={b.id ?? `bolt-${i}`} index={i} prefix={label} quantity={multiplier} unit={unit} value={b} onChange={(v) => onChange({ ...value, bolts: value.bolts.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...value, bolts: value.bolts.filter((_, j) => j !== i) })} />)}
+      <div className="space-y-3 border-t border-line pt-6">
+        <p className={heading}>Individual anchor bolts</p>
+        {value.bolts.map((b, i) => <BoltCard key={b.id ?? `bolt-${i}`} index={i} prefix={label} quantity={multiplier} unit={unit} nested={nested} value={b} onChange={(v) => onChange({ ...value, bolts: value.bolts.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...value, bolts: value.bolts.filter((_, j) => j !== i) })} />)}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <Button onClick={() => onChange({ ...value, bolts: [...value.bolts, blankBolt()] })}><Plus size={14} strokeWidth={1.5} />Add anchor bolts</Button>
           {value.bolts.length > 0 && <p className="text-xs text-muted" aria-live="polite">Anchor bolts required: <span className="font-medium text-ink">{boltsTotal.toLocaleString('en-CA')}</span></p>}
         </div>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium">Embed plates</p>
-        <p className="text-xs text-muted">Embed plates added directly: choose one from the Anchorage Library or create a new one. Count each per {where} or as a total.</p>
-        {value.embeds.map((e, i) => <EmbedCard key={e.id ?? `embed-${i}`} index={i} prefix={label} value={e} quantity={multiplier} unit={unit} options={embedOptions} foundationName={foundationName} supplied={suppliedByTypes(allTypeIds, embedOptions, e.componentId)} onChange={(v) => onChange({ ...value, embeds: value.embeds.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...value, embeds: value.embeds.filter((_, j) => j !== i) })} />)}
+      <div className="space-y-3 border-t border-line pt-6">
+        <p className={heading}>Embed plates</p>
+        {value.embeds.map((e, i) => <EmbedCard key={e.id ?? `embed-${i}`} index={i} prefix={label} value={e} quantity={multiplier} unit={unit} nested={nested} options={embedOptions} foundationName={foundationName} supplied={suppliedByTypes(allTypeIds, embedOptions, e.componentId)} onChange={(v) => onChange({ ...value, embeds: value.embeds.map((x, j) => (j === i ? v : x)) })} onRemove={() => onChange({ ...value, embeds: value.embeds.filter((_, j) => j !== i) })} />)}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <Button onClick={() => onChange({ ...value, embeds: [...value.embeds, embedOptions.length === 0 ? { componentId: '', qty: '1', mode: 'per-foundation', plate: blankPlate(), save: 'foundation' } : { componentId: embedOptions.find((o) => !value.embeds.some((x) => x.componentId === o.component.id))?.component.id ?? embedOptions[0].component.id, qty: '1', mode: 'per-foundation' }] })}><Plus size={14} strokeWidth={1.5} />Add embed plates</Button>
           {value.embeds.length > 0 && <p className="text-xs text-muted" aria-live="polite">Embed plates required: <span className="font-medium text-ink">{embedTotal(value.embeds, multiplier).toLocaleString('en-CA')}</span></p>}
@@ -318,35 +355,36 @@ export function FoundationConfigFields({ draft, onChange, types, components = []
   const common = { types, components, embedOptions, foundationName, allTypeIds, onCreateType }
   return (
     <div className="space-y-6">
-      <fieldset className="min-w-0 space-y-2 border-t border-line pt-5">
-        <legend className="t-label mb-2 p-0">Footing shape and dimensions (optional)</legend>
+      <fieldset className="min-w-0 space-y-4 border-t border-line pt-5">
+        <legend className="t-label mb-1 p-0">Footing shape and dimensions (optional)</legend>
         <FootingShapeEditor draft={draft} onChange={onChange} />
       </fieldset>
 
-      <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
+      <fieldset className="min-w-0 space-y-4 border-t border-line pt-5">
         <legend className="t-label mb-1 p-0">On the footing</legend>
-        <p className="text-xs text-muted">Anchorage, bolts and embed plates mounted directly on the footing (pad). Every foundation has one footing, so the footing quantity is the foundation quantity ({quantity.toLocaleString('en-CA')}). Nothing here creates plinths.</p>
+        <p className="text-xs text-muted">Mounted directly on the footing (pad). One footing per foundation, so quantities multiply by {quantity.toLocaleString('en-CA')}. Nothing here creates plinths.</p>
         <MountEditor {...common} value={draft} onChange={(m) => onChange({ ...draft, ...m })} multiplier={quantity} unit="foundation" label="Footing" />
       </fieldset>
 
-      <fieldset className="min-w-0 space-y-3 border-t border-line pt-5">
+      <fieldset className="min-w-0 space-y-4 border-t border-line pt-5">
         <legend className="t-label mb-1 p-0">Plinths</legend>
-        <p className="text-xs text-muted">Add a set for each group of identical plinths: how many each foundation has, optional dimensions, and what is mounted on every plinth of the set. Only plinths entered here get plinth work, concrete and pours.</p>
+        <p className="text-xs text-muted">One set for each group of identical plinths. Only plinths entered here get plinth work, concrete and pours.</p>
         {draft.groups.map((g, i) => (
-          <div key={g.id ?? `new-${i}`} role="group" aria-label={`Plinths ${i + 1}`} className="space-y-4 rounded-nx border border-line p-4 phone:p-3">
-            <div className="grid grid-cols-[6.5rem_1fr_auto] items-end gap-3 phone:grid-cols-[5.5rem_1fr_auto] phone:gap-2">
+          <div key={g.id ?? `new-${i}`} role="group" aria-label={`Plinths ${i + 1}`} className={cardClass()}>
+            <CardHeader title={`Plinth set ${i + 1}`} />
+            <div className={GRID}>
               <Field label="Plinths"><Input aria-label={`Plinths, set ${i + 1}`} inputMode="numeric" value={g.count} onChange={(e) => setGroup(i, { count: e.target.value })} /></Field>
-              <p className="pb-2 text-xs text-muted">per foundation{Number.isInteger(Number(g.count)) && Number(g.count) >= 1 ? ` · ${(Number(g.count) * quantity).toLocaleString('en-CA')} in all` : ''}</p>
-              <Button variant="ghost" aria-label={`Remove plinths ${i + 1}`} onClick={() => onChange({ ...draft, groups: draft.groups.filter((_, j) => j !== i) })}><Trash2 size={15} strokeWidth={1.5} /></Button>
+              <p className="col-span-1 pb-2 text-xs text-muted sm:col-span-3">per foundation{Number.isInteger(Number(g.count)) && Number(g.count) >= 1 ? ` · ${(Number(g.count) * quantity).toLocaleString('en-CA')} in all` : ''}</p>
             </div>
-            <details open={hasAnyDim(configDims(g.dims))} className="border-t border-line pt-3">
-              <summary className="cursor-pointer text-xs text-muted">Plinth dimensions for this set (optional)</summary>
+            <details open={hasAnyDim(configDims(g.dims))} className="border-t border-line pt-4">
+              <summary className="cursor-pointer text-xs text-muted">Plinth dimensions (optional)</summary>
               <div className="mt-3"><DimsRow label={`Plinth dimensions, set ${i + 1}`} value={g.dims} onChange={(dims) => setGroup(i, { dims })} idPrefix={`group-${i}`} /></div>
             </details>
-            <div className="border-t border-line pt-3">
-              <p className="t-label mb-2">On each plinth of this set</p>
-              <MountEditor {...common} value={g} onChange={(m) => setGroup(i, m)} multiplier={Number.isInteger(Number(g.count)) && Number(g.count) >= 1 ? quantity * Number(g.count) : 0} unit="plinth" label={`Plinths ${i + 1}`} />
+            <div className="space-y-4 border-t border-line pt-4">
+              <p className="t-label">On each plinth of this set</p>
+              <MountEditor {...common} nested value={g} onChange={(m) => setGroup(i, m)} multiplier={Number.isInteger(Number(g.count)) && Number(g.count) >= 1 ? quantity * Number(g.count) : 0} unit="plinth" label={`Plinths ${i + 1}`} />
             </div>
+            <CardFooter removeLabel={`Remove plinths ${i + 1}`} onRemove={() => onChange({ ...draft, groups: draft.groups.filter((_, j) => j !== i) })} />
           </div>
         ))}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -357,14 +395,14 @@ export function FoundationConfigFields({ draft, onChange, types, components = []
         </div>
         {draft.groups.length === 0 && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={!!draft.noPlinths} onChange={(e) => onChange({ ...draft, noPlinths: e.target.checked })} />This foundation has no plinths (the footing only)</label>}
         {draft.groups.length > 0 && (
-          <div className="max-w-xl pt-1">
+          <div className={GRID}><div className="col-span-2 sm:col-span-4">
             <Field label="Plinth height is measured">
               <Select aria-label="Plinth height is measured" value={draft.plinthBase} onChange={(e) => onChange({ ...draft, plinthBase: e.target.value as ConfigDraft['plinthBase'] })}>
                 <option value="above-footing">From the top of the footing (separate concrete)</option>
                 <option value="from-footing-base">From the bottom of the footing (the part inside the footing is not counted twice)</option>
               </Select>
             </Field>
-          </div>
+          </div></div>
         )}
       </fieldset>
 
@@ -379,36 +417,41 @@ export function FoundationConfigFields({ draft, onChange, types, components = []
 /** One set of anchor bolts per footing: size, thread layout, and the nuts and washers each bolt takes. */
 const boltCount = (b: BoltDraft, quantity: number) => { const n = Number(b.qty); return Number.isInteger(n) && n >= 1 ? (b.mode === 'per-foundation' ? n * quantity : n) : 0 }
 
-function BoltCard({ index, prefix = '', unit = 'foundation', value: b, quantity, onChange, onRemove }: { index: number; prefix?: string; unit?: 'foundation' | 'plinth'; value: BoltDraft; quantity: number; onChange: (v: BoltDraft) => void; onRemove: () => void }) {
+function BoltCard({ index, prefix = '', unit = 'foundation', value: b, quantity, nested, onChange, onRemove }: { index: number; prefix?: string; unit?: 'foundation' | 'plinth'; value: BoltDraft; quantity: number; nested?: boolean; onChange: (v: BoltDraft) => void; onRemove: () => void }) {
   const n = `${index + 1}${prefix ? ` (${prefix.toLowerCase()})` : ''}`
   const word = unit === 'plinth' ? 'plinth' : 'foundation'
   const set = (patch: Partial<BoltDraft>) => onChange({ ...b, ...patch })
-  const grid = 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4'
+  const q = Number(b.qty)
+  const ok = Number.isInteger(q) && q >= 1
+  const t = boltCount(b, quantity)
+  const both = b.thread === 'both-ends'
   return (
-    <div role="group" aria-label={`Anchor bolts ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
-      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[7rem_11rem_1fr]">
+    <div role="group" aria-label={`Anchor bolts ${n}`} className={cardClass(nested)}>
+      <CardHeader title={`Bolts ${index + 1}`}><PostInstall label={`Post-Install, bolts ${n}`} checked={postOf(b.installMethod)} onChange={(p) => set({ installMethod: methodOf(p) })} /></CardHeader>
+      <div className={GRID}>
         <Field label="Quantity *"><Input aria-label={`Bolt quantity ${n}`} inputMode="numeric" value={b.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
         <Field label="Quantity is"><Select aria-label={`Bolt quantity method ${n}`} value={b.mode} onChange={(e) => set({ mode: e.target.value as BoltDraft['mode'] })}><option value="per-foundation">{`Per ${word}`}</option><option value="total">Total</option></Select></Field>
-        <p role="status" aria-live="polite" className="col-span-2 pb-2 text-[13px] sm:col-span-1">{(() => { const q = Number(b.qty); const ok = Number.isInteger(q) && q >= 1; if (!ok) return <span className="text-muted">Enter a whole number of 1 or more.</span>; const t = boltCount(b, quantity); return <><span className="text-muted">{b.mode === 'per-foundation' ? `${q.toLocaleString('en-CA')} per ${word} × ${quantity.toLocaleString('en-CA')} ${word}${quantity === 1 ? '' : 's'} = ` : `${q.toLocaleString('en-CA')} in total across all ${quantity.toLocaleString('en-CA')} = `}</span><span className="font-medium">{t.toLocaleString('en-CA')} bolt{t === 1 ? '' : 's'} required</span>{(Number(b.nutsPerBolt) > 0 || Number(b.washersPerBolt) > 0) && <span className="text-muted"> · {(t * (Number(b.nutsPerBolt) || 0)).toLocaleString('en-CA')} nuts · {(t * (Number(b.washersPerBolt) || 0)).toLocaleString('en-CA')} washers</span>}</> })()}</p>
       </div>
-      <div className={grid}>
+      <Caption>Specification</Caption>
+      <div className={GRID}>
         <Field label="Diameter *"><Input aria-label={`Bolt diameter ${n}`} value={b.diameter} onChange={(e) => set({ diameter: e.target.value })} placeholder={'e.g. M25 or 3/4"'} /></Field>
         <Field label="Total length *"><Input aria-label={`Bolt length ${n}`} inputMode="decimal" value={b.length} onChange={(e) => set({ length: e.target.value })} placeholder="e.g. 900" /></Field>
         <Field label="Length unit"><Select aria-label={`Length unit ${n}`} value={b.lengthUnit} onChange={(e) => set({ lengthUnit: e.target.value as 'mm' | 'in' })}><option value="mm">mm</option><option value="in">inches</option></Select></Field>
+        <Field label="Thread"><Select aria-label={`Thread ${n}`} value={b.thread} onChange={(e) => set({ thread: e.target.value as BoltDraft['thread'] })}><option value="both-ends">Both ends</option><option value="all-thread">All-thread</option></Select></Field>
+        {both && <Field label={`Top thread (${b.lengthUnit})`}><Input aria-label={`Top thread ${n}`} inputMode="decimal" value={b.topThread} onChange={(e) => set({ topThread: e.target.value })} /></Field>}
+        {both && <Field label={`Bottom thread (${b.lengthUnit})`}><Input aria-label={`Bottom thread ${n}`} inputMode="decimal" value={b.bottomThread} onChange={(e) => set({ bottomThread: e.target.value })} /></Field>}
+        <div className={both ? 'col-span-2' : 'col-span-2 sm:col-span-3'}><Field label="Grade / material"><Input aria-label={`Bolt grade ${n}`} value={b.spec} onChange={(e) => set({ spec: e.target.value })} placeholder="e.g. ASTM F1554 Gr.55" /></Field></div>
       </div>
-      <div className={grid}>
-        <Field label="Thread"><Select aria-label={`Thread ${n}`} value={b.thread} onChange={(e) => set({ thread: e.target.value as BoltDraft['thread'] })}><option value="both-ends">Threaded both ends</option><option value="all-thread">All-thread</option></Select></Field>
-        {b.thread === 'both-ends' && <Field label={`Top thread (${b.lengthUnit})`}><Input aria-label={`Top thread ${n}`} inputMode="decimal" value={b.topThread} onChange={(e) => set({ topThread: e.target.value })} /></Field>}
-        {b.thread === 'both-ends' && <Field label={`Bottom thread (${b.lengthUnit})`}><Input aria-label={`Bottom thread ${n}`} inputMode="decimal" value={b.bottomThread} onChange={(e) => set({ bottomThread: e.target.value })} /></Field>}
-        <Field label="Grade / material"><Input aria-label={`Bolt grade ${n}`} value={b.spec} onChange={(e) => set({ spec: e.target.value })} placeholder="e.g. ASTM F1554 Gr.55" /></Field>
-      </div>
-      <div className={grid}>
+      <Caption>Hardware</Caption>
+      <div className={GRID}>
         <Field label="Nuts per bolt"><Input aria-label={`Nuts per bolt ${n}`} inputMode="numeric" value={b.nutsPerBolt} onChange={(e) => set({ nutsPerBolt: e.target.value })} /></Field>
         <Field label="Nut size"><Input aria-label={`Nut size ${n}`} value={b.nutSize} onChange={(e) => set({ nutSize: e.target.value })} placeholder={b.diameter || 'Same as the bolt'} /></Field>
         <Field label="Washers per bolt"><Input aria-label={`Washers per bolt ${n}`} inputMode="numeric" value={b.washersPerBolt} onChange={(e) => set({ washersPerBolt: e.target.value })} /></Field>
         <Field label="Washer size"><Input aria-label={`Washer size ${n}`} value={b.washerSize} onChange={(e) => set({ washerSize: e.target.value })} placeholder={b.diameter || 'Same as the bolt'} /></Field>
       </div>
-      <div className="flex justify-end"><Button variant="ghost" aria-label={`Remove anchor bolts ${n}`} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button></div>
+      <CardFooter removeLabel={`Remove anchor bolts ${n}`} onRemove={onRemove}>
+        <p role="status" aria-live="polite">{!ok ? <span className="text-muted">Enter a whole number of 1 or more.</span> : <><span className="text-muted">{b.mode === 'per-foundation' ? `${q.toLocaleString('en-CA')} per ${word} × ${quantity.toLocaleString('en-CA')} = ` : `${q.toLocaleString('en-CA')} in total = `}</span><span className="font-medium">{t.toLocaleString('en-CA')} bolt{t === 1 ? '' : 's'} required</span>{(Number(b.nutsPerBolt) > 0 || Number(b.washersPerBolt) > 0) && <span className="text-muted"> · {(t * (Number(b.nutsPerBolt) || 0)).toLocaleString('en-CA')} nuts · {(t * (Number(b.washersPerBolt) || 0)).toLocaleString('en-CA')} washers</span>}</>}</p>
+      </CardFooter>
     </div>
   )
 }
@@ -426,7 +469,7 @@ const NEW_PLATE = '__new'
  * One embed plate configuration: a plate from the Anchorage Library, or a new one created here (size and headed studs, no anchorage type needed), how
  * many, and whether that is per foundation or a total. A new plate is saved to this foundation only, or to the library for other foundations to use.
  */
-function EmbedCard({ index, prefix = '', unit = 'foundation', value: e, quantity, options, foundationName, supplied, onChange, onRemove }: { index: number; prefix?: string; unit?: 'foundation' | 'plinth'; value: EmbedDraft; quantity: number; options: EmbedOption[]; foundationName: string; supplied: string; onChange: (v: EmbedDraft) => void; onRemove: () => void }) {
+function EmbedCard({ index, prefix = '', unit = 'foundation', value: e, quantity, nested, options, foundationName, supplied, onChange, onRemove }: { index: number; prefix?: string; unit?: 'foundation' | 'plinth'; nested?: boolean; value: EmbedDraft; quantity: number; options: EmbedOption[]; foundationName: string; supplied: string; onChange: (v: EmbedDraft) => void; onRemove: () => void }) {
   const n = `${index + 1}${prefix ? ` (${prefix.toLowerCase()})` : ''}`
   const word = unit === 'plinth' ? 'plinth' : 'foundation'
   const q = Number(e.qty)
@@ -436,11 +479,11 @@ function EmbedCard({ index, prefix = '', unit = 'foundation', value: e, quantity
   const p = e.plate
   const setPlate = (patch: Partial<PlateDraft>) => onChange({ ...e, plate: { ...(p ?? blankPlate()), ...patch } })
   const spec = p && ['thickness', 'width', 'length'].every((k) => Number(p[k as 'thickness']) > 0) ? plateText(plateSpec(p)) : ''
-  const grid = 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4'
   return (
-    <div role="group" aria-label={`Embed plates ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
-      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[1fr_7rem_11rem]">
-        <div className="col-span-2 sm:col-span-1"><Field label="Embed plate type *">
+    <div role="group" aria-label={`Embed plates ${n}`} className={cardClass(nested)}>
+      <CardHeader title={`Plate ${index + 1}`}><PostInstall label={`Post-Install, embed plates ${n}`} checked={postOf(e.installMethod)} onChange={(p) => onChange({ ...e, installMethod: methodOf(p) })} /></CardHeader>
+      <div className={GRID}>
+        <div className="col-span-2"><Field label="Embed plate type *">
           <Select aria-label={`Embed plate type ${n}`} value={creating ? NEW_PLATE : e.componentId} onChange={(ev) => ev.target.value === NEW_PLATE ? onChange({ ...e, componentId: '', plate: p ?? blankPlate(), save: e.save ?? 'foundation' }) : onChange({ ...e, componentId: ev.target.value, plate: undefined, save: undefined })}>
             {!known && <option value={e.componentId}>Removed embed plate</option>}
             {options.map((o) => <option key={o.component.id} value={o.component.id}>{embedOptionLabel(o)}</option>)}
@@ -450,27 +493,28 @@ function EmbedCard({ index, prefix = '', unit = 'foundation', value: e, quantity
         <Field label="Quantity is"><Select aria-label={`Quantity method ${n}`} value={e.mode} onChange={(ev) => onChange({ ...e, mode: ev.target.value as EmbedDraft['mode'] })}><option value="per-foundation">{`Per ${word}`}</option><option value="total">Total</option></Select></Field>
       </div>
       {creating && p && (
-        <div className="space-y-3 border-t border-line pt-3">
-          <div className={grid}>
-            <Field label="Plate thickness *"><Input aria-label={`Plate thickness ${n}`} inputMode="decimal" value={p.thickness} onChange={(ev) => setPlate({ thickness: ev.target.value })} placeholder="e.g. 16" /></Field>
-            <Field label="Plate width *"><Input aria-label={`Plate width ${n}`} inputMode="decimal" value={p.width} onChange={(ev) => setPlate({ width: ev.target.value })} placeholder="e.g. 300" /></Field>
-            <Field label="Plate length *"><Input aria-label={`Plate length ${n}`} inputMode="decimal" value={p.length} onChange={(ev) => setPlate({ length: ev.target.value })} placeholder="e.g. 300" /></Field>
+        <>
+          <Caption>Plate size</Caption>
+          <div className={GRID}>
+            <Field label="Thickness *"><Input aria-label={`Plate thickness ${n}`} inputMode="decimal" value={p.thickness} onChange={(ev) => setPlate({ thickness: ev.target.value })} placeholder="e.g. 16" /></Field>
+            <Field label="Width *"><Input aria-label={`Plate width ${n}`} inputMode="decimal" value={p.width} onChange={(ev) => setPlate({ width: ev.target.value })} placeholder="e.g. 300" /></Field>
+            <Field label="Length *"><Input aria-label={`Plate length ${n}`} inputMode="decimal" value={p.length} onChange={(ev) => setPlate({ length: ev.target.value })} placeholder="e.g. 300" /></Field>
             <Field label="Unit"><Select aria-label={`Plate unit ${n}`} value={p.unit} onChange={(ev) => setPlate({ unit: ev.target.value as 'mm' | 'in' })}><option value="mm">mm</option><option value="in">inches</option></Select></Field>
           </div>
-          <div className={grid}>
-            <Field label="Headed studs (optional)"><Input aria-label={`Headed studs ${n}`} inputMode="numeric" value={p.studCount} onChange={(ev) => setPlate({ studCount: ev.target.value })} placeholder="None" /></Field>
-            <Field label={`Stud diameter (${p.unit})`}><Input aria-label={`Stud diameter ${n}`} inputMode="decimal" value={p.studDiameter} onChange={(ev) => setPlate({ studDiameter: ev.target.value })} placeholder="e.g. 19" /></Field>
-            <Field label={`Stud length (${p.unit})`}><Input aria-label={`Stud length ${n}`} inputMode="decimal" value={p.studLength} onChange={(ev) => setPlate({ studLength: ev.target.value })} placeholder="e.g. 150" /></Field>
-            <Field label="Save"><Select aria-label={`Save plate ${n}`} value={e.save ?? 'foundation'} onChange={(ev) => onChange({ ...e, save: ev.target.value as 'foundation' | 'library' })}><option value="foundation">Foundation specific</option><option value="library">Save to Anchorage Library</option></Select></Field>
+          <Caption>Headed studs (optional)</Caption>
+          <div className={GRID}>
+            <Field label="Studs per plate"><Input aria-label={`Headed studs ${n}`} inputMode="numeric" value={p.studCount} onChange={(ev) => setPlate({ studCount: ev.target.value })} placeholder="None" /></Field>
+            <Field label={`Diameter (${p.unit})`}><Input aria-label={`Stud diameter ${n}`} inputMode="decimal" value={p.studDiameter} onChange={(ev) => setPlate({ studDiameter: ev.target.value })} placeholder="e.g. 19" /></Field>
+            <Field label={`Length (${p.unit})`}><Input aria-label={`Stud length ${n}`} inputMode="decimal" value={p.studLength} onChange={(ev) => setPlate({ studLength: ev.target.value })} placeholder="e.g. 150" /></Field>
+            <Field label="Save plate to"><Select aria-label={`Save plate ${n}`} value={e.save ?? 'foundation'} onChange={(ev) => onChange({ ...e, save: ev.target.value as 'foundation' | 'library' })}><option value="foundation">This foundation</option><option value="library">Anchorage Library</option></Select></Field>
           </div>
-          <p className="text-xs text-muted">{spec ? <>Appears in Materials as <span className="font-medium text-ink">{foundationName || 'this foundation'}</span> · {spec}. </> : 'Enter the plate size to see how it will appear in Materials. '}{(e.save ?? 'foundation') === 'library' ? 'Saved to the library so other foundations can choose it.' : 'Kept on this foundation only.'}</p>
-        </div>
+          <p className="text-xs text-muted">{spec ? <>Appears in Materials as <span className="font-medium text-ink">{foundationName || 'this foundation'}</span> · {spec}.</> : 'Enter the plate size to see how it will appear in Materials.'}</p>
+        </>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p role="status" aria-live="polite" className="text-[13px]">{!valid ? <span className="text-muted">Enter a whole number of 1 or more.</span> : e.mode === 'per-foundation' ? <><span className="text-muted">{q.toLocaleString('en-CA')} per {word} × {quantity.toLocaleString('en-CA')} {word}{quantity === 1 ? '' : 's'} = </span><span className="font-medium">{(q * quantity).toLocaleString('en-CA')} plates required</span></> : <><span className="text-muted">{q.toLocaleString('en-CA')} in total across all {quantity.toLocaleString('en-CA')} = </span><span className="font-medium">{q.toLocaleString('en-CA')} plate{q === 1 ? '' : 's'} required</span></>}</p>
-        <Button variant="ghost" aria-label={`Remove embed plates ${n}`} onClick={onRemove}><Trash2 size={15} strokeWidth={1.5} />Remove</Button>
-      </div>
       {supplied && <p role="note" className="border-l-2 border-warn pl-3 text-xs">{supplied} already supplies this plate on this foundation. This entry replaces it, so nothing is counted twice.</p>}
+      <CardFooter removeLabel={`Remove embed plates ${n}`} onRemove={onRemove}>
+        <p role="status" aria-live="polite">{!valid ? <span className="text-muted">Enter a whole number of 1 or more.</span> : e.mode === 'per-foundation' ? <><span className="text-muted">{q.toLocaleString('en-CA')} per {word} × {quantity.toLocaleString('en-CA')} = </span><span className="font-medium">{(q * quantity).toLocaleString('en-CA')} plate{q * quantity === 1 ? '' : 's'} required</span></> : <><span className="text-muted">{q.toLocaleString('en-CA')} in total = </span><span className="font-medium">{q.toLocaleString('en-CA')} plate{q === 1 ? '' : 's'} required</span></>}</p>
+      </CardFooter>
     </div>
   )
 }

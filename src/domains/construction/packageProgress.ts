@@ -52,12 +52,13 @@ export function installationIndicator(idx: Index, areaId: string): PackageIndica
     const g = acts.filter((x) => keys.includes(x.act.key))
     return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : NOT_TRACKED }
   }
+  const install = (label: string, key: string): Metric => { const g = acts.filter((x) => x.act.key === key); return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : 'None post-installed' } }
   return {
     key: 'installation', title: 'Construction',
     basis: 'Completed activities against applicable activities across every footing and plinth.',
     percent: ratio(doneOf(acts), acts.length),
-    rows: [group('Formwork', ['formed']), group('Rebar', ['rebarBuilt', 'rebarInstalled']), group('Concrete pours', ['poured']), { label: 'Anchor bolt installation', value: NOT_TRACKED }],
-    gaps: ['Anchor bolt installation is not recorded; the anchor bolt activity measures material readiness.'],
+    rows: [group('Formwork', ['formed']), group('Rebar', ['rebarBuilt', 'rebarInstalled']), group('Concrete pours', ['poured']), install('Anchor bolts installed', 'anchorBoltsPostInstalled'), install('Embed plates installed', 'embedsPostInstalled')],
+    gaps: [],
   }
 }
 

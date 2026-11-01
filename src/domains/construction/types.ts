@@ -78,6 +78,9 @@ export interface AnchorageGroup {
  */
 export type MountGroupId = string | null
 
+/** How anchor bolts go in: cast into the concrete as it is poured (wet-set), or drilled and set into hardened concrete afterwards (post-installed). Absent = wet-set. */
+export type InstallMethod = 'wet-set' | 'post-installed'
+
 /**
  * One anchorage group: `qty` anchorages of one Anchorage Library type mounted on the footing or on each plinth of a set. A mount can have several, of different
  * types. Bolt, nut, washer, template and plate totals come from the type's components × `qty` × how many footings or plinths carry it × the foundation's quantity.
@@ -88,6 +91,8 @@ export interface FoundationAnchorage {
   mountGroupId: MountGroupId
   anchorageTypeId: string
   qty: number
+  /** How the anchor bolts of this group's type are installed. Absent = wet-set. */
+  installMethod?: InstallMethod
 }
 
 /** A rectangular piece of concrete added to, or taken from, a footing's base shape. Millimetres. */
@@ -226,7 +231,7 @@ export interface PlateSpec { thickness: number; width: number; length: number; u
 export interface LibraryEmbedPlate extends PlateSpec { id: string; projectId: string; createdAt: string; createdBy: string }
 /** An embed plate added directly to a foundation. `componentId` names a library embed plate (an anchorage type's, or a saved library plate); empty means the plate's own
  * specification is on the foundation (`plate`). `per-foundation` multiplies `qty` by the number of physical foundations; `total` is the total across all of them. */
-export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec; /** Absent/null = the footing; otherwise every plinth of that set (qty per plinth). */ mountGroupId?: MountGroupId }
+export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec; /** Absent/null = the footing; otherwise every plinth of that set (qty per plinth). */ mountGroupId?: MountGroupId; /** Post-installed embed plates get their own installation activity; absent = installed as part of the pour. */ installMethod?: InstallMethod }
 
 /** One physical foundation (or a set sharing a label) within a foundation designation, such as A-1 within OP1-01-01. Optional. It inherits the designation's footing,
  * anchorage configuration and quantity, and adds only its identifier and its own embed plates, chosen from the Anchorage Library. */
@@ -262,6 +267,8 @@ export interface FoundationBolt {
   mode?: 'per-foundation' | 'total'
   /** Where the bolts are mounted: absent/null = the footing (qty per footing); a plinth set = qty per plinth of that set. */
   mountGroupId?: MountGroupId
+  /** How these bolts are installed. Absent = wet-set. */
+  installMethod?: InstallMethod
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */

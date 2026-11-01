@@ -1,6 +1,6 @@
 import { identity } from '@/app/identity'
 import { addDays, type ISODate } from '@/lib/date'
-import { blankActivitiesFor } from './blankActivities'
+import { blankActivitiesFor, syncBoltActivities } from './blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS, getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
 import { applyGroups, applyMounts, cleanShape, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
@@ -58,7 +58,7 @@ export const addDocument = (title: string, kind: DocumentKind, revision: string,
 export const setPlinthAnchorage = (plinthId: string, typeId: string | null): Reducer => (s) => {
   const hasStock = s.allocations.some((a) => a.plinthId === plinthId) || s.plinthReady.some((r) => r.plinthId === plinthId)
   if (hasStock) return fail('Return this plinth’s allocated material to stock before changing its anchorage type.')
-  return ok({ ...s, plinths: s.plinths.map((p) => (p.id === plinthId ? { ...p, anchorageTypeId: typeId } : p)) })
+  return ok(syncBoltActivities({ ...s, plinths: s.plinths.map((p) => (p.id === plinthId ? { ...p, anchorageTypeId: typeId } : p)) }))
 }
 
 export const updateAnchorageType = (id: string, patch: { description?: string; boltQty?: Record<string, number>; hardwareQty?: Record<string, number> }): Reducer => (s) => {
@@ -412,7 +412,7 @@ export const createFoundation = (areaId: string, number: string, description: st
   const withDims = { ...made, foundations: made.foundations.map((f) => (f.id === foundation.id ? { ...f, ...(config.footing ? { footing: config.footing } : {}), ...(config.footingShape ? { footingShape: cleanShape(config.footingShape) } : {}), ...(config.plinthBase ? { plinthBase: config.plinthBase } : {}) } : f)) }
   const applied = config.groups ? applyGroups(withDims, { ...fresh }, config.groups) : withDims
   if (typeof applied === 'string') return fail(applied)
-  return ok(applyMounts(applied, applied.foundations.find((f) => f.id === foundation.id)!, config, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString())))
+  return ok(syncBoltActivities(applyMounts(applied, applied.foundations.find((f) => f.id === foundation.id)!, config, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString()))))
 }
 
 /** Renames a foundation. Its id, plinths, activities and every material, survey and QA/QC record that points at it are unaffected. */
@@ -474,7 +474,7 @@ export const editFoundation = (id: string, patch: { areaId?: string; description
       base = { ...base, foundations: base.foundations.map((x) => (x.id === id ? { ...x, plinthsPerFoundation: target } : x)) }
     }
   }
-  return ok(base)
+  return ok(syncBoltActivities(base))
 }
 
 /**

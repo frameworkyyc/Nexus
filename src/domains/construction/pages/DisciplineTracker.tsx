@@ -14,6 +14,7 @@ import { usePersistentChoice } from '@/lib/usePersistentChoice'
 import { formatShortDate } from '@/lib/format'
 import { useIsPhone } from '@/lib/useMedia'
 import { updateActivity } from '../commands'
+import { boltLines, boltLineText, isBoltActivity, outstandingBolts } from '../boltInstallation'
 import { areaTracks, DISCIPLINES, doneStatus, isLate, projectTracks, matchesFilter, trackLabel, type Discipline, type FoundationTrack, type TrackFilter, type TrackState } from '../constructionProgress'
 import { effectiveStatus } from '../selectors'
 import { useConstruction, useConstructionCommand } from '../store'
@@ -67,7 +68,8 @@ function Gauges({ counts, total, scheduled, active, onPick }: { counts: ReturnTy
 
 /** One activity: its status as an icon, and three buttons (not started, in progress, completed) to update it in place. Choosing Completed again marks it incomplete. */
 function ActivityRow({ a, canEdit }: { a: Activity; canEdit: boolean }) {
-  const { idx, today } = useConstruction()
+  const { idx, today, state } = useConstruction()
+  const f = idx.foundation.get(a.foundationId)
   const { run, saving } = useConstructionCommand()
   const status = effectiveStatus(idx, a)
   const late = isLate(idx, a, today)
@@ -85,6 +87,7 @@ function ActivityRow({ a, canEdit }: { a: Activity; canEdit: boolean }) {
         {status === 'blocked' ? <AlertTriangle size={18} className="shrink-0 text-[var(--nx-bad)]" aria-label="Blocked" /> : done ? <CheckCircle2 size={18} className="shrink-0 text-[var(--nx-ok)]" aria-hidden="true" /> : status === 'in-progress' ? <Clock size={18} className="shrink-0 text-[var(--nx-info)]" aria-hidden="true" /> : <CircleDashed size={18} className="shrink-0 text-muted" aria-hidden="true" />}
         <span className="min-w-0">
           <span className="block truncate text-[13px] font-medium">{trackLabel(a)}</span>
+          {f && isBoltActivity(a) && boltLines(state, f, a).map((l) => <span key={l.source} className="block text-xs text-muted">{boltLineText(l)}</span>)}
           {(a.actualDate && done) || a.plannedDate ? <span className={`block text-xs ${late ? 'text-[var(--nx-bad)]' : 'text-muted'}`}>{done && a.actualDate ? `Done ${formatShortDate(a.actualDate)}` : a.plannedDate ? `${late ? 'Late · ' : ''}Planned ${formatShortDate(a.plannedDate)}` : ''}</span> : null}
         </span>
       </span>
@@ -103,7 +106,7 @@ function ActivityRow({ a, canEdit }: { a: Activity; canEdit: boolean }) {
 
 /** The foundation's construction activities grouped by footing and plinth, with its progress, in the standard side panel (a full-screen sheet on a phone). */
 function FoundationPanel({ id, discipline, onClose }: { id: string; discipline: Discipline; onClose: () => void }) {
-  const { idx, today } = useConstruction()
+  const { idx, today, state } = useConstruction()
   const access = useAccess()
   const f = idx.foundation.get(id)
   if (!f) return null
@@ -112,6 +115,7 @@ function FoundationPanel({ id, discipline, onClose }: { id: string; discipline: 
   const meta = STATE_META[t.state]
   const groups = [{ key: 'footing', title: 'Footing', acts: t.acts.filter((a) => a.scope === 'footing') }, ...(idx.plinthsByFoundation.get(f.id) ?? []).map((p) => ({ key: p.id, title: `Plinth ${p.index}`, acts: t.acts.filter((a) => a.plinthId === p.id) }))].filter((g) => g.acts.length > 0)
   const qty = f.quantity ?? 1
+  const outstanding = outstandingBolts(state, f, t.acts, (a) => effectiveStatus(idx, a))
   const order = DISCIPLINES[discipline].order // in the order the work happens on site
   const ordered = (acts: Activity[]) => acts.slice().sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   return (
@@ -122,6 +126,7 @@ function FoundationPanel({ id, discipline, onClose }: { id: string; discipline: 
           <div className="mt-2"><ProgressBar value={t.percent} width="100%" showValue={false} /></div>
           {(f.description || qty > 1) && <p className="mt-2 text-xs text-muted">{f.description}{qty > 1 ? `${f.description ? ' · ' : ''}${qty} footings, tracked together as one designation` : ''}</p>}
         </div>
+        {discipline === 'construction' && outstanding.length > 0 && <p role="status" className="border-l-2 border-warn pl-3"><span className="font-medium">Post-install: </span>{outstanding.join(' · ')}. Construction is not complete until they are installed.</p>}
         {!access.can('data.edit') && <p role="status" className="border-l-2 border-line pl-3 text-muted">You can view progress. Updating it needs an editor or admin role.</p>}
         {groups.map((g) => (
           <section key={g.key} aria-label={g.title}>

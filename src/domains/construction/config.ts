@@ -28,6 +28,8 @@ export interface ActivityDef {
   after?: string[]
   /** Footing activities that must be complete first (plinth scope only). */
   afterFooting?: string[]
+  /** Only exists where it applies (post-install tracking: where post-installed components exist), so it is not part of the standard list. */
+  optional?: boolean
 }
 
 const work = 'work' as const
@@ -72,9 +74,21 @@ export const PLINTH_ACTIVITIES: ActivityDef[] = [
   { key: 'anchorBoltVerification', scope: 'plinth', category: 'qaqc', label: 'Anchor bolt verification', statusSet: qaqc },
 ]
 
+/**
+ * Post-installed components, tracked on their own (not as forming, rebar or pouring): anchor bolts and embed plates ticked "Post-Install" in Foundation Setup.
+ * They go into hardened concrete, so they never hold up the pour. Components installed as part of the pour have no installation activity.
+ */
+export type InstallItem = 'bolts' | 'embeds'
+export const INSTALL_ACTIVITY_KEY: Record<InstallItem, string> = { bolts: 'anchorBoltsPostInstalled', embeds: 'embedsPostInstalled' }
+export const INSTALL_KEYS = Object.values(INSTALL_ACTIVITY_KEY)
+export const INSTALL_LABEL: Record<InstallItem, string> = { bolts: 'Anchor bolts installed (post-installed)', embeds: 'Embed plates installed (post-installed)' }
+const installActivities = (scope: ActivityScope): ActivityDef[] =>
+  (Object.keys(INSTALL_ACTIVITY_KEY) as InstallItem[]).map((i) => ({ key: INSTALL_ACTIVITY_KEY[i], scope, category: 'construction', label: INSTALL_LABEL[i], statusSet: work, after: ['poured'], optional: true }))
+export const INSTALL_ACTIVITIES: Record<ActivityScope, ActivityDef[]> = { footing: installActivities('footing'), plinth: installActivities('plinth') }
+
 export const ACTIVITY_DEFS: Record<ActivityScope, ActivityDef[]> = {
-  footing: FOOTING_ACTIVITIES,
-  plinth: PLINTH_ACTIVITIES,
+  footing: [...FOOTING_ACTIVITIES, ...INSTALL_ACTIVITIES.footing],
+  plinth: [...PLINTH_ACTIVITIES, ...INSTALL_ACTIVITIES.plinth],
 }
 
 export function getDef(scope: ActivityScope, key: string): ActivityDef {
@@ -171,8 +185,8 @@ export const HANDOVER_PHASES: { id: HandoverPhase; label: string }[] = [
 
 /** Shown beside the progress figures so the basis is never hidden. */
 export const PROGRESS_BASIS = [
-  'Every footing and every plinth record has three construction stages: rebar, forming and pouring. Concrete recorded as poured in a pour counts toward the pouring stage.',
-  'The three stages count equally. The rebar stage is split evenly between "built" and "installed", so rebar is not counted twice as heavily as forming or pouring.',
+  'Every footing and every plinth record has construction stages: rebar, forming and pouring, plus installation of post-installed anchor bolts and embed plates wherever they are required. Concrete recorded as poured in a pour counts toward the pouring stage.',
+  'The stages count equally. The rebar stage is split evenly between "built" and "installed", so rebar is not counted twice as heavily as forming or pouring.',
   'Each foundation type (one designation) has one progress figure: the average of its footing and plinth records. How the types are combined depends on the Completion basis: each type counts once (Foundation type), by how many individual foundations it represents (Foundation count), or by concrete volume (Concrete volume). Overall progress combines every foundation of every area directly; it is not an average of the area percentages.',
   'No quantities, hours or costs are available, so there is no effort weighting. Survey, QA/QC and handover are tracked separately and never change this figure.',
 ]

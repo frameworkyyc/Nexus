@@ -3,6 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { CompactInput, CompactSelect, Textarea } from '@/components/ui/Field'
+import { boltLines, boltLineText, isBoltActivity } from './boltInstallation'
 import { updateActivity } from './commands'
 import { CATEGORY_LABEL, CATEGORY_ORDER, STATUS_LABEL, STATUS_OPTIONS, getDef } from './config'
 import { paths } from './paths'
@@ -40,6 +41,7 @@ function ActivityRow({ a }: { a: Activity }) {
             <span>
               {def.label}
               {(a.notes || a.docIds.length > 0) && <span className="ml-2 text-xs text-muted">{a.notes ? 'note' : ''}{a.notes && a.docIds.length ? ' · ' : ''}{a.docIds.length ? `${a.docIds.length} doc${a.docIds.length > 1 ? 's' : ''}` : ''}</span>}
+              {isBoltActivity(a) && idx.foundation.get(a.foundationId) && boltLines(state, idx.foundation.get(a.foundationId)!, a).map((l) => <span key={l.source} className="block text-xs text-muted">{boltLineText(l)}</span>)}
               {waiting && <span className="block text-xs text-muted">Prerequisites not yet complete</span>}
             </span>
           </button>

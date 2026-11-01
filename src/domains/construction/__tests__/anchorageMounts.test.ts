@@ -86,7 +86,7 @@ describe('anchorage mounted on a footing (OP1-21-29: one pad, no plinths, two OP
     const old = add(w.s, w.areaId, 'OLD', 2, 1, { footing: d(8.5, 3.5, 0.5), groups: [{ anchorageTypeId: w.A11, count: 2 }] })
     const mounted = add(w.s, w.areaId, 'NEW', 0, 1, { footing: d(8.5, 3.5, 0.5), anchorages: [{ anchorageTypeId: w.A11, qty: 2 }] })
     const work = (s: ConstructionState, f: Foundation) => s.activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category)).length
-    expect(work(old.s, old.f)).toBe(4 + 2 * 4) // footing + 2 plinths, each with rebar built/installed, formed and poured
+    expect(work(old.s, old.f)).toBe(4 + 2 * 4) // the plain footing (4) + 2 plinths, each with rebar built/installed, formed and poured (4); bolts installed with the pour need no activity
     expect(work(mounted.s, mounted.f)).toBe(4) // the footing only
     expect(sum(old.s, 'Anchor bolt')).toBe(24) // the material need is the same either way
   })
