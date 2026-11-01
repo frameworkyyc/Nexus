@@ -13,6 +13,8 @@ import { useTracker } from '../tracker/store'
 import { itemsOf } from '../tracker/requirements'
 import type { AnchorageType } from '../types'
 import { plateText } from '../plates'
+import { anchorageIssue } from '../anchorageStatus'
+import { AnchorageWarning } from './AnchorageWarning'
 import { AnchorageComponentsModal } from './AnchorageComponentsModal'
 
 /**
@@ -60,9 +62,9 @@ export function AnchorageLibrary() {
                 <tbody>
                   {shown.map((t) => (
                     <tr key={t.id} className="border-b border-line">
-                      <td className="py-3 pr-4 font-medium">{t.code}{t.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</td>
+                      <td className="py-3 pr-4 font-medium"><span className="inline-flex items-center gap-1.5">{t.code}<AnchorageWarning issues={t.archived || !anchorageIssue(state, t.id) ? [] : [anchorageIssue(state, t.id) as string]} label="Not fully configured" /></span>{t.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</td>
                       <td className="py-3 pr-4 text-muted">{t.description || '—'}</td>
-                      <td className="py-3 pr-4 text-muted">{componentsSummary(state.anchorageComponents ?? [], t.id)}</td>
+                      <td className="py-3 pr-4 text-muted">{anchorageIssue(state, t.id) ? <span className="text-[var(--nx-bad)]">{componentsSummary(state.anchorageComponents ?? [], t.id)}</span> : componentsSummary(state.anchorageComponents ?? [], t.id)}</td>
                       <td className="py-3 pr-4 tabular-nums text-muted">{usedBy(t)} material{usedBy(t) === 1 ? '' : 's'} · {plinths(t)} plinth{plinths(t) === 1 ? '' : 's'}</td>
                       <td className="py-3 pr-4 text-right">{admin && <span className="flex justify-end gap-1"><Button variant="ghost" className="h-8 px-2" onClick={() => setEditing(t)}>Edit</Button><Button variant="ghost" className="h-8 px-2" aria-label={`Configure ${t.code}`} onClick={() => setConfiguring(t)}>Configure</Button><Button variant="ghost" className="h-8 px-2" onClick={() => void run(constructionStore.run(archiveAnchorageType(t.id, !t.archived)))}>{t.archived ? 'Restore' : 'Archive'}</Button></span>}</td>
                     </tr>

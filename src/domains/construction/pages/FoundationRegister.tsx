@@ -20,6 +20,8 @@ import { foundationQuantity, foundationTotals, plinthsPerFoundationFromGroups } 
 import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
 import { IndividualFoundations } from './IndividualFoundations'
 import { FoundationStateBadge, fraction } from '../ui'
+import { foundationAnchorageIssues } from '../anchorageStatus'
+import { AnchorageWarning } from './AnchorageWarning'
 import type { Area, ConstructionState, Foundation, Plinth } from '../types'
 
 type SortKey = 'number' | 'construction' | 'survey' | 'qaqc' | 'state'
@@ -41,6 +43,7 @@ interface Row {
   /** One entry per anchorage group: type id (null = not assigned) and plinths per foundation. */
   groups: { typeId: string | null; count: number }[]
   concrete: FoundationConcrete
+  anchorageIssues: string[]
 }
 
 const codeOfType = (state: ConstructionState, id: string | null) => (id ? state.anchorageTypes.find((t) => t.id === id)?.code ?? id : 'Not assigned')
@@ -82,9 +85,10 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
           types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
           groups: groups.length ? groups.map((g) => ({ typeId: g.anchorageTypeId, count: g.count })) : [...new Set(plinths.map((p) => p.anchorageTypeId ?? null))].map((t) => ({ typeId: t, count: plinths.filter((p) => (p.anchorageTypeId ?? null) === t).length })),
           concrete: foundationConcrete(f, plinths, groups),
+          anchorageIssues: foundationAnchorageIssues(state, f.id),
         }
       }),
-    [idx, state.anchorageGroups, areaId, projectId, showArchived],
+    [idx, state, areaId, projectId, showArchived],
   )
 
   const q = query.trim().toLowerCase()
@@ -221,6 +225,7 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                       <Td>
                         <div className="flex min-w-0 max-w-[12rem] items-baseline gap-2 min-[1400px]:max-w-[14rem]">
                           <Link to={paths.foundation(projectId, r.f)} className="max-w-full shrink-0 truncate font-medium underline-offset-4 hover:underline" title={r.f.number}>{r.f.number}</Link>
+                          <AnchorageWarning issues={r.anchorageIssues} />
                           {r.f.archived && <span className="shrink-0 text-xs text-muted">Archived</span>}
                           {r.f.description && <span className="min-w-0 flex-1 truncate text-xs text-muted" title={r.f.description}>{r.f.description}</span>}
                         </div>
@@ -373,7 +378,7 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
         return (
           <li key={r.f.id} className={`${CARD} p-4`}>
             <div className="flex items-start justify-between gap-3">
-              <Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}{r.f.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</Link>
+              <span className="flex min-w-0 items-center gap-1.5"><Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}{r.f.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</Link><AnchorageWarning issues={r.anchorageIssues} /></span>
               <FoundationStateBadge state={r.state.state} blocked={r.state.blocked} />
             </div>
             <p className="mt-0.5 text-[14px] text-muted">{[r.f.description, !areaId && r.area.name].filter(Boolean).join(' · ')}</p>
