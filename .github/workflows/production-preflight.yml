@@ -1,0 +1,91 @@
+# Production pre-flight WITHOUT deploying anything and without a local terminal.
+#   1. Uploads the current code as an UNDEPLOYED version of the production Worker (`wrangler versions upload`: a version and a test URL, never a deployment).
+#   2. Runs scripts/preflight.mjs against that version's URL: health, every protected endpoint refuses an unauthenticated request, WorkOS login redirect.
+# It never deploys, promotes or rolls back: there is no `wrangler deploy` or `versions deploy` in this file, and a test fails the build if one appears. Promotion is a separate, manual
+# click in the Cloudflare dashboard (Workers & Pages -> nexus -> Deployments -> Deploy version), after you have read this run.
+# Run it by pushing a tag named preflight-* (git tag preflight-1 && git push origin preflight-1). Production secrets stay in Cloudflare: Wrangler keeps the Worker's existing secrets on a
+# new version and this workflow never sees their values. The only secrets it uses are the Cloudflare API token and account id, held in the GitHub Environment `production-preflight`
+# (restrict that environment to tags matching preflight-*, and optionally require a reviewer there to approve each run).
+name: Production pre-flight (undeployed version)
+
+on:
+  push:
+    tags: ['preflight-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.repository == 'frameworkyyc/Nexus' && startsWith(github.ref, 'refs/tags/preflight-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-preflight
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Check the Cloudflare credentials exist (values are never printed)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing environment secret(s) in the production-preflight environment:$missing. See docs/RELEASE-v1.0.md, 'Pre-flight without a terminal'."
+            exit 1
+          fi
+          echo "Credentials present."
+
+      - name: Upload an UNDEPLOYED version of the production Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+        run: npx wrangler versions upload --message "pre-flight ${GITHUB_REF_NAME} ${GITHUB_SHA::7}" 2>&1 | tee "$RUNNER_TEMP/upload.log"
+
+      - name: Find the version and its test URL
+        id: version
+        run: |
+          node -e '
+            const fs = require("fs");
+            const lines = fs.readFileSync(process.env.RUNNER_TEMP + "/wrangler-output.ndjson", "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean);
+            const v = lines.find((e) => e.version_id);
+            const url = v && (v.preview_url || v.preview_alias_url);
+            if (!v || !url) { console.error("::error::The upload did not report a version test URL. Check that Version URLs (workers.dev preview URLs) are enabled for the nexus Worker."); process.exit(1) }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "id=" + v.version_id + "\nurl=" + url.replace(/\/+$/, "") + "\n");
+          '
+          echo "Version ${{ steps.version.outputs.id }} (not deployed)"
+
+      - name: Wait for the version to answer
+        run: |
+          for i in $(seq 1 24); do
+            if curl -fsS -m 10 "${{ steps.version.outputs.url }}/api/health" > /dev/null; then echo "up after $i attempt(s)"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::The version URL did not answer within two minutes."; exit 1
+
+      - name: Pre-flight checks against the undeployed version
+        run: node scripts/preflight.mjs "${{ steps.version.outputs.url }}" | tee "$RUNNER_TEMP/preflight.log"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Production pre-flight"
+            echo "- Version: \`${{ steps.version.outputs.id }}\` (**not deployed**; live traffic is unchanged)"
+            echo "- Test URL: ${{ steps.version.outputs.url }}"
+            echo "- Result: **${{ job.status }}**"
+            echo "- Promote only after approval: Cloudflare dashboard -> Workers & Pages -> nexus -> Deployments -> Deploy version."
+            echo; echo '```'; cat "$RUNNER_TEMP/preflight.log" 2>/dev/null || true; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

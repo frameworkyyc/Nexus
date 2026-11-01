@@ -113,3 +113,36 @@ describe('release gate: merging to main must not deploy production', () => {
     expect(run({ WORKERS_CI: '1', WORKERS_CI_BRANCH: 'staging' }).status).toBe(0)
   })
 })
+
+describe('GitHub workflows that touch production', () => {
+  const pre = readFileSync('.github/workflows/production-preflight.yml', 'utf8')
+  const reach = readFileSync('.github/workflows/production-reachability.yml', 'utf8')
+  const code = (t: string) => t.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+
+  it('the pre-flight uploads an undeployed version and never deploys, promotes or rolls back', () => {
+    expect(code(pre)).toMatch(/wrangler versions upload/)
+    expect(code(pre)).not.toMatch(/wrangler deploy|versions deploy|wrangler rollback|--latest|deployments? create|\/deployments/)
+    expect(code(pre)).toMatch(/scripts\/preflight\.mjs/)
+  })
+
+  it('runs only for pre-flight tags in this repository, with read-only repository permissions', () => {
+    expect(pre).toMatch(/tags: \['preflight-\*'\]/)
+    expect(pre).not.toMatch(/pull_request|workflow_dispatch|branches:|schedule:/)
+    expect(pre).toMatch(/permissions:\n {2}contents: read/)
+    expect(pre).toMatch(/github\.repository == 'frameworkyyc\/Nexus'/)
+    expect(pre).toMatch(/environment: production-preflight/)
+  })
+
+  it('uses only the Cloudflare API token and account id as secrets, and only in the steps that need them', () => {
+    const used = [...code(pre).matchAll(/secrets\.([A-Z_]+)/g)].map((m) => m[1])
+    expect(new Set(used)).toEqual(new Set(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']))
+    expect(code(pre)).not.toMatch(/WORKOS_API_KEY|SESSION_PEPPER|INITIAL_ADMIN_EMAIL/) // production secrets never pass through GitHub
+    expect(code(pre)).not.toMatch(/echo[^\n]*\$\{?CLOUDFLARE_API_TOKEN/)
+  })
+
+  it('the reachability check is credential-free and read-only', () => {
+    expect(code(reach)).not.toMatch(/secrets\.|environment:|wrangler|-X (POST|PUT|DELETE|PATCH)|--data/)
+    expect(reach).toMatch(/tags: \['check-\*'\]/)
+    expect(reach).not.toMatch(/pull_request|workflow_dispatch|branches:/)
+  })
+})

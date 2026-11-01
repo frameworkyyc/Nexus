@@ -1,0 +1,40 @@
+# Read-only reachability check of the LIVE production hostname, with no credentials and no Cloudflare access: it only sends GET requests.
+# Run it by pushing a tag named check-* (git tag check-1 && git push origin check-1). It reports whether Cloudflare Access (or anything else) sits in front of
+# nexus.frameworktools.ca, which would intercept the WorkOS routes. It changes nothing.
+name: Production reachability check
+
+on:
+  push:
+    tags: ['check-*']
+
+permissions:
+  contents: read
+
+jobs:
+  reachability:
+    if: github.repository == 'frameworkyyc/Nexus' && startsWith(github.ref, 'refs/tags/check-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe the live hostname (headers only)
+        run: |
+          set -u
+          for path in /api/health /api/auth/login /; do
+            echo "=== GET https://nexus.frameworktools.ca$path"
+            curl -sS -m 20 -o /tmp/body.txt -D /tmp/headers.txt -w 'status=%{http_code} redirect=%{redirect_url}\n' "https://nexus.frameworktools.ca$path" || echo "request failed"
+            grep -iE '^(HTTP|location|content-type|cf-access|server|cf-ray)' /tmp/headers.txt || true
+            echo "--- body (first 200 chars)"; head -c 200 /tmp/body.txt | tr '\n' ' '; echo
+          done
+      - name: Is Cloudflare Access in front of the hostname?
+        run: |
+          set -u
+          loc=$(curl -sS -m 20 -o /dev/null -D - "https://nexus.frameworktools.ca/api/health" | tr -d '\r' | awk 'tolower($1)=="location:" {print $2}')
+          if echo "$loc" | grep -qi 'cloudflareaccess.com'; then
+            echo "::error::Cloudflare Access IS in front of nexus.frameworktools.ca (redirects to $loc). Remove or narrow that Access application before cutover."
+            exit 1
+          fi
+          echo "No Cloudflare Access redirect on /api/health (location header: '${loc:-none}')."

@@ -59,6 +59,27 @@ the `d1_migrations` ledger is created and filled, and the schema is compared wit
 12. ☐ Confirm staging still signs in with Access and uses `nexus-staging`.
 13. ☐ After the release: remove the `NEXUS_RELEASE_APPROVED` variable again if you want every later merge to need approval (recommended), and delete the now-unused `WORKOS_*` and `SESSION_PEPPER` secrets from the staging preview.
 
+## Pre-flight without a local terminal (GitHub Actions)
+Two workflows run from GitHub; neither can deploy.
+* **`production-reachability.yml`** (no credentials, read-only): push a tag `check-<n>`. It sends GET requests to the live hostname and fails if Cloudflare Access redirects it (`cloudflareaccess.com`), which would intercept the WorkOS routes.
+* **`production-preflight.yml`**: push a tag `preflight-<n>`. It uploads the tagged code as an **undeployed** version of the production Worker (`wrangler versions upload`), waits for its test URL, and runs `scripts/preflight.mjs` against it. Wrangler keeps the Worker's existing
+  secrets on the new version, so the production secrets never pass through GitHub. A test fails the build if the workflow ever contains a deploy, promote or rollback command. The result and the version id are in the run summary.
+
+**One-time setup (browser only, about five minutes):**
+1. Cloudflare dashboard → your profile (top right) → API Tokens → Create Token → Create Custom Token. Name it "GitHub Nexus pre-flight". Permission: **Account · Workers Scripts · Edit**. Account Resources: include only the Framework account. Create it and copy the token once.
+2. GitHub → `frameworkyyc/Nexus` → Settings → Environments → New environment, named exactly `production-preflight`.
+   * Deployment branches and tags → Selected branches and tags → Add rule → type **Tag**, pattern `preflight-*`.
+   * Optional: Required reviewers → add yourself, so every run waits for your approval before it touches Cloudflare.
+   * Environment secrets → add `CLOUDFLARE_API_TOKEN` (the token) and `CLOUDFLARE_ACCOUNT_ID` (`8d8d61851e9e56969b4a6bf9a985e9a4`).
+3. Tell Claude. It pushes the tag `preflight-1`, watches the run and reports every check.
+
+**Promotion stays manual:** after the run passes, Cloudflare dashboard → Workers & Pages → `nexus` → Deployments → find the version named "pre-flight preflight-… " → **Deploy version** → 100%. Nothing in GitHub or Cloudflare promotes it for you,
+and the same page shows the previous version for rollback. After promoting, push a tag `check-<n>` for the live-host checks, or run `node scripts/preflight.mjs https://nexus.frameworktools.ca` anywhere.
+Afterwards merge `staging` into `main` (the release gate keeps that merge from deploying) so `main` matches what is live.
+
+**Dashboard-only alternative (no GitHub token):** set the production Worker's deploy command to `npx wrangler versions upload` (Settings → Build) and set `NEXUS_RELEASE_APPROVED=yes` in its build variables, then merge `staging` into `main`: the build uploads an undeployed version.
+Open Deployments → that version → copy its test URL, and by hand open `/api/health` (expect `"environment":"production","auth":"workos"`), `/api/session` and `/api/state/construction` (expect a 401 JSON error, never data) and `/api/auth/login` (expect a redirect to `api.workos.com` with the Nexus client id). Then **Deploy version** → 100%.
+
 ## Rollback
 * Site: Cloudflare dashboard → `nexus` → Deployments → roll back to the previous version (the old site), then remove `NEXUS_RELEASE_APPROVED`.
 * Access: revoke members in Team members (immediate), or remove the `INITIAL_ADMIN_EMAIL` secret before the first sign-in.
