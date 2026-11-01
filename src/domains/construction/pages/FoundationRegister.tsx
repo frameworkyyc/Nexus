@@ -223,11 +223,13 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
                         </button>
                       </td>
                       <Td>
-                        <div className="flex min-w-0 max-w-[12rem] items-baseline gap-2 min-[1400px]:max-w-[14rem]">
-                          <Link to={paths.foundation(projectId, r.f)} className="max-w-full shrink-0 truncate font-medium underline-offset-4 hover:underline" title={r.f.number}>{r.f.number}</Link>
-                          <AnchorageWarning issues={r.anchorageIssues} />
-                          {r.f.archived && <span className="shrink-0 text-xs text-muted">Archived</span>}
-                          {r.f.description && <span className="min-w-0 flex-1 truncate text-xs text-muted" title={r.f.description}>{r.f.description}</span>}
+                        <div className="flex min-w-0 max-w-[12rem] items-center gap-2 min-[1400px]:max-w-[14rem]">
+                          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                            <Link to={paths.foundation(projectId, r.f)} className="max-w-full shrink-0 truncate font-medium underline-offset-4 hover:underline" title={r.f.number}>{r.f.number}</Link>
+                            {r.f.archived && <span className="shrink-0 text-xs text-muted">Archived</span>}
+                            {r.f.description && <span className="min-w-0 flex-1 truncate text-xs text-muted" title={r.f.description}>{r.f.description}</span>}
+                          </div>
+                          <span className="flex h-5 w-5 shrink-0 justify-end"><AnchorageWarning issues={r.anchorageIssues} align="right" /></span>
                         </div>
                       </Td>
                       <Td right>{r.qty.toLocaleString('en-CA')}</Td>
@@ -378,7 +380,8 @@ function RegisterCards({ view, visible, plinthRows, open, toggleOpen, projectId,
         return (
           <li key={r.f.id} className={`${CARD} p-4`}>
             <div className="flex items-start justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-1.5"><Link to={paths.foundation(projectId, r.f)} className="min-w-0 text-[20px] font-semibold leading-tight">{r.f.number}{r.f.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</Link><AnchorageWarning issues={r.anchorageIssues} /></span>
+              <Link to={paths.foundation(projectId, r.f)} className="min-w-0 flex-1 text-[20px] font-semibold leading-tight">{r.f.number}{r.f.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</Link>
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 justify-end"><AnchorageWarning issues={r.anchorageIssues} align="right" /></span>
               <FoundationStateBadge state={r.state.state} blocked={r.state.blocked} />
             </div>
             <p className="mt-0.5 text-[14px] text-muted">{[r.f.description, !areaId && r.area.name].filter(Boolean).join(' · ')}</p>
