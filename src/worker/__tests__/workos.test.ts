@@ -216,6 +216,50 @@ describe('invitations through WorkOS', () => {
   })
 })
 
+describe('both mode (WorkOS verification while Cloudflare Access stays on)', () => {
+  const TEAM = 'https://nexus-team.cloudflareaccess.com'
+  const AUD = 'aud-tag-123'
+  async function accessJwt(email: string) {
+    const header = enc({ alg: 'RS256', kid: 'k1', typ: 'JWT' })
+    const payload = enc({ iss: TEAM, aud: [AUD], email, exp: Math.floor(NOW.getTime() / 1000) + 3600 })
+    const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', pair.privateKey, new TextEncoder().encode(`${header}.${payload}`))
+    return `${header}.${payload}.${b64u(sig)}`
+  }
+  const both = { AUTH_PROVIDER: 'both', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD } as Partial<Env>
+  const certs = (async () => new Response(JSON.stringify({ keys: [{ ...jwk, kid: 'k1' }] }))) as unknown as typeof fetch
+  const withAccess = async (db: TestDb, email: string, f: typeof fetch, path = '/api/session') => {
+    resetAuthCache()
+    const res = await handleApi(new Request(`${ORIGIN}${path}`, { headers: { 'cf-access-jwt-assertion': await accessJwt(email) } }), env(both, db), clock(), f)
+    return { status: res.status, body: (await res.json()) as any } // eslint-disable-line @typescript-eslint/no-explicit-any
+  }
+
+  it('a Cloudflare Access sign-in keeps working exactly as before, with the same role resolution', async () => {
+    const db = fresh()
+    const r = await withAccess(db, 'admin@example.com', certs)
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ user: 'admin@example.com', role: 'admin', via: 'access', auth: 'both' })
+    expect((await withAccess(db, 'nobody@example.com', certs)).body.role).toBeNull() // still no role without a membership
+  })
+
+  it('a WorkOS session works in the same mode, and with neither an Access token nor a session the request is refused', async () => {
+    const db = fresh(); give(db, 'ed@example.com', 'editor', 'invited')
+    const { f } = workos()
+    const { session } = await signIn(db, f, both)
+    expect((await call(db, f, 'GET', '/api/session', { cookie: session, e: both })).body).toMatchObject({ via: 'workos', role: 'editor' })
+    expect((await call(db, f, 'GET', '/api/session', { e: both })).status).toBe(401)
+  })
+
+  it('a revoked member is refused over either sign-in', async () => {
+    const db = fresh(); give(db, 'ed@example.com', 'editor', 'revoked')
+    expect(await withAccess(db, 'ed@example.com', certs, '/api/state/construction')).toMatchObject({ status: 403, body: { code: 'revoked' } })
+  })
+
+  it('serves the WorkOS routes from the Worker (they are under /api/*, which the Worker handles first)', () => {
+    const cfg = readFileSync('wrangler.jsonc', 'utf8')
+    expect(cfg).toMatch(/"run_worker_first": \["\/api\/\*"\]/)
+  })
+})
+
 describe('provider switch', () => {
   it('Cloudflare Access stays the default: the WorkOS routes do not exist and nothing changes', async () => {
     const db = fresh(); const { f } = workos()
