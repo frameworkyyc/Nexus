@@ -43,9 +43,11 @@ if (cmd === 'report') {
 } else if (cmd === 'compare') {
   const results = wrangler(a)
   const want = JSON.parse(readFileSync(b, 'utf8'))
-  const fk = results[0]?.results ?? []
-  if (fk.length) fail(`${fk.length} foreign-key violation(s) in production`)
-  const got = Object.fromEntries(results.slice(1).map((r) => [r.results?.[0]?.t, r.results?.[0]?.n]))
+  // Identify result blocks by their columns, not their position: D1 may omit the (empty) PRAGMA block, which would shift every block by one.
+  const rows = results.flatMap((r) => r.results ?? [])
+  const fk = rows.filter((r) => 'parent' in r && 'fkid' in r)
+  if (fk.length) fail(`${fk.length} foreign-key violation(s) in production, in: ${[...new Set(fk.map((r) => r.table))].join(', ')}`)
+  const got = Object.fromEntries(rows.filter((r) => 't' in r && 'n' in r).map((r) => [r.t, r.n]))
   const bad = Object.keys(want).filter((t) => got[t] !== want[t])
   if (bad.length) fail(`count mismatch in ${bad.map((t) => `${t} (live ${got[t]}, expected ${want[t]})`).join(', ')}`)
   ok(`production matches the rehearsal in all ${Object.keys(want).length} tables; foreign_key_check is empty`)
