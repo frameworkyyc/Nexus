@@ -209,7 +209,7 @@ describe('production release workflow', () => {
     expect(code).toMatch(/schema-guard\.mjs" precheck/)
     expect(code).toMatch(/d1 export/)
     expect(code).toMatch(/anchorageMigration\.test\.ts/)
-    expect(code).toMatch(/DROP TABLE IF EXISTS foundation_anchorages/)
+    expect(code).toMatch(/DROP COLUMN install_method/)
     expect(code).not.toMatch(/time-travel restore/) // a restore would also discard what users saved since; the bookmark is only named as a last resort
     expect(code).toMatch(/wrangler rollback/)
     expect(code).not.toMatch(/upload-artifact/)

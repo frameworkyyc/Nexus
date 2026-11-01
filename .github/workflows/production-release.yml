@@ -1,11 +1,11 @@
-# Production RELEASE of approved changes (no data migration): applies an additive schema migration to the production database, validates it, and promotes the pinned, pre-flighted Worker version.
+# Production RELEASE of approved changes (no data migration): applies additive schema migrations (in order) to the production database, validates them, and promotes the pinned, pre-flighted Worker version.
 # Starts only from a push to the dedicated branch release/preflight whose head commit message contains a trigger word:
 #   [release-rehearsal]   everything up to the live apply, on an export of production's own data. Writes NOTHING to production and deploys nothing.
 #   [release-production]  the full release, with automatic rollback.
 # Order: credentials and permissions -> the pinned version still equals the code that was pre-flighted -> production must be exactly at the expected schema -> a Time Travel bookmark is recorded
 #   -> production is exported, the migration is applied to a COPY and compared before/after by the application's own readers (quantities, anchorage totals, requirements, progress, the OP1-21-29 case)
 #   -> LIVE: apply (atomic) -> verify -> pre-flight the pinned version -> deploy it -> live checks.
-# Rollback: if the apply or its verification fails, the additive objects are removed again (a Time Travel restore would also discard everything users saved since, so it is a last resort, recorded below).
+# Rollback: if the apply or its verification fails, the added columns are removed again (the rollback is itself rehearsed on a copy) (a Time Travel restore would also discard everything users saved since, so it is a last resort, recorded below).
 #   If the live checks fail after deploy, the previous deployment is restored; the schema stays (the old code ignores the new table).
 # Data never leaves the runner (this repository is public): no artifacts, counts only in the logs.
 name: Production release (additive migration and promotion)
@@ -22,14 +22,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TARGET_VERSION: 'db06d5fd-90b9-4edd-b098-a59197a53f40'
-  PREFLIGHT_COMMIT: 'ca0d1188c35a0f31fe78f1f6bda3fed08ce7b221'
-  MIGRATION: '0028_anchorage_mounts.sql'
-  FROM_SCHEMA: '27'
-  TO_SCHEMA: '28'
+  TARGET_VERSION: '15426fe7-5bd9-4ede-a118-a238458e2625'
+  PREFLIGHT_COMMIT: '1f1f84c1c9a75c73679c929f6d2a8b6537c84337'
+  MIGRATIONS: '0029_anchor_bolt_installation.sql 0030_embed_post_install.sql'
+  FROM_SCHEMA: '28'
+  TO_SCHEMA: '30'
   PRODUCTION_DB: 'nexus-production'
   LIVE_URL: 'https://nexus.frameworktools.ca'
   WORKERS_SUBDOMAIN: 'plain-poetry-2054'
+  ROLLBACK_SQL: "ALTER TABLE foundation_bolts DROP COLUMN install_method; ALTER TABLE foundation_anchorages DROP COLUMN install_method; ALTER TABLE foundation_embeds DROP COLUMN install_method; UPDATE schema_info SET value = '28' WHERE key = 'schema_version'; DELETE FROM d1_migrations WHERE name IN ('0029_anchor_bolt_installation.sql','0030_embed_post_install.sql');"
 
 jobs:
   release:
@@ -83,7 +84,7 @@ jobs:
         run: |
           set -e
           cd "$RUNNER_TEMP/w"
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM sqlite_master WHERE name='foundation_anchorages') AS has_table, (SELECT count(*) FROM foundation_anchorage_groups WHERE anchorage_type_id IS NOT NULL) AS typed_sets" > pre.json || { head -c 800 pre.json; exit 1; }
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM pragma_table_info('foundation_bolts') WHERE name='install_method') + (SELECT count(*) FROM pragma_table_info('foundation_anchorages') WHERE name='install_method') + (SELECT count(*) FROM pragma_table_info('foundation_embeds') WHERE name='install_method') AS columns" > pre.json || { head -c 800 pre.json; exit 1; }
           node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" precheck pre.json "$FROM_SCHEMA" "$FROM_SCHEMA"
 
       - name: Export production, apply the migration to a COPY and compare before and after with the application's own readers
@@ -96,12 +97,20 @@ jobs:
           node -e '
             const { DatabaseSync } = require("node:sqlite"); const fs = require("fs")
             const db = new DatabaseSync("prod-after.sqlite"); db.exec("PRAGMA foreign_keys = OFF")
-            db.exec(fs.readFileSync(process.env.GITHUB_WORKSPACE + "/migrations/" + process.env.MIGRATION, "utf8"))
-            db.exec("INSERT INTO d1_migrations (name) VALUES (\x27" + process.env.MIGRATION + "\x27)")
+            for (const m of process.env.MIGRATIONS.split(" ")) {
+              db.exec(fs.readFileSync(process.env.GITHUB_WORKSPACE + "/migrations/" + m, "utf8"))
+              db.exec("INSERT INTO d1_migrations (name) VALUES (\x27" + m + "\x27)")
+            }
+            // The additive rollback must restore the copy: apply it to a second copy and check the columns and schema version are gone again.
+            require("fs").copyFileSync("prod-after.sqlite", "prod-rolledback.sqlite")
+            const rb = new DatabaseSync("prod-rolledback.sqlite"); rb.exec(process.env.ROLLBACK_SQL)
+            for (const t of ["foundation_bolts", "foundation_anchorages", "foundation_embeds"]) if (rb.prepare("SELECT count(*) AS n FROM pragma_table_info(\x27" + t + "\x27) WHERE name = \x27install_method\x27").get().n !== 0) { console.error("rollback rehearsal: column still present on " + t); process.exit(1) }
+            if (rb.prepare("SELECT value FROM schema_info WHERE key = \x27schema_version\x27").get().value !== process.env.FROM_SCHEMA) { console.error("rollback rehearsal: schema version not restored"); process.exit(1) }
+            console.log("Rollback rehearsal: the additive rollback restores the copy to schema " + process.env.FROM_SCHEMA + ".")
             const fk = db.prepare("PRAGMA foreign_key_check").all(); if (fk.length) { console.error("foreign-key violations on the copy"); process.exit(1) }
           '
           cd "$GITHUB_WORKSPACE"
-          ANCHORAGE_MIGRATION_DB="$RUNNER_TEMP/w/prod-before.sqlite" ANCHORAGE_BEFORE_DB="$RUNNER_TEMP/w/prod-before.sqlite" ANCHORAGE_AFTER_DB="$RUNNER_TEMP/w/prod-after.sqlite" npx vitest run src/worker/__tests__/anchorageMigration.test.ts
+          BOLT_INSTALL_DB="$RUNNER_TEMP/w/prod-before.sqlite" npx vitest run src/worker/__tests__/anchorageMigration.test.ts
           echo "Rehearsal on production's own data passed."
 
       - name: LIVE migration (atomic) and verification
@@ -111,10 +120,10 @@ jobs:
           set -e
           cd "$RUNNER_TEMP/w"
           echo "started=yes" >> "$GITHUB_OUTPUT"
-          { cat "$GITHUB_WORKSPACE/migrations/$MIGRATION"; echo "INSERT INTO d1_migrations (name) VALUES ('$MIGRATION');"; } > apply.sql
+          for m in $MIGRATIONS; do cat "$GITHUB_WORKSPACE/migrations/$m"; echo; echo "INSERT INTO d1_migrations (name) VALUES ('$m');"; done > apply.sql
           wrangler d1 execute "$PRODUCTION_DB" --remote --yes --file=apply.sql > apply.log 2>&1 || { tail -5 apply.log; exit 1; }
           echo "Applied. Verifying."
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM foundation_anchorages) AS anchorages, (SELECT count(*) FROM foundation_anchorage_groups WHERE anchorage_type_id IS NOT NULL) AS typed_sets" > post.json || { head -c 800 post.json; exit 1; }
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM pragma_table_info('foundation_bolts') WHERE name='install_method') + (SELECT count(*) FROM pragma_table_info('foundation_anchorages') WHERE name='install_method') + (SELECT count(*) FROM pragma_table_info('foundation_embeds') WHERE name='install_method') AS columns" > post.json || { head -c 800 post.json; exit 1; }
           node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" verify post.json "$TO_SCHEMA" "$TO_SCHEMA"
           wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > fk.json || { head -c 800 fk.json; exit 1; }
           node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" clean fk.json
@@ -125,10 +134,10 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/w"
           echo "::warning::Removing the additive objects. Users' data is untouched; the bookmark $BOOKMARK is a last resort (it would also discard what users saved since)."
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --command "DROP INDEX IF EXISTS foundation_anchorages_foundation; DROP TABLE IF EXISTS foundation_anchorages; UPDATE schema_info SET value = '$FROM_SCHEMA' WHERE key = 'schema_version'; DELETE FROM d1_migrations WHERE name = '$MIGRATION';"
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM sqlite_master WHERE name='foundation_anchorages') AS has_table, (SELECT count(*) FROM foundation_anchorage_groups WHERE anchorage_type_id IS NOT NULL) AS typed_sets" > back.json
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --command "$ROLLBACK_SQL"
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "SELECT (SELECT value FROM schema_info WHERE key='schema_version') AS schema_version, (SELECT count(*) FROM d1_migrations) AS ledger, (SELECT count(*) FROM pragma_table_info('foundation_bolts') WHERE name='install_method') + (SELECT count(*) FROM pragma_table_info('foundation_anchorages') WHERE name='install_method') + (SELECT count(*) FROM pragma_table_info('foundation_embeds') WHERE name='install_method') AS columns" > back.json
           node "$GITHUB_WORKSPACE/scripts/schema-guard.mjs" precheck back.json "$FROM_SCHEMA" "$FROM_SCHEMA"
-          echo "::warning::Rolled back to schema $FROM_SCHEMA. (The unused mount_group_id columns on bolts and embed plates stay: they are empty and ignored.)"
+          echo "::warning::Rolled back to schema $FROM_SCHEMA."
 
       - name: Pre-flight the pinned version again
         if: env.LIVE == 'yes'
@@ -139,7 +148,7 @@ jobs:
         id: deploy
         run: |
           echo "started=yes" >> "$GITHUB_OUTPUT"
-          wrangler versions deploy "${TARGET_VERSION}@100%" --yes --message "Release: anchorage mounts (migration 0028), completion basis, percentage formatting, library icon fix"
+          wrangler versions deploy "${TARGET_VERSION}@100%" --yes --message "Release: Post-Install for anchor bolts, anchorage groups and embed plates (migrations 0029, 0030), redesigned Foundation form"
 
       - name: Live checks (with retries)
         if: env.LIVE == 'yes'
@@ -153,7 +162,7 @@ jobs:
       - name: Restore the previous deployment if the release failed
         if: failure() && steps.deploy.outputs.started == 'yes'
         run: |
-          echo "::error::Release checks failed: restoring version $PREVIOUS_VERSION. The migration stays (additive; the previous code ignores the new table)."
+          echo "::error::Release checks failed: restoring version $PREVIOUS_VERSION. The migrations stay (additive; the previous code ignores the new columns)."
           wrangler rollback "$PREVIOUS_VERSION" --yes --message "automatic rollback: live checks failed"
 
       - name: Summary

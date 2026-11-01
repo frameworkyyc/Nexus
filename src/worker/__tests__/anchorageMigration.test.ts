@@ -250,8 +250,17 @@ describe.skipIf(!BOLTS)('anchor bolt installation on a copy of real data', () =>
     const db = d1Over(raw)
     const stored = raw.prepare('SELECT id, status, actual_date FROM activities').all() as { id: string; status: string; actual_date: string | null }[]
     const rowsBefore = Object.fromEntries(['foundations', 'plinths', 'foundation_bolts', 'foundation_anchorages', 'activities'].map((t) => [t, count(raw, t)]))
+    // Every row of every table, as it was (new columns aside): the migrations add columns only, so nothing may be rewritten.
+    const tables = (raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]).map((t) => t.name)
+    const dump = () => Object.fromEntries(tables.map((t) => [t, (raw.prepare(`SELECT * FROM "${t}" ORDER BY rowid`).all() as Record<string, unknown>[]).map((r) => { const { install_method: _m, ...rest } = r; void _m; return rest })]))
+    const allBefore = dump()
+    const requirementsBefore = JSON.stringify(allBefore.foundation_bolts)
     raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8'))
     raw.exec(readFileSync('migrations/0030_embed_post_install.sql', 'utf8'))
+    const allAfter = dump()
+    for (const t of tables) if (t !== 'schema_info' && t !== 'd1_migrations') expect(allAfter[t], `rows of ${t} unchanged`).toEqual(allBefore[t])
+    expect(JSON.stringify(allAfter.foundation_bolts)).toBe(requirementsBefore)
+    expect(raw.prepare("SELECT install_method, count(*) n FROM foundation_bolts GROUP BY install_method").all()).toEqual(allBefore.foundation_bolts.length ? [{ install_method: 'wet-set', n: allBefore.foundation_bolts.length }] : [])
     for (const t of Object.keys(rowsBefore)) expect(count(raw, t), t).toBe(rowsBefore[t])
     expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([])
     expect((await checkIntegrity(db)).ok).toBe(true)
