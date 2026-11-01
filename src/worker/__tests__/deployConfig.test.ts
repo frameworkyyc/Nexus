@@ -150,3 +150,36 @@ describe('GitHub workflows that touch production', () => {
     expect(reach).toMatch(/branches: \['release\/preflight'\]/)
   })
 })
+
+describe('production launch workflow', () => {
+  const wf = readFileSync('.github/workflows/production-launch.yml', 'utf8')
+  const code = wf.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n')
+
+  it('starts only from the dedicated branch and only on an explicit trigger word', () => {
+    expect(code).toMatch(/branches: \['release\/preflight'\]/)
+    expect(code).not.toMatch(/pull_request|schedule:|workflow_run|workflow_dispatch|tags:/)
+    expect(code).toMatch(/contains\(github\.event\.head_commit\.message, '\[launch-rehearsal\]'\) \|\| contains\(github\.event\.head_commit\.message, '\[launch-production\]'\)/)
+  })
+
+  it('deploys only the pinned, pre-flighted version, never a fresh build', () => {
+    expect(code).not.toMatch(/wrangler deploy(?!ments)|versions upload/)
+    expect(code.match(/versions deploy/g)).toHaveLength(1)
+    expect(code).toMatch(/versions deploy "\$\{TARGET_VERSION\}@100%"/)
+    expect(code).toMatch(/TARGET_VERSION: '21f40bde-631a-4d13-b61b-62c5bf55286d'/)
+  })
+
+  it('keeps data out of artifacts, takes a bookmark and has rollback steps', () => {
+    expect(code).not.toMatch(/upload-artifact/)
+    expect(code).toMatch(/time-travel info/)
+    expect(code).toMatch(/time-travel restore/)
+    expect(code).toMatch(/rollback\.sql/)
+    expect(code).toMatch(/wrangler rollback/)
+    expect(code).toMatch(/EXPECTED_ROWS: '1234'/)
+  })
+
+  it('writes to production only in the live steps', () => {
+    for (const block of code.split(/\n {6}- name: /).slice(1)) {
+      if (/--remote --yes --file=migration\.sql|versions deploy/.test(block)) expect(block).toMatch(/if: env\.LIVE == 'yes'/)
+    }
+  })
+})
