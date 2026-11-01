@@ -2,7 +2,7 @@
 //   report <report.json> <expectedRows>   the migration dry run: no problems, exactly the approved number of rows, nothing excluded, filtered, cascaded or in conflict
 //   counts <db.sqlite> <expected.json>    row counts of every table the migration touches (the rehearsal copy is the reference for the live database)
 //   prestate <wrangler-json>              production holds no project data, members, change log or module counters yet
-//   verify-sql <expected.json>            one UNION query counting every migrated table (`wrangler d1 execute --file` returns no rows, so verification uses --command)
+//   verify-sql <expected.json>            one single-row query counting every migrated table (`wrangler d1 execute --file` returns no rows, and D1 allows only 5 terms in a compound SELECT)
 //   compare <counts-json> <counts.json> [fk-json]  live counts (and the foreign_key_check result) equal the expected counts
 import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
@@ -43,7 +43,7 @@ if (cmd === 'report') {
   ok('production is in its verified empty state (27 migrations, no project data, members, change log or counters)')
 } else if (cmd === 'verify-sql') {
   const want = JSON.parse(readFileSync(a, 'utf8'))
-  console.log(Object.keys(want).map((t) => `SELECT '${t}' AS t, count(*) AS n FROM "${t}"`).join(' UNION ALL '))
+  console.log(`SELECT ${Object.keys(want).map((t) => `(SELECT count(*) FROM "${t}") AS "${t}"`).join(', ')}`)
 } else if (cmd === 'compare') {
   const results = [...wrangler(a), ...(process.argv[5] ? wrangler(process.argv[5]) : [])]
   const want = JSON.parse(readFileSync(b, 'utf8'))
@@ -51,7 +51,7 @@ if (cmd === 'report') {
   const rows = results.flatMap((r) => r.results ?? [])
   const fk = rows.filter((r) => 'parent' in r && 'fkid' in r)
   if (fk.length) fail(`${fk.length} foreign-key violation(s) in production, in: ${[...new Set(fk.map((r) => r.table))].join(', ')}`)
-  const got = Object.fromEntries(rows.filter((r) => 't' in r && 'n' in r).map((r) => [r.t, r.n]))
+  const got = Object.assign({}, ...rows.filter((r) => !('parent' in r && 'fkid' in r)))
   const bad = Object.keys(want).filter((t) => got[t] !== want[t])
   if (bad.length) fail(`count mismatch in ${bad.map((t) => `${t} (live ${got[t]}, expected ${want[t]})`).join(', ')}`)
   ok(`production matches the rehearsal in all ${Object.keys(want).length} tables; foreign_key_check is empty`)

@@ -121,8 +121,8 @@ jobs:
           cd "$RUNNER_TEMP/w"
           S="$GITHUB_WORKSPACE/scripts"
           node $S/launch-guard.mjs counts production.sqlite verify.sql.expected.json > pre-counts.json
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "$(node $S/launch-guard.mjs verify-sql verify.sql.expected.json)" > pre-verify.json
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > pre-fk.json
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "$(node $S/launch-guard.mjs verify-sql verify.sql.expected.json)" > pre-verify.json || { head -c 800 pre-verify.json; exit 1; }
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > pre-fk.json || { head -c 800 pre-fk.json; exit 1; }
           node $S/launch-guard.mjs compare pre-verify.json pre-counts.json pre-fk.json
 
       - name: LIVE migration (atomic) and verification
@@ -135,8 +135,8 @@ jobs:
           wrangler d1 execute "$PRODUCTION_DB" --remote --yes --file=migration.sql > apply.log 2>&1 || { tail -5 apply.log; exit 1; }
           echo "Applied. Verifying."
           S="$GITHUB_WORKSPACE/scripts"
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "$(node $S/launch-guard.mjs verify-sql verify.sql.expected.json)" > verify.json
-          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > fk.json
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "$(node $S/launch-guard.mjs verify-sql verify.sql.expected.json)" > verify.json || { head -c 800 verify.json; exit 1; }
+          wrangler d1 execute "$PRODUCTION_DB" --remote --yes --json --command "PRAGMA foreign_key_check" > fk.json || { head -c 800 fk.json; exit 1; }
           node $S/launch-guard.mjs compare verify.json expected-counts.json fk.json
           echo "verified=yes" >> "$GITHUB_OUTPUT"
 
