@@ -1,9 +1,10 @@
+import { percentOf } from '@/lib/format'
 import { availableToOrder, coveredQty, orderProgress, type ProcRow } from '../tracker/procurement'
 import { areaKey } from './orderSelection'
 import type { PurchaseOrder, TrackerState } from '../tracker/types'
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
-const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 100) : null)
+const pct = percentOf
 
 /** What an order still owes, in one area when `area` is given (an order can span several areas), otherwise in total. */
 export const dueOf = (s: TrackerState, orderId: string, area = ''): number => {

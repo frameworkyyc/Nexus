@@ -7,6 +7,10 @@ import { procurementRows } from '../tracker/procurement'
 import type { TrackerState } from '../tracker/types'
 import { getIndex } from '../selectors'
 import { dueOf, hasLineIn, isOverdue, orderedIn, procurementSummary } from '../procurement/summary'
+import { Donut } from '@/components/ui/Donut'
+import { GaugeFigure } from '@/components/ui/ProgressGauge'
+import { pct } from '@/lib/format'
+import { percent } from '../selectors'
 import { fails, liveRows, run, tracked, TODAY, world } from './materialsFixtures'
 
 const s = (() => { const w = world(); const t0 = tracked(w.c); return { ...w, t0, rows: liveRows(t0, w.c) } })()
@@ -231,5 +235,68 @@ describe('the gauges on the page', () => {
     expect(html).toContain('>Receive delivery<')
     expect(html).toMatch(/role="tab"[^>]*>Materials/)
     expect(html).toMatch(/role="tab"[^>]*>Orders/)
+  })
+})
+
+describe('Ordered gauge never shows 100% while anything is still to order (regression)', () => {
+  const row = (required: number, ordered: number) => ({ required, ordered, orderedOnLines: 0, received: 0, receivedOnLines: 0, deliveryLines: [], orphan: false, areaId: 'a1', area: 'Area 1', key: `k${required}-${ordered}` }) as never
+  const gauge = (rows: unknown[], area = '') => procurementSummary(rows as never, { orders: [], orderLines: [] } as never, [], TODAY, area)
+
+  it('5,577 of 5,598 ordered is 99.6%, with the unrounded counts untouched', () => {
+    const m = gauge([row(5000, 5000), row(598, 577)])
+    expect(m).toMatchObject({ required: 5598, ordered: 5577, pending: 21 })
+    expect(m.percent.ordered).toBe(99.6)
+    expect(m.percent.pending).toBe(0.4)
+    expect(m.pending + m.ordered).toBe(m.required)
+  })
+
+  it('shows 99.6 in the ring, its label and the footer, and never 100', () => {
+    const m = gauge([row(5000, 5000), row(598, 577)])
+    const html = renderToStaticMarkup(<ProcurementGauges summary={m} onPick={() => undefined} />)
+    expect(html).toContain('Ordered: 99.6%, 5,577 of 5,598')
+    expect(html).toContain('5,577 of 5,598')
+    expect(html).not.toContain('Ordered: 100%')
+  })
+
+  it('100% only when ordered equals required, and a single missing piece keeps it below 100', () => {
+    expect(gauge([row(10, 10)]).percent.ordered).toBe(100)
+    expect(gauge([row(1000, 999)]).percent.ordered).toBe(99.9)
+    expect(gauge([row(20000, 19999)]).percent.ordered).toBe(99.99)
+  })
+
+  it('partial orders, over-ordering and zero requirements', () => {
+    expect(gauge([row(100, 40)]).percent.ordered).toBe(40)
+    // Over-ordering one requirement cannot hide a shortfall on another: each is capped at its own requirement.
+    const m = gauge([row(10, 25), row(10, 9)])
+    expect(m).toMatchObject({ required: 20, ordered: 19, pending: 1 })
+    expect(m.percent.ordered).toBe(95)
+    // Nothing required: no percentage at all (the gauge says so), never 0% or 100%.
+    expect(gauge([]).percent).toEqual({ pending: null, ordered: null, delivered: null, overdue: null })
+    expect(gauge([row(0, 3)]).required).toBe(0)
+  })
+
+  it('individual areas use the same rule', () => {
+    const a = { ...(row(500, 499) as object), areaId: 'a1', area: 'A' }
+    const b = { ...(row(500, 500) as object), areaId: 'a2', area: 'B', key: 'k2' }
+    expect(gauge([a, b], 'a1').percent.ordered).toBe(99.8)
+    expect(gauge([a, b], 'a2').percent.ordered).toBe(100)
+    expect(gauge([a, b]).percent.ordered).toBe(99.9) // All areas: 999 of 1,000
+  })
+})
+
+describe('other completion indicators use the same rule (regression)', () => {
+  it('a ring shows 99.6 with an arc that is not full, and 100 only for a complete one', () => {
+    const near = renderToStaticMarkup(<Donut value={99.6} label="Ordered" />)
+    expect(near).toContain('99.6')
+    expect(near).toContain('data-fraction="0.996"')
+    expect(renderToStaticMarkup(<Donut value={100} label="Ordered" />)).toContain('data-fraction="1"')
+    expect(renderToStaticMarkup(<GaugeFigure count={5577} of={5598} label="Ordered" />)).toContain('data-fraction="0.996"')
+  })
+
+  it('tallies, package indicators and the register bars never read 100% while something is open', () => {
+    expect(percent({ total: 1000, done: 999, blocked: 0, pending: 0 })).toBe(99.9)
+    expect(percent({ total: 0, done: 0, blocked: 0, pending: 0 })).toBe(0)
+    expect(percent({ total: 4, done: 4, blocked: 0, pending: 0 })).toBe(100)
+    expect(pct(2399, 2400)).toBe(99.95) // 99.958%: one decimal would round up to 100.0, so two are shown
   })
 })

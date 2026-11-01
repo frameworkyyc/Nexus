@@ -131,7 +131,7 @@ export function MaterialsManager({ lines, scopeName, hideArea, projectId, defaul
                 <button type="button" onClick={() => set({ area: filter.area === a.area ? '' : a.area })} aria-pressed={filter.area === a.area}
                   className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-2.5 text-left text-[13px] hover:bg-hover md:grid-cols-[14rem_minmax(0,1fr)_auto] ${filter.area === a.area ? 'bg-hover' : ''}`}>
                   <span className="font-medium">{a.area}</span>
-                  <span className="order-3 col-span-2 md:order-none md:col-span-1" aria-hidden><span className="block h-1 w-full bg-line"><span className="block h-1 bg-ok" style={{ width: `${a.required ? Math.round((a.received / a.required) * 100) : 0}%` }} /></span></span>
+                  <span className="order-3 col-span-2 md:order-none md:col-span-1" aria-hidden><span className="block h-1 w-full bg-line"><span className="block h-1 bg-ok" style={{ width: `${a.required ? Math.min(100, (a.received / a.required) * 100) : 0}%` }} /></span></span>
                   <span className="text-xs text-muted">{a.total} items · {a.delivered} delivered · {a.partial} partial · {a.pending} not delivered</span>
                 </button>
               </li>

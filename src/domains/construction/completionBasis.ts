@@ -1,3 +1,4 @@
+import { percentOf } from '@/lib/format'
 import { isConstructionCategory, isDone, getDef } from './config'
 import { concreteOf, compKey, componentVolume, itemKey } from './pours'
 import { effectiveStatus, foundationActivities, progressOf, type Index } from './selectors'
@@ -122,7 +123,7 @@ export function completionOf(idx: Index, foundations: Foundation[], basis: Compl
       done += q * (els.reduce((t, e) => t + e.credited, 0) / els.length)
       total += q
     }
-    return { basis, percent: total ? Math.round((done / total) * 100) : null, done, total, unit: 'foundations', missing: null }
+    return { basis, percent: percentOf(done, total), done, total, unit: 'foundations', missing: null }
   }
   let done = 0
   let total = 0
@@ -138,7 +139,7 @@ export function completionOf(idx: Index, foundations: Foundation[], basis: Compl
     }
   }
   const missing = unknown ? { elements: unknown, of: all, foundations: [...names], knownM3: total } : null
-  return { basis, percent: total > 0 ? Math.round((done / total) * 100) : null, done, total, unit: 'm³', missing }
+  return { basis, percent: percentOf(done, total), done, total, unit: 'm³', missing }
 }
 
 const fmt = (n: number, digits: number) => n.toLocaleString('en-CA', { minimumFractionDigits: digits, maximumFractionDigits: digits })

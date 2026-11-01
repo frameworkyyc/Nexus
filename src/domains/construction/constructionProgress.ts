@@ -1,3 +1,4 @@
+import { pct } from '@/lib/format'
 import { getDef, isConstructionCategory, isDone, type ActivityCategory } from './config'
 import { effectiveStatus, foundationActivities, foundationsOf, progressOf, type Index } from './selectors'
 import type { Activity, Foundation } from './types'
@@ -52,7 +53,7 @@ export function foundationTrack(idx: Index, f: Foundation, today: string, discip
   return {
     foundation: f,
     state,
-    percent: discipline === 'construction' ? progressOf(idx, acts) : acts.length ? Math.round((done / acts.length) * 100) : 0,
+    percent: discipline === 'construction' ? progressOf(idx, acts) : pct(done, acts.length),
     done,
     total: acts.length,
     overdue: acts.some((a) => isLate(idx, a, today)),

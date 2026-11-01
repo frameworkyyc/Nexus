@@ -1,3 +1,4 @@
+import { percentOf } from '@/lib/format'
 import type { Area } from '../types'
 import { allLines } from './audit'
 import type { ComponentCategory, TrackerLine, TrackerState } from './types'
@@ -106,7 +107,7 @@ export function materialsProgress(lines: TrackerLine[]): MaterialsProgress {
   const states = lines.map(deliveryState)
   const count = (s: DeliveryState) => states.filter((x) => x === s).length
   const usable = lines.filter((l) => l.requiredQty > 0)
-  const percent = usable.length === 0 ? null : Math.round((usable.reduce((s, l) => s + Math.min(1, receivedOf(l) / l.requiredQty), 0) / usable.length) * 100)
+  const percent = percentOf(usable.reduce((s, l) => s + Math.min(1, receivedOf(l) / l.requiredQty), 0), usable.length)
   return {
     lines: lines.length,
     receivedInFull: count('received') + count('over-received'), partial: count('partial'), nothingReceived: count('none-received'), percent,

@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
+import { percentOf } from '@/lib/format'
 import { StatusBadge, type Tone } from '@/components/ui/StatusBadge'
 import { CATEGORY_TITLE, displayName, specText } from '../tracker/consolidate'
 import { PROC_LABEL, type ProcRow, type ProcStatus } from '../tracker/procurement'
@@ -89,7 +90,7 @@ function Cards({ items, onOpen, showArea }: Part) {
   return (
     <ul className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" aria-label="Requirements">
       {items.map((r) => {
-        const pct = r.required > 0 ? Math.min(100, Math.round((r.received / r.required) * 100)) : 0
+        const pct = percentOf(r.received, r.required) ?? 0
         return (
           <li key={r.key} className={`relative border border-line bg-surface p-3 transition-colors hover:border-ink ${r.orphan ? 'opacity-70' : ''}`}>
             <div className="flex items-start gap-2">

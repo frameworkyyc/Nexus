@@ -1,5 +1,5 @@
 import { CATEGORY_TITLE, consolidate, type ConsolidationSource, type Consolidated } from './consolidate'
-import { formatDate } from '@/lib/format'
+import { formatDate, percentOf } from '@/lib/format'
 import type { Allocation, DeliveryLine, GroupRef, Installation, OrderLine, PurchaseOrder, TrackerState } from './types'
 
 /**
@@ -258,7 +258,7 @@ export function areaMaterialsSummary(s: TrackerState, c: ConsolidationSource, ar
     rows, counts,
     partlyDelivered: rows.filter((r) => r.received > 0 && r.received < r.required).length,
     notFullyDelivered: counts.total - counts.delivered,
-    percent: counts.total === 0 ? null : Math.round((counts.delivered / counts.total) * 100),
+    percent: percentOf(counts.delivered, counts.total),
   }
 }
 

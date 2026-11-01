@@ -1,3 +1,4 @@
+import { percentOf } from '@/lib/format'
 import { getDef, isConstructionCategory } from './config'
 import { effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
 import { areaMaterialsSummary } from './tracker/procurement'
@@ -20,8 +21,7 @@ export interface PackageIndicator {
 }
 
 const NOT_TRACKED = 'Not tracked'
-const round = (n: number) => Math.round(n)
-const ratio = (done: number, total: number) => (total > 0 ? round((done / total) * 100) : null)
+const ratio = percentOf
 
 /** Applicable activities only: an activity exists on a foundation only if the model creates it there. */
 function areaActivities(idx: Index, areaId: string): { act: Activity; status: ReturnType<typeof effectiveStatus> }[] {

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { percentOf } from '@/lib/format'
 import { CARD } from '@/components/mobile/Cards'
 import { Donut } from '@/components/ui/Donut'
 import { Ring, RingValue, RING_SIZE } from '@/components/viz/Ring'
@@ -12,7 +13,7 @@ export const GAUGE_GRID = 'grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 xl:g
 /** The figure inside a ring: a percentage (the default) or a count such as 4/12. */
 export function GaugeFigure({ percent, label, of, count, size = RING_SIZE }: { percent?: number | null; label: string; of?: number; count?: number; size?: number }) {
   if (count !== undefined && of !== undefined) {
-    const pct = of === 0 ? 0 : Math.round((count / of) * 100)
+    const pct = percentOf(count, of) ?? 0
     return <Ring percent={pct} status="info" size={size} label={`${label}: ${count} of ${of}`}><RingValue size={size} value={<>{count}<span className="text-[0.62em] text-muted">/{of}</span></>} /></Ring>
   }
   return <Donut value={percent ?? null} label={label} size={size} />

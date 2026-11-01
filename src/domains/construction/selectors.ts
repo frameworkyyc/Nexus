@@ -1,6 +1,6 @@
 import { identity } from '@/app/identity'
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
-import { formatShortDate } from '@/lib/format'
+import { formatShortDate, pct, percentOf } from '@/lib/format'
 import { FOOTING_ACTIVITIES, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
 import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
@@ -291,10 +291,10 @@ export function progressOf(idx: Index, acts: Activity[]): number {
     }
     sum += ((done('rebarBuilt') + done('rebarInstalled')) / 2 + done('formed') + done('poured')) / 3
   }
-  return Math.round((sum / owners.size) * 100)
+  return percentOf(sum, owners.size) ?? 0
 }
 
-export const percent = (t: Tally) => (t.total === 0 ? 0 : Math.round((t.done / t.total) * 100))
+export const percent = (t: Tally) => pct(t.done, t.total)
 
 export interface Stats {
   foundations: number

@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, Circle, CircleDashed, Clock } from 'lucide-react'
 import { useState } from 'react'
 import { CARD } from '@/components/mobile/Cards'
+import { pct } from '@/lib/format'
 import { Donut } from '@/components/ui/Donut'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { GAUGE_GRID } from '@/components/ui/ProgressGauge'
@@ -28,10 +29,10 @@ const STATE_META: Record<TrackState, { label: string; icon: typeof Circle; ring:
 function Gauges({ counts, total, scheduled, active, onPick }: { counts: ReturnType<typeof areaTracks>['counts']; total: number; scheduled: boolean; active: TrackFilter | ''; onPick: (f: TrackFilter) => void }) {
   const phone = useIsPhone()
   const items: { key: TrackFilter; title: string; icon: typeof Circle; ring: Status; text: string; n: number; value: number | null; note: string }[] = [
-    { key: 'not-started', title: 'Not started', icon: CircleDashed, ring: 'unknown', text: 'text-muted', n: counts['not-started'], value: total ? Math.round((counts['not-started'] / total) * 100) : 0, note: '' },
-    { key: 'in-progress', title: 'In progress', icon: Clock, ring: 'info', text: 'text-[var(--nx-info)]', n: counts['in-progress'], value: total ? Math.round((counts['in-progress'] / total) * 100) : 0, note: '' },
-    { key: 'completed', title: 'Completed', icon: CheckCircle2, ring: 'ok', text: 'text-[var(--nx-ok)]', n: counts.completed, value: total ? Math.round((counts.completed / total) * 100) : 0, note: '' },
-    { key: 'overdue', title: 'Overdue', icon: AlertTriangle, ring: 'bad', text: 'text-[var(--nx-bad)]', n: counts.overdue, value: scheduled ? (total ? Math.round((counts.overdue / total) * 100) : 0) : null, note: scheduled ? '' : 'No planned dates yet' },
+    { key: 'not-started', title: 'Not started', icon: CircleDashed, ring: 'unknown', text: 'text-muted', n: counts['not-started'], value: pct(counts['not-started'], total), note: '' },
+    { key: 'in-progress', title: 'In progress', icon: Clock, ring: 'info', text: 'text-[var(--nx-info)]', n: counts['in-progress'], value: pct(counts['in-progress'], total), note: '' },
+    { key: 'completed', title: 'Completed', icon: CheckCircle2, ring: 'ok', text: 'text-[var(--nx-ok)]', n: counts.completed, value: pct(counts.completed, total), note: '' },
+    { key: 'overdue', title: 'Overdue', icon: AlertTriangle, ring: 'bad', text: 'text-[var(--nx-bad)]', n: counts.overdue, value: scheduled ? (pct(counts.overdue, total)) : null, note: scheduled ? '' : 'No planned dates yet' },
   ]
   return (
     <section aria-label="Progress" className="mb-8">
