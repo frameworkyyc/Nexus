@@ -26,3 +26,11 @@ Checked on a copy of the real staging data: 47 anchorage groups from 50 plinth s
 
 Rollout: take a D1 Time Travel bookmark and record it, apply 0028 to the database (staging first), then deploy the code that reads the new table. Code deployed before the migration fails to read `foundation_anchorages`.
 Production is at schema 27 and needs 0028 too, before it receives the new code.
+
+## Rollout log
+* **2026-11-01, staging.** Time Travel bookmark taken first: `000000e6-00000000-00005116-29028a7e062ef3755c766b1373eaa3fe`. Migration 0028 applied to `nexus-staging` in one call with its `d1_migrations` ledger row (28 rows, schema_version 28);
+  47 anchorage groups created from the 47 typed plinth sets; every other table's row count unchanged; `foreign_key_check` empty. Code deployed to the staging preview (deployment 113) after the migration.
+  Before/after checked on read-only copies of the real staging database: 50 designations, 136 physical foundations, 187 anchorages, 40 calculated requirements and the progress figures under all three completion bases are identical,
+  and OP1-21-29 saved through the real server write path with two OP1-A11 groups on its footing gives 24 bolts, 2 templates, no plinths and no plinth activities.
+  Restore if ever needed: `npx wrangler d1 time-travel restore nexus-staging --bookmark=000000e6-00000000-00005116-29028a7e062ef3755c766b1373eaa3fe` (this also discards later staging edits).
+* **Production** is still at schema 27 and has not received this code. It needs 0028 first (bookmark, apply, then deploy).

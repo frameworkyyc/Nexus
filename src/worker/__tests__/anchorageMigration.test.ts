@@ -4,9 +4,12 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import * as K from '@/domains/construction/actions'
+import { completionOf, type CompletionBasis } from '@/domains/construction/completionBasis'
+import { foundationsOf, getIndex } from '@/domains/construction/selectors'
 import { anchorageInstances, deriveRequirements } from '@/domains/construction/tracker/requirements'
 import type { ConstructionState } from '@/domains/construction/types'
-import { checkIntegrity, readModule } from '../service'
+import { checkIntegrity, readModule, runCommand } from '../service'
+import { clock, TODAY } from './helpers'
 import { createTestDb, d1Over } from './sqliteD1'
 
 const MIGRATION = '0028_anchorage_mounts.sql'
@@ -102,5 +105,97 @@ describe.skipIf(!REAL)('migration 0028 on a copy of real data', () => {
       process.stderr.write(`\nOP1-21-29 on the migrated copy: ${need('Anchor bolt')} bolts, ${need('Plywood template')} templates, ${st.plinths.filter((p) => p.foundationId === pad.id).length} plinths, ${st.activities.filter((x) => x.foundationId === pad.id).length} activities (footing only)\n`)
     }
     process.stderr.write(`\nmigration 0028 on a copy: ${typed} anchorage groups created from ${rows.foundation_anchorage_groups} plinth sets; ${Object.keys(totals).length} (foundation, type) totals identical, e.g. ${Object.values(totals).reduce((a, b) => a + b, 0)} anchorages in all\n`)
+  })
+})
+
+/**
+ * The real staging database, before and after migration 0028 was applied to it (two read-only local copies; never the live database):
+ *   ANCHORAGE_BEFORE_DB=/tmp/mig/staging-before-0028.sqlite ANCHORAGE_AFTER_DB=/tmp/mig/staging-after-0028.sqlite npx vitest run src/worker/__tests__/anchorageMigration.test.ts
+ * "Before" is read by the application the old way (each plinth with a type is one anchorage), "after" from the migrated tables; everything the application shows must agree.
+ */
+const BEFORE = process.env.ANCHORAGE_BEFORE_DB
+const AFTER = process.env.ANCHORAGE_AFTER_DB
+describe.skipIf(!BEFORE || !AFTER)('the real staging database after migration 0028', () => {
+  it('quantities, anchorage totals, procurement requirements and construction progress are unchanged, and OP1-21-29 takes two groups on its footing', async () => {
+    const before = new DatabaseSync(BEFORE as string, { readOnly: true })
+    const after = new DatabaseSync(AFTER as string, { readOnly: true })
+    expect((after.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get() as { value: string }).value).toBe('28')
+    expect(after.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    expect((await checkIntegrity(d1Over(after))).ok).toBe(true)
+    // Before, through the old plinth records: copy, migrate in memory, then hide the new table so the application reads it the old way.
+    const copy = new DatabaseSync(':memory:', { enableForeignKeyConstraints: false })
+    before.exec('PRAGMA foreign_keys = OFF')
+    copy.exec(before.prepare("SELECT group_concat(sql, ';\n') AS s FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND type = 'table'").get()!.s as string)
+    for (const t of (before.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]).map((r) => r.name)) {
+      const rows = before.prepare(`SELECT * FROM "${t}"`).all() as Record<string, unknown>[]
+      for (const r of rows) copy.prepare(`INSERT INTO "${t}" (${Object.keys(r).map((k) => `"${k}"`).join(',')}) VALUES (${Object.keys(r).map(() => '?').join(',')})`).run(...(Object.values(r) as never[]))
+    }
+    copy.exec(readFileSync(`migrations/${MIGRATION}`, 'utf8'))
+    const b = { ...(await state(copy)), foundationAnchorages: undefined } as ConstructionState
+    const a = await state(after)
+    // Quantities and the physical structure.
+    expect(a.foundations.map((f) => [f.id, f.quantity ?? 1, f.plinthsPerFoundation ?? null])).toEqual(b.foundations.map((f) => [f.id, f.quantity ?? 1, f.plinthsPerFoundation ?? null]))
+    expect(a.plinths).toEqual(b.plinths)
+    expect(a.activities).toEqual(b.activities)
+    // Anchorage totals: from the old tables by SQL, from the application the old way, and from the migrated tables.
+    expect(newTotals(a)).toEqual(oldTotals(before))
+    expect(newTotals(b)).toEqual(oldTotals(before))
+    // Procurement requirements: every calculated line, key by key.
+    const req = (st: ConstructionState) => deriveRequirements(st).map((r) => [r.key, r.required, r.expression]).sort()
+    expect(req(a)).toEqual(req(b))
+    expect(req(a).length).toBeGreaterThan(0)
+    // Construction progress under every basis, for the project and each area.
+    const ia = getIndex(a)
+    const ib = getIndex(b)
+    const bases: CompletionBasis[] = ['type', 'count', 'volume']
+    const groups = [{ label: 'project', ids: a.foundations.map((f) => f.id) }, ...a.areas.map((ar) => ({ label: ar.name, ids: foundationsOf(ia, ar.id).map((f) => f.id) }))]
+    for (const g of groups) for (const basis of bases) {
+      const x = completionOf(ia, g.ids.map((id) => ia.foundation.get(id)!), basis)
+      const y = completionOf(ib, g.ids.map((id) => ib.foundation.get(id)!), basis)
+      expect(x, `${g.label} ${basis}`).toEqual(y)
+    }
+    // OP1-21-29: two OP1-A11 anchorage groups directly on the footing.
+    const pad = a.foundations.find((f) => f.number === 'OP1-21-29')!
+    const a11 = a.anchorageTypes.find((t) => t.code === 'OP1-A11')!
+    const step = (st: ConstructionState, r: K.Reducer) => { const o = r(st, {}); if (o.error !== undefined) throw new Error(o.error); return o.state }
+    let st = step(a, K.setAnchorageComponents(a11.id, [{ kind: 'bolt', qty: 12, diameter: 'M30', length: 1200, lengthUnit: 'mm', thread: 'all-thread', nutsPerBolt: 2, washersPerBolt: 2 }, { kind: 'template', qty: 1 }]))
+    const plinthActsBefore = st.activities.filter((x) => x.foundationId === pad.id && x.scope === 'plinth').length
+    st = step(st, K.configureFoundation(pad.id, { groups: [], anchorages: [{ anchorageTypeId: a11.id, qty: 1 }, { anchorageTypeId: a11.id, qty: 1 }] }))
+    const need = (name: string) => deriveRequirements(st).filter((r) => r.designation === 'OP1-A11' && r.name === name).reduce((t, r) => t + r.required, 0)
+    expect([plinthActsBefore, st.activities.filter((x) => x.foundationId === pad.id && x.scope === 'plinth').length, st.plinths.filter((p) => p.foundationId === pad.id).length]).toEqual([0, 0, 0])
+    expect([need('Anchor bolt'), need('Plywood template')]).toEqual([24, 2])
+    // The rest of staging is untouched by that edit.
+    expect(newTotals(st)).toEqual({ ...newTotals(a), [`${pad.id}|${a11.id}`]: 2 })
+    process.stderr.write(`\nstaging before/after 0028: ${a.foundations.length} designations, ${a.foundations.reduce((t, f) => t + (f.quantity ?? 1), 0)} physical foundations, ${Object.values(newTotals(a)).reduce((t, n) => t + n, 0)} anchorages, ${req(a).length} calculated requirements, ${groups.length * bases.length} progress figures: identical. OP1-21-29: 24 bolts, 2 templates, 0 plinths, 0 plinth activities.\n`)
+  })
+
+  it('saving OP1-21-29 with two OP1-A11 groups through the real server write path changes only that footing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'anch-after-'))
+    const file = join(dir, 'after.sqlite')
+    copyFileSync(AFTER as string, file)
+    const raw = new DatabaseSync(file)
+    const db = d1Over(raw)
+    const admin = { email: 'admin@example.com', role: 'admin' as const, projects: 'all' as const }
+    let n = 0
+    const run = (name: string, args: unknown[]) => runCommand(db, { module: 'construction', name, args, requestId: `req-real-${n++}-xxxxxxxx`, clientToday: TODAY }, admin, clock())
+    const before = { plinths: count(raw, 'plinths'), activities: count(raw, 'activities'), groups: count(raw, 'foundation_anchorage_groups'), anchorages: count(raw, 'foundation_anchorages'), foundations: count(raw, 'foundations') }
+    const st = await state(raw)
+    const pad = st.foundations.find((f) => f.number === 'OP1-21-29')!
+    const a11 = st.anchorageTypes.find((t) => t.code === 'OP1-A11')!
+    await run('setAnchorageComponents', [a11.id, [{ kind: 'bolt', qty: 12, diameter: 'M30', length: 1200, lengthUnit: 'mm', thread: 'all-thread', nutsPerBolt: 2, washersPerBolt: 2 }, { kind: 'template', qty: 1 }]])
+    await run('configureFoundation', [pad.id, { groups: [], anchorages: [{ anchorageTypeId: a11.id, qty: 1 }, { anchorageTypeId: a11.id, qty: 1 }] }])
+    expect(raw.prepare('SELECT mount_group_id, anchorage_type_id, qty FROM foundation_anchorages WHERE foundation_id = ? ORDER BY seq').all(pad.id)).toEqual([{ mount_group_id: null, anchorage_type_id: a11.id, qty: 1 }, { mount_group_id: null, anchorage_type_id: a11.id, qty: 1 }])
+    expect(raw.prepare('SELECT count(*) AS n FROM plinths WHERE foundation_id = ?').get(pad.id)).toEqual({ n: 0 })
+    expect(raw.prepare("SELECT count(*) AS n FROM activities WHERE foundation_id = ? AND scope = 'plinth'").get(pad.id)).toEqual({ n: 0 })
+    expect(raw.prepare('SELECT plinths_per_foundation AS n FROM foundations WHERE id = ?').get(pad.id)).toEqual({ n: 0 })
+    // Nothing else moved.
+    expect({ plinths: count(raw, 'plinths'), activities: count(raw, 'activities'), groups: count(raw, 'foundation_anchorage_groups'), foundations: count(raw, 'foundations') }).toEqual({ plinths: before.plinths, activities: before.activities, groups: before.groups, foundations: before.foundations })
+    expect(count(raw, 'foundation_anchorages')).toBe(before.anchorages + 2)
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    expect((await checkIntegrity(db)).ok).toBe(true)
+    const re = await state(raw)
+    const need = (name: string) => deriveRequirements(re).filter((r) => r.designation === 'OP1-A11' && r.name === name).reduce((t, r) => t + r.required, 0)
+    expect([need('Anchor bolt'), need('Plywood template')]).toEqual([24, 2])
+    expect(newTotals(re)).toEqual({ ...newTotals(st), [`${pad.id}|${a11.id}`]: 2 })
   })
 })
