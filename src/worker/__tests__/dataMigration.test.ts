@@ -63,14 +63,27 @@ describe('table classification', () => {
     expect(() => buildPlan(source.raw, target.raw, { groups: G })).toThrow(/not classified/)
   })
 
-  it('unknown groups and tables are refused; fleet and material history move only when asked for', () => {
+  it('unknown groups and tables are refused; material history moves with the materials and fleet only when its group is selected', () => {
     const { source, target } = world()
     expect(() => buildPlan(source.raw, target.raw, { groups: ['nonsense'] })).toThrow(/Unknown group/)
+    expect(() => buildPlan(source.raw, target.raw, { groups: G, include: ['vehicles'] })).toThrow(/not a review table/)
     const plan = buildPlan(source.raw, target.raw, { groups: G })
     const moved = plan.tables.map((t) => t.table)
+    expect(moved).toContain('material_audit')
     expect(moved).not.toContain('vehicles')
-    expect(moved).not.toContain('material_audit')
-    expect(buildPlan(source.raw, target.raw, { groups: [...G, 'fleet'], include: ['material_audit'] }).tables.map((t) => t.table)).toEqual(expect.arrayContaining(['vehicles', 'inspections', 'material_audit']))
+    expect(buildPlan(source.raw, target.raw, { groups: [...G, 'fleet'] }).tables.map((t) => t.table)).toEqual(expect.arrayContaining(['vehicles', 'inspections', 'material_audit']))
+  })
+
+  it('nothing is classified for manual review: every decision has been made, and blank optional fields never exclude a record', () => {
+    expect(Object.entries(TABLES).filter(([, c]) => c.action === 'review')).toEqual([])
+    const { source, target } = world()
+    // an order with no number, supplier or name (all optional) is a legitimate order and moves with its lines and deliveries
+    source.raw.exec("INSERT INTO purchase_orders (id, po_number, supplier, name, order_date, seq) VALUES ('po-blank', '', '', '', '2026-10-03', 3); INSERT INTO purchase_order_lines (id, order_id, group_key, qty, seq) VALUES ('pol-blank', 'po-blank', 'k3', 2, 3); INSERT INTO procurement_deliveries (id, order_id, delivery_date, seq) VALUES ('d-blank', 'po-blank', '2026-10-07', 3)")
+    const plan = buildPlan(source.raw, target.raw, { groups: G })
+    expect(plan.tables.find((t) => t.table === 'purchase_orders')?.insert.map((r) => r.id)).toEqual(['po1', 'po2', 'po-blank'])
+    expect(plan.tables.find((t) => t.table === 'purchase_order_lines')?.insert).toHaveLength(3)
+    expect(plan.tables.find((t) => t.table === 'procurement_deliveries')?.insert).toHaveLength(3)
+    expect(plan.tables.flatMap((t) => [t.filteredOut, t.excludedByRequest, t.cascaded]).every((n) => n === 0)).toBe(true)
   })
 })
 
@@ -96,18 +109,15 @@ describe('apply', () => {
     for (const t of AUTH) expect(count(target.raw, t), t).toBe(0)
     expect(count(target.raw, 'suppliers')).toBe(1) // production's own row, left alone
     expect(count(target.raw, 'vehicles')).toBe(0) // fleet was not selected
-    expect(count(target.raw, 'material_audit')).toBe(0) // review table, not asked for
+    expect(count(target.raw, 'material_audit')).toBe(count(source.raw, 'material_audit')) // the history moves with the materials
     expect(target.raw.prepare("SELECT version FROM module_versions WHERE module = 'construction'").get()).toEqual({ version: 1 })
     expect(target.raw.prepare("SELECT version FROM module_versions WHERE module = 'fleet'").get()).toEqual({ version: 0 })
     // the application itself reads the migrated copy as it reads the source
     expect((await checkIntegrity(target.d1)).ok).toBe(true)
     expect((await readModule(target.d1, 'construction')).state).toEqual((await readModule(source.d1, 'construction')).state)
-    // The materials history (material_audit) is a review table and was not asked for, so everything except the history reads the same.
-    const { history: sourceHistory, ...sourceMaterials } = (await readModule(source.d1, 'materials')).state
-    const { history: targetHistory, ...targetMaterials } = (await readModule(target.d1, 'materials')).state
-    expect(targetMaterials).toEqual(sourceMaterials)
-    expect(sourceHistory.length).toBeGreaterThan(0)
-    expect(targetHistory).toEqual([])
+    const sourceMaterials = (await readModule(source.d1, 'materials')).state
+    expect((await readModule(target.d1, 'materials')).state).toEqual(sourceMaterials)
+    expect(sourceMaterials.history.length).toBeGreaterThan(0) // including the history
   })
 
   it('demonstration inspections are never copied, and fleet follows only when selected', () => {

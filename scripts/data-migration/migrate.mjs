@@ -50,7 +50,7 @@ export function selectTables(source, target, { groups = [], include = [] } = {})
     else if (TABLES[t].action !== 'review') errors.push(`Table "${t}" is not a review table; select its group instead.`)
   }
   if (errors.length) throw new Error(errors.join('\n'))
-  const picked = Object.entries(TABLES).filter(([name, c]) => (c.action === 'migrate' && groups.includes(c.group)) || (c.action === 'review' && c.viaGroup && groups.includes(c.group)) || include.includes(name)).map(([name]) => name)
+  const picked = Object.entries(TABLES).filter(([name, c]) => (c.action === 'migrate' && groups.includes(c.group)) || include.includes(name)).map(([name]) => name)
   const present = new Set(tableNames(target))
   const selected = picked.filter((t) => tableNames(source).includes(t))
   for (const t of selected) {

@@ -2,7 +2,7 @@
  * Classification of EVERY table for the staging -> production data migration. A table that is not listed here stops the migration (a new migration that adds a table must be classified
  * before data can move). Actions:
  *   migrate  copied when its group is selected (--groups).
- *   review   copied only when named explicitly (--include <table>); a person decides.
+ *   review   copied only when named explicitly (--include <table>); a person decides. (None today.)
  *   exclude  never copied, and the tool refuses to copy it even when asked.
  * `merge: 'skip-identical'` means rows already present in the target are left alone when identical (never overwritten) and are a conflict when different.
  * `filter` is a SQL condition applied to the SOURCE rows. Everything else follows the foreign keys: a row whose parent was not migrated is excluded with it (and reported).
@@ -13,9 +13,8 @@ export const GROUP_MODULE = { construction: 'construction', materials: 'material
 
 const m = (group, reason, extra = {}) => ({ action: 'migrate', group, reason, ...extra })
 const x = (reason) => ({ action: 'exclude', reason })
-const r = (group, reason, extra = {}) => ({ action: 'review', group, reason, ...extra })
-/** Fleet tables are a review decision made once for the whole group: they move only when --groups names fleet. */
-const f = (reason, extra = {}) => r('fleet', reason, { viaGroup: true, ...extra })
+// `review` stays available for a table a person must decide on (it moves only with --include <table>). Nothing is classified `review` today: every decision below has been made.
+export const review = (group, reason, extra = {}) => ({ action: 'review', group, reason, ...extra })
 
 export const TABLES = {
   // Construction: the organization, projects and everything built on them.
@@ -54,21 +53,21 @@ export const TABLES = {
   flag_acknowledgements: m('materials', 'Acknowledged import flags.'),
   suppliers: m('materials', 'Supplier directory. Production already has the seeded entry; identical rows are left alone.', { merge: 'skip-identical' }),
   category_suppliers: m('materials', 'Preferred supplier per category. Production already has "bolts -> Nucor"; identical rows are left alone.', { merge: 'skip-identical' }),
-  material_audit: r('materials', 'Append-only history of material changes (who changed what). Travels with the materials it describes, but it names staging users: decide.'),
-  // Fleet is organization-level, not project data: a person decides whether it moves with the projects.
-  fleet_categories: f('Fleet categories.'),
-  vehicles: f('Vehicles and equipment.'),
-  vehicle_assignments: f('Which project each vehicle is assigned to.'),
-  odometer_readings: f('Odometer and meter readings.'),
-  service_targets: f('Service targets.'),
-  maintenance_records: f('Maintenance records.'),
-  tire_sets: f('Tire sets.'),
-  tread_measurements: f('Tread measurements.'),
-  accessory_types: f('Accessory types.'),
-  accessories: f('Accessories.'),
-  accessory_placements: f('Accessory placements.'),
-  inspections: f('Vehicle inspections. Records flagged as demonstration records (demo = 1) are never copied.', { filter: 'demo = 0' }),
-  inspection_defects: f('Inspection defects.'),
+  material_audit: m('materials', 'Append-only history of material changes (who changed what, when). Confirmed: it moves with the materials it describes.'),
+  // Fleet is organization-level rather than per-project, so it is its own group (--groups fleet). Confirmed: it moves with the projects.
+  fleet_categories: m('fleet', 'Fleet categories.'),
+  vehicles: m('fleet', 'Vehicles and equipment.'),
+  vehicle_assignments: m('fleet', 'Which project each vehicle is assigned to.'),
+  odometer_readings: m('fleet', 'Odometer and meter readings.'),
+  service_targets: m('fleet', 'Service targets.'),
+  maintenance_records: m('fleet', 'Maintenance records.'),
+  tire_sets: m('fleet', 'Tire sets.'),
+  tread_measurements: m('fleet', 'Tread measurements.'),
+  accessory_types: m('fleet', 'Accessory types.'),
+  accessories: m('fleet', 'Accessories.'),
+  accessory_placements: m('fleet', 'Accessory placements.'),
+  inspections: m('fleet', 'Vehicle inspections. Records flagged as demonstration records (demo = 1) are never copied.', { filter: 'demo = 0' }),
+  inspection_defects: m('fleet', 'Inspection defects.'),
   // Never copied.
   user_roles: x('Members and their roles: authentication and authorization records. Production members are invited in production.'),
   user_projects: x('Project assignments of members.'),
