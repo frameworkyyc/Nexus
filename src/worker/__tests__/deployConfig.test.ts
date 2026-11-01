@@ -1,5 +1,8 @@
-import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { DEMO_HOSTNAMES } from '@/app/demoConfig'
+import { releaseGate } from '../../../scripts/release-gate.mjs'
 
 /** wrangler.jsonc is JSON with comments; strip them (not inside strings) and parse. */
 const jsonc = (file: string) => {
@@ -71,22 +74,42 @@ describe('staging configuration (previews in wrangler.jsonc)', () => {
   })
 })
 
-describe('public demo configuration (wrangler.demo.jsonc, Worker nexus-demo)', () => {
-  const demo = jsonc('wrangler.demo.jsonc')
-
-  it('is a separate Worker with the API off and nothing to reach: no database, no secrets, no sign-in', () => {
-    expect(demo.name).toBe('nexus-demo')
-    expect(demo.name).not.toBe(jsonc('wrangler.jsonc').name)
-    expect(demo.vars).toEqual({ NEXUS_ENV: 'demo' })
-    expect(demo.build.command).toBe('npm run build:demo') // a deploy always builds the demo bundle itself
-    for (const key of ['d1_databases', 'kv_namespaces', 'r2_buckets', 'previews', 'routes', 'secrets']) expect(demo, key).not.toHaveProperty(key)
-    expect(readFileSync('wrangler.demo.jsonc', 'utf8')).not.toContain(PROD_DB)
-    expect(readFileSync('wrangler.demo.jsonc', 'utf8')).not.toContain(STAGING_DB)
+describe('there is no public demo deployment', () => {
+  it('has no demo Worker configuration, script or hostname', () => {
+    expect(existsSync('wrangler.demo.jsonc')).toBe(false)
+    const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts as Record<string, string>
+    expect(Object.keys(scripts).filter((k) => /deploy.*demo|demo.*deploy/.test(k))).toEqual([])
+    expect(readFileSync('wrangler.jsonc', 'utf8')).not.toMatch(/nexus-demo|demo\.nexus/)
+    expect(DEMO_HOSTNAMES).toEqual([]) // the production host is never treated as a demo
   })
 
-  it('is built with the guarded demo bundle', () => {
+  it('deploys production only from main', () => {
     const scripts = JSON.parse(readFileSync('package.json', 'utf8')).scripts as Record<string, string>
-    expect(scripts['build:demo']).toContain('NEXUS_BUNDLE=demo')
-    expect(scripts.deploy).toContain('guard-production.mjs') // production deploys only from main
+    expect(scripts.deploy).toContain('guard-production.mjs')
+    expect(scripts.build.startsWith('node scripts/release-gate.mjs')).toBe(true)
+  })
+})
+
+describe('release gate: merging to main must not deploy production', () => {
+  const ci = (branch: string, extra: Record<string, string> = {}) => releaseGate({ WORKERS_CI: '1', WORKERS_CI_BRANCH: branch, ...extra })
+
+  it('stops a Cloudflare build of main until the release is approved', () => {
+    expect(ci('main').ok).toBe(false)
+    expect(ci('main').message).toMatch(/NEXUS_RELEASE_APPROVED=yes/)
+    expect(ci('main', { NEXUS_RELEASE_APPROVED: 'true' }).ok).toBe(false) // only the exact value approves
+    expect(ci('main', { NEXUS_RELEASE_APPROVED: 'yes' })).toMatchObject({ ok: true, approved: true })
+  })
+
+  it('never affects staging, other branches, local builds or GitHub Actions', () => {
+    for (const branch of ['staging', 'feature/x', 'Main', '']) expect(ci(branch).ok, branch).toBe(true)
+    expect(releaseGate({}).ok).toBe(true)
+    expect(releaseGate({ WORKERS_CI_BRANCH: 'main' }).ok).toBe(true) // not on Cloudflare (no WORKERS_CI)
+  })
+
+  it('is what `npm run build` runs first, and exits non-zero when it stops a build', () => {
+    const run = (env: Record<string, string>) => spawnSync('node', ['scripts/release-gate.mjs'], { env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8' })
+    expect(run({ WORKERS_CI: '1', WORKERS_CI_BRANCH: 'main' }).status).toBe(1)
+    expect(run({ WORKERS_CI: '1', WORKERS_CI_BRANCH: 'main', NEXUS_RELEASE_APPROVED: 'yes' }).status).toBe(0)
+    expect(run({ WORKERS_CI: '1', WORKERS_CI_BRANCH: 'staging' }).status).toBe(0)
   })
 })

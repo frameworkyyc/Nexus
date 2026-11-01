@@ -1,10 +1,10 @@
 {
-  // Nexus — ONE Cloudflare Worker (`nexus`) with two environments, plus a separate public-demo Worker (wrangler.demo.jsonc).
+  // Nexus — ONE Cloudflare Worker (`nexus`) with two environments: production and staging. There is no public demo deployment.
   //
   //   Branch    Build command      Deploy command         Served at                          Sign-in             Database
-  //   main      npm run build      npx wrangler deploy    nexus.frameworktools.ca            WorkOS AuthKit      nexus-production   (PRODUCTION: the settings below)
+  //   main      npm run build      npx wrangler deploy    nexus.frameworktools.ca            WorkOS AuthKit      nexus-production   (PRODUCTION: the settings below; a build of main is stopped
+  //                                                                                                                                     by scripts/release-gate.mjs until the release is approved)
   //   staging   npm run build      npx wrangler preview   staging.nexus.frameworktools.ca    Cloudflare Access   nexus-staging      (Worker Preview: "previews" below)
-  //   (demo)    npm run build:demo npx wrangler deploy --config wrangler.demo.jsonc   demo.nexus.frameworktools.ca   none (browser-only fictional data; Worker `nexus-demo`)
   //
   // `wrangler preview` publishes an isolated Preview named after the git branch ("staging"). It never creates a Worker version or deployment on
   // production, and a Preview does NOT inherit the top-level bindings or variables, so staging can never reach the production database or secrets.

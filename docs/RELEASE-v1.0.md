@@ -1,65 +1,62 @@
-# Release v1.0: production (WorkOS) with staging on Cloudflare Access
+# Release v1.0: production on WorkOS, staging on Cloudflare Access
 
-**Strategy.** Staging keeps Cloudflare Access (`AUTH_PROVIDER=access`, `nexus-staging`). Production uses WorkOS AuthKit only (emailed code, invitation-only, `nexus-production`). The public demo is a
-separate Worker. Nothing in this document has been run against production: every step below needs your approval first.
+**Strategy.** `nexus.frameworktools.ca` becomes the live, authenticated Nexus application (the old public demo there is retired; there is no demo deployment, Worker or hostname). Production signs in with
+WorkOS AuthKit only (emailed code, invitation-only) on `nexus-production`. Staging stays on Cloudflare Access and `nexus-staging`.
 
-| | Production | Staging | Public demo |
-| --- | --- | --- | --- |
-| Worker | `nexus` (from `main`) | `nexus` Preview `staging` | `nexus-demo` |
-| Host | nexus.frameworktools.ca | staging.nexus.frameworktools.ca | demo.nexus.frameworktools.ca |
-| Bundle | application (`npm run build`) | application | demo (`npm run build:demo`) |
-| Sign-in | WorkOS AuthKit only (forced by `NEXUS_ENV=production`) | Cloudflare Access | none, API off |
-| Database | `nexus-production` (`d3f3ed8d-…`) | `nexus-staging` (`8efc35c6-…`) | none |
-| Module locks | on | off | n/a |
+| | Production | Staging |
+| --- | --- | --- |
+| Worker | `nexus` (from `main`) | `nexus` Preview `staging` |
+| Host | nexus.frameworktools.ca | staging.nexus.frameworktools.ca |
+| Sign-in | WorkOS AuthKit only (forced by `NEXUS_ENV=production`; Access tokens and the dev bypass are refused) | Cloudflare Access |
+| Database | `nexus-production` (`d3f3ed8d-…`) | `nexus-staging` (`8efc35c6-…`) |
+| Module locks | on (QA/QC, Civil, Foundation Overview, Issues, Fleet on this project, All projects, Company overview, Crew, Safety) | off |
+| Release gate | a build of `main` is **stopped** until you approve | n/a |
 
-## What you must provide (WorkOS **Production** environment of the Nexus project, client `client_01M6BZ6XSCEHJM3P69FW4C2T9S`)
-1. **API key** (secret): WorkOS dashboard → Nexus → Production → API Keys → Create. (None exists yet.) It becomes the Cloudflare secret `WORKOS_API_KEY`.
-2. **AuthKit settings** (checked against the live environment): AuthKit enabled; **Email code (Magic Auth) ON** (it is off today); **sign-up OFF** (it is on today: this is what makes registration invitation-only); password, passkeys and social sign-in off (already);
-   **SSO off** and **IdP-initiated SSO off** (both on today; not used); MFA off; invitation expiry 7 days (already); access-token lifetime at most 1 hour (Nexus refuses longer; the default is 5 minutes).
-3. **URLs** (AuthKit → Redirects), exactly:
-   * Redirect URI: `https://nexus.frameworktools.ca/api/auth/callback`
-   * Sign-in endpoint (initiate login URI; invitation emails link here): `https://nexus.frameworktools.ca/api/auth/login`
-   * Sign-out redirect (logout URI): `https://nexus.frameworktools.ca`
-4. **First administrator's email address** (secret `INITIAL_ADMIN_EMAIL`).
-5. **Session pepper** (secret `SESSION_PEPPER`): 32+ random characters, generated fresh for production (not the staging one).
+## Merging can never deploy production
+`scripts/release-gate.mjs` runs first in `npm run build`. On Cloudflare's build service a build of `main` **fails** (nothing is deployed) unless the build variable `NEXUS_RELEASE_APPROVED=yes` is set for the
+`nexus` Worker. Merging `staging` into `main` therefore only produces a failed build and leaves the live site as it is. The cutover is the explicit act of setting that variable and retrying the build.
+(Optional second layer, dashboard: set the production deploy command to `npx wrangler versions upload`; see "Cutover" for how a version is then promoted.)
 
-## Cloudflare settings
-* Worker `nexus`: custom domain `nexus.frameworktools.ca` (already attached). Workers Builds production branch `main`, build `npm run build`, deploy `npx wrangler deploy`.
-* No Cloudflare Access application may cover `nexus.frameworktools.ca` (including a wildcard such as `*.frameworktools.ca`): Access would intercept the WorkOS routes. The staging Access application stays on `staging.nexus.frameworktools.ca` only.
-* New Worker `nexus-demo` with custom domain `demo.nexus.frameworktools.ca`; Workers Builds project from this repo, branch `main`, build `npm run build:demo`, deploy `npx wrangler deploy --config wrangler.demo.jsonc`, builds for other branches off.
-* Recommended: a WAF rate-limiting rule on `/api/auth/*` (the Framework portal does the same). Nexus has no in-Worker limiter yet.
-* Secrets on the production Worker (`npx wrangler secret put <NAME>`, no `--name`): `WORKOS_API_KEY`, `SESSION_PEPPER`, `INITIAL_ADMIN_EMAIL`. They are never in the repository.
+## Credentials and secrets
+WorkOS Production (client `client_01M6BZ6XSCEHJM3P69FW4C2T9S`) is configured and verified: email-code on, sign-up off, SSO off, password/passkey/social off, redirect `https://nexus.frameworktools.ca/api/auth/callback`,
+sign-in endpoint `https://nexus.frameworktools.ca/api/auth/login`, sign-out `https://nexus.frameworktools.ca`, invitations 7 days, API key "Nexus Production" created.
+
+Three secrets go on the production Worker (never in the repository, never in chat). Run in a terminal where you are signed in (`npx wrangler login`), from the repo, with no `--name` (that is the production Worker):
+```
+# 1. WorkOS Production API key: wrangler asks for it with a hidden prompt
+npx wrangler secret put WORKOS_API_KEY
+# 2. Session pepper: generated on your machine and piped straight in; it is never displayed or saved
+openssl rand -base64 48 | npx wrangler secret put SESSION_PEPPER
+# 3. First administrator's email address (hidden prompt)
+npx wrangler secret put INITIAL_ADMIN_EMAIL
+npx wrangler secret list      # names only: all three must be listed
+```
+Each `secret put` makes a new deployment of the Worker's *current* code (still the old site) with the secret attached; visitors see no change. The first administrator signs in with `INITIAL_ADMIN_EMAIL`: their membership
+is created at their first verified WorkOS sign-in, only while no administrator exists (`src/worker/authRoutes.ts`).
 
 ## Database
-Production is empty (`nexus-production` has no tables). Apply migrations **0001 to 0027** in order; all are additive and create schema only (no seed data; the only rows are the supplier directory entry and the preference "Anchor bolts → Nucor").
-1. Take and record a Time Travel bookmark: `npx wrangler d1 time-travel info nexus-production`.
-2. `npx wrangler d1 migrations apply nexus-production --remote`
-3. Verify: `d1_migrations` lists 0001…0027, `schema_info.schema_version = '27'`, `user_roles` is empty.
+`nexus-production` is initialised with migrations **0001 to 0027** (additive, schema only; the only rows are the supplier directory entry and the preference "Anchor bolts → Nucor"). A Time Travel bookmark is taken first and recorded,
+the `d1_migrations` ledger is created and filled, and the schema is compared with `nexus-staging`. See "Release log" at the end for what was done and when.
 
-## Safeguard: merging must never deploy production
-Workers Builds deploys the production Worker on every push to `main`. Before `staging` is merged into `main`, change the production Worker's **deploy command** to `npx wrangler versions upload`
-(Cloudflare dashboard → Workers & Pages → `nexus` → Settings → Build → Deploy command). A merge then builds and saves a **version** but does not promote it, so production keeps serving what it serves now.
-Promotion is the separate, explicitly approved release step: dashboard → `nexus` → Deployments → deploy that version at 100%, or `npx wrangler versions deploy <version-id>@100%`.
-(Restore `npx wrangler deploy` only if you want pushes to `main` to deploy automatically again.) This applies to `nexus` only: the `nexus-demo` project is isolated and may auto-deploy.
-
-## Release steps (in order; each waits for your approval)
-1. **WorkOS Production**: items 1 to 3 above (dashboard).
-2. **Demo first** (all of it only touches the new `nexus-demo` Worker):
-   1. `npx wrangler login`, then from a checkout of `staging`: `npx wrangler deploy --config wrangler.demo.jsonc --dry-run` (shows the one binding, `NEXUS_ENV="demo"`), then without `--dry-run`. It builds the demo bundle itself and creates Worker `nexus-demo`.
-   2. Dashboard → Workers & Pages → `nexus-demo` → Settings → Domains & Routes → Add → Custom domain `demo.nexus.frameworktools.ca`.
-   3. Confirm no Cloudflare Access application matches that hostname (the demo is public).
-   4. Verify: the page says "Demo Environment"; `GET /api/health`, `/api/session`, `/api/state/construction`, `/api/auth/login` all answer 404 `{"code":"demo"}`.
-   5. Connect its Workers Builds project **after** the release merge (`wrangler.demo.jsonc` is not on `main` before it).
-   Do not create a git branch named `demo`: a Preview for it would be served at `demo.nexus.frameworktools.ca`.
-3. **Database**: bookmark, migrations, verify (above).
-4. **Secrets** on the production Worker (above). Nothing changes for visitors yet.
-5. **Review and merge** `staging` into `main` (pull request; the diff is the release), with the safeguard above in place. The build saves a version of `nexus` with `NEXUS_ENV=production`, the application bundle and the `nexus-production` binding; `nexus.frameworktools.ca` keeps serving the old demo. **Then, on your explicit approval, promote that version to 100%.**
-6. **Verify, signed out**: `GET /api/health` → `{"auth":"workos","environment":"production","database":true,"access":true}`; `GET /api/session`, `/api/state/construction`, `/api/commands`, `/api/members`, `/api/backup` → 401; `GET /api/auth/login` → redirect to `api.workos.com/user_management/authorize` with `redirect_uri=https://nexus.frameworktools.ca/api/auth/callback`; the page loads and shows "Sign in".
-7. **First administrator**: in WorkOS Production → Users → **Invite user** with the `INITIAL_ADMIN_EMAIL` address. Open the email link, enter the emailed code. The admin membership is created at that sign-in (only while no administrator exists, only for that email).
-8. **Team**: in Setup → Team members invite an Edit and a View Only user with different projects. Check: project restrictions, Edit cannot change setup or users, View Only cannot change data, the nine modules show Coming Soon and their routes and commands are refused, **Revoke** blocks the next request, **Resend invitation** works.
-9. **Staging unaffected**: staging still signs in with Access and uses `nexus-staging`.
+## Final checklist (each item waits for your approval where marked ⛔)
+1. ☐ WorkOS Production configured and verified (done).
+2. ☐ Production database initialised (0001–0027), bookmark recorded, schema matches staging.
+3. ☐ Secrets set on the production Worker: `WORKOS_API_KEY`, `SESSION_PEPPER`, `INITIAL_ADMIN_EMAIL` (`npx wrangler secret list`).
+4. ☐ No Cloudflare Access application covers `nexus.frameworktools.ca` (including wildcards such as `*.frameworktools.ca`). The staging Access application stays on `staging.nexus.frameworktools.ca` only.
+5. ☐ Recommended: a WAF rate-limiting rule on `/api/auth/*`.
+6. ☐ **Pre-flight, with the live site untouched** (no merge needed): from a checkout of `staging`, `npx wrangler versions upload` creates a production-configured *version* that is not deployed and prints its Version URL. Against that URL check:
+   `GET /api/health` → `{"auth":"workos","environment":"production","database":true,"access":true}`; `GET /api/session`, `/api/state/construction`, `/api/commands` (POST), `/api/members`, `/api/backup` → **401**; `GET /api/auth/login` → 302 to
+   `api.workos.com/user_management/authorize` with `client_id=client_01M6BZ6XSCEHJM3P69FW4C2T9S` and `redirect_uri=https://nexus.frameworktools.ca/api/auth/callback`; the page loads and shows the sign-in screen (no data).
+7. ☐ Merge `staging` into `main` (pull request). The Cloudflare build of `main` stops at the release gate; confirm production is unchanged.
+8. ⛔ **Cutover (needs your explicit approval)**: set the build variable `NEXUS_RELEASE_APPROVED=yes` on the `nexus` Worker (Workers & Pages → `nexus` → Settings → Build → Variables) and retry the `main` build. It builds the application bundle and deploys.
+   (If you chose the optional `versions upload` deploy command instead: promote the verified version with `npx wrangler versions deploy <version-id>@100%`.)
+9. ☐ **Verify live**: repeat the signed-out checks in 6 on `https://nexus.frameworktools.ca`.
+10. ☐ **First administrator**: in WorkOS Production → Users → **Invite user** with the `INITIAL_ADMIN_EMAIL` address (sign-up is off, so the invitation is how the account is created). Open the email link, enter the emailed code. Check `/api/session` shows your email, `"role":"admin"`, `"via":"workos"`.
+11. ☐ **Team**: in Setup → Team members invite an Edit and a View Only user with different projects. Check project restrictions, Edit cannot change setup or users, View Only cannot change data, the nine modules show Coming Soon and their routes and commands are refused, **Revoke** blocks the next request, **Resend invitation** works.
+12. ☐ Confirm staging still signs in with Access and uses `nexus-staging`.
+13. ☐ After the release: remove the `NEXUS_RELEASE_APPROVED` variable again if you want every later merge to need approval (recommended), and delete the now-unused `WORKOS_*` and `SESSION_PEPPER` secrets from the staging preview.
 
 ## Rollback
-* Application: Cloudflare dashboard → `nexus` → Deployments → roll back to the previous version (the old demo), or revert the merge commit on `main`.
-* Sign-in: set the WorkOS Production environment's sign-up/invitations aside; revoke members from Team members (instant) or clear `INITIAL_ADMIN_EMAIL`.
-* Database: restore `nexus-production` to the recorded bookmark (`npx wrangler d1 time-travel restore nexus-production --bookmark=<id>`). Staging is never touched by any of this.
+* Site: Cloudflare dashboard → `nexus` → Deployments → roll back to the previous version (the old site), then remove `NEXUS_RELEASE_APPROVED`.
+* Access: revoke members in Team members (immediate), or remove the `INITIAL_ADMIN_EMAIL` secret before the first sign-in.
+* Database: `npx wrangler d1 time-travel restore nexus-production --bookmark=<recorded bookmark>`. Staging is never touched.

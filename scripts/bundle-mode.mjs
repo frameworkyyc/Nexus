@@ -4,8 +4,8 @@
  *   app  — the saved-data client (no real identity is compiled in). For local development, the protected staging environment and production (`main`).
  *
  * Fail-safe by design: on Cloudflare's build service (WORKERS_CI) every branch builds the public `demo` bundle UNLESS it is
- * `staging` or `main` (production), so a misconfigured, renamed or unknown branch can never publish the application. The public demo Worker
- * (`nexus-demo`) always builds with NEXUS_BUNDLE=demo (`npm run build:demo`), whatever branch it builds. NEXUS_BUNDLE overrides. Anything else (local builds, tests) is `app`.
+ * `staging` or `main` (production), so a misconfigured, renamed or unknown branch can never publish the application. There is no demo deployment;
+ * `npm run build:demo` builds it for local checks. NEXUS_BUNDLE overrides. Anything else (local builds, tests) is `app`.
  */
 export function resolveBundle(env) {
   const explicit = env.NEXUS_BUNDLE
