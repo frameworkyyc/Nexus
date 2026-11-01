@@ -44,7 +44,13 @@ Promotion is the separate, explicitly approved release step: dashboard → `nexu
 
 ## Release steps (in order; each waits for your approval)
 1. **WorkOS Production**: items 1 to 3 above (dashboard).
-2. **Demo first**: from a checkout of this branch, `npx wrangler deploy --config wrangler.demo.jsonc` (creates the separate `nexus-demo` Worker; production is untouched). Attach `demo.nexus.frameworktools.ca`. Verify the page says "Demo Environment" and `/api/health` answers 404 `{"code":"demo"}`. Then connect its Workers Builds project (above).
+2. **Demo first** (all of it only touches the new `nexus-demo` Worker):
+   1. `npx wrangler login`, then from a checkout of `staging`: `npx wrangler deploy --config wrangler.demo.jsonc --dry-run` (shows the one binding, `NEXUS_ENV="demo"`), then without `--dry-run`. It builds the demo bundle itself and creates Worker `nexus-demo`.
+   2. Dashboard → Workers & Pages → `nexus-demo` → Settings → Domains & Routes → Add → Custom domain `demo.nexus.frameworktools.ca`.
+   3. Confirm no Cloudflare Access application matches that hostname (the demo is public).
+   4. Verify: the page says "Demo Environment"; `GET /api/health`, `/api/session`, `/api/state/construction`, `/api/auth/login` all answer 404 `{"code":"demo"}`.
+   5. Connect its Workers Builds project **after** the release merge (`wrangler.demo.jsonc` is not on `main` before it).
+   Do not create a git branch named `demo`: a Preview for it would be served at `demo.nexus.frameworktools.ca`.
 3. **Database**: bookmark, migrations, verify (above).
 4. **Secrets** on the production Worker (above). Nothing changes for visitors yet.
 5. **Review and merge** `staging` into `main` (pull request; the diff is the release), with the safeguard above in place. The build saves a version of `nexus` with `NEXUS_ENV=production`, the application bundle and the `nexus-production` binding; `nexus.frameworktools.ca` keeps serving the old demo. **Then, on your explicit approval, promote that version to 100%.**
