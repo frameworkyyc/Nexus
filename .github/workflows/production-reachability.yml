@@ -1,11 +1,12 @@
 # Read-only reachability check of the LIVE production hostname, with no credentials and no Cloudflare access: it only sends GET requests.
-# Run it from GitHub (Actions -> this workflow -> Run workflow, on branch staging) or by pushing a tag named check-*. It reports whether Cloudflare Access (or anything else) sits in front of
+# Run it by pushing the branch release/preflight (git push origin staging:release/preflight --force), from GitHub (Actions -> Run workflow, once this file is on main), or by pushing a tag named check-*. It reports whether Cloudflare Access (or anything else) sits in front of
 # nexus.frameworktools.ca, which would intercept the WorkOS routes. It changes nothing.
 name: Production reachability check
 
 on:
   workflow_dispatch:
   push:
+    branches: ['release/preflight']
     tags: ['check-*']
 
 permissions:
@@ -13,7 +14,7 @@ permissions:
 
 jobs:
   reachability:
-    if: github.repository == 'frameworkyyc/Nexus' && (startsWith(github.ref, 'refs/tags/check-') || github.ref == 'refs/heads/staging')
+    if: github.repository == 'frameworkyyc/Nexus' && (startsWith(github.ref, 'refs/tags/check-') || github.ref == 'refs/heads/release/preflight' || github.ref == 'refs/heads/staging')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

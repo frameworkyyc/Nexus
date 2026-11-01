@@ -127,8 +127,9 @@ describe('GitHub workflows that touch production', () => {
 
   it('runs only for pre-flight tags or the staging branch in this repository, with read-only repository permissions', () => {
     expect(pre).toMatch(/tags: \['preflight-\*'\]/)
-    expect(pre).not.toMatch(/pull_request|branches:|schedule:|workflow_run/)
-    expect(pre).toMatch(/startsWith\(github\.ref, 'refs\/tags\/preflight-'\) \|\| github\.ref == 'refs\/heads\/staging'/)
+    expect(pre).not.toMatch(/pull_request|schedule:|workflow_run/)
+    expect(pre).toMatch(/branches: \['release\/preflight'\]/) // the one dedicated branch; staging and main pushes never start it
+    expect(pre).toMatch(/startsWith\(github\.ref, 'refs\/tags\/preflight-'\) \|\| github\.ref == 'refs\/heads\/release\/preflight' \|\| github\.ref == 'refs\/heads\/staging'/)
     expect(pre).not.toMatch(/inputs:/) // nothing a person types reaches a command
     expect(pre).toMatch(/permissions:\n {2}contents: read/)
     expect(pre).toMatch(/github\.repository == 'frameworkyyc\/Nexus'/)
@@ -145,6 +146,7 @@ describe('GitHub workflows that touch production', () => {
   it('the reachability check is credential-free and read-only', () => {
     expect(code(reach)).not.toMatch(/secrets\.|environment:|wrangler|-X (POST|PUT|DELETE|PATCH)|--data/)
     expect(reach).toMatch(/tags: \['check-\*'\]/)
-    expect(reach).not.toMatch(/pull_request|branches:|inputs:/)
+    expect(reach).not.toMatch(/pull_request|inputs:/)
+    expect(reach).toMatch(/branches: \['release\/preflight'\]/)
   })
 })
