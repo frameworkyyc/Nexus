@@ -21,7 +21,9 @@ WorkOS AuthKit only (emailed code, invitation-only) on `nexus-production`. Stagi
 WorkOS Production (client `client_01M6BZ6XSCEHJM3P69FW4C2T9S`) is configured and verified: email-code on, sign-up off, SSO off, password/passkey/social off, redirect `https://nexus.frameworktools.ca/api/auth/callback`,
 sign-in endpoint `https://nexus.frameworktools.ca/api/auth/login`, sign-out `https://nexus.frameworktools.ca`, invitations 7 days, API key "Nexus Production" created.
 
-Three secrets go on the production Worker (never in the repository, never in chat). Run in a terminal where you are signed in (`npx wrangler login`), from the repo, with no `--name` (that is the production Worker):
+Three **secrets** go on the production Worker (never in the repository, never in chat). They must be of type *Secret*, not *Variable*: a plain-text variable added in the dashboard is readable there and through the API, and `wrangler deploy` deletes
+any dashboard-only variable because `wrangler.jsonc` is the source of truth, which would remove the pepper and the admin address at cutover. If any of them was added as a variable, delete that variable first (Workers & Pages → `nexus` → Settings → Variables and secrets),
+and replace a pepper that was ever stored as a variable with a fresh one. Run in a terminal where you are signed in (`npx wrangler login`), from the repo, with no `--name` (that is the production Worker):
 ```
 # 1. WorkOS Production API key: wrangler asks for it with a hidden prompt
 npx wrangler secret put WORKOS_API_KEY
@@ -29,7 +31,7 @@ npx wrangler secret put WORKOS_API_KEY
 openssl rand -base64 48 | npx wrangler secret put SESSION_PEPPER
 # 3. First administrator's email address (hidden prompt)
 npx wrangler secret put INITIAL_ADMIN_EMAIL
-npx wrangler secret list      # names only: all three must be listed
+npx wrangler secret list      # names and types only: all three must be listed as secret_text
 ```
 Each `secret put` makes a new deployment of the Worker's *current* code (still the old site) with the secret attached; visitors see no change. The first administrator signs in with `INITIAL_ADMIN_EMAIL`: their membership
 is created at their first verified WorkOS sign-in, only while no administrator exists (`src/worker/authRoutes.ts`).
@@ -45,12 +47,13 @@ the `d1_migrations` ledger is created and filled, and the schema is compared wit
 4. ☐ No Cloudflare Access application covers `nexus.frameworktools.ca` (including wildcards such as `*.frameworktools.ca`). The staging Access application stays on `staging.nexus.frameworktools.ca` only.
 5. ☐ Recommended: a WAF rate-limiting rule on `/api/auth/*`.
 6. ☐ **Pre-flight, with the live site untouched** (no merge needed): from a checkout of `staging`, `npx wrangler versions upload` creates a production-configured *version* that is not deployed and prints its Version URL. Against that URL check:
+   run `node scripts/preflight.mjs <Version URL>` (it makes every check below with no credentials and exits non-zero on any failure). By hand:
    `GET /api/health` → `{"auth":"workos","environment":"production","database":true,"access":true}`; `GET /api/session`, `/api/state/construction`, `/api/commands` (POST), `/api/members`, `/api/backup` → **401**; `GET /api/auth/login` → 302 to
    `api.workos.com/user_management/authorize` with `client_id=client_01M6BZ6XSCEHJM3P69FW4C2T9S` and `redirect_uri=https://nexus.frameworktools.ca/api/auth/callback`; the page loads and shows the sign-in screen (no data).
 7. ☐ Merge `staging` into `main` (pull request). The Cloudflare build of `main` stops at the release gate; confirm production is unchanged.
 8. ⛔ **Cutover (needs your explicit approval)**: set the build variable `NEXUS_RELEASE_APPROVED=yes` on the `nexus` Worker (Workers & Pages → `nexus` → Settings → Build → Variables) and retry the `main` build. It builds the application bundle and deploys.
    (If you chose the optional `versions upload` deploy command instead: promote the verified version with `npx wrangler versions deploy <version-id>@100%`.)
-9. ☐ **Verify live**: repeat the signed-out checks in 6 on `https://nexus.frameworktools.ca`.
+9. ☐ **Verify live**: `node scripts/preflight.mjs https://nexus.frameworktools.ca` must pass.
 10. ☐ **First administrator**: in WorkOS Production → Users → **Invite user** with the `INITIAL_ADMIN_EMAIL` address (sign-up is off, so the invitation is how the account is created). Open the email link, enter the emailed code. Check `/api/session` shows your email, `"role":"admin"`, `"via":"workos"`.
 11. ☐ **Team**: in Setup → Team members invite an Edit and a View Only user with different projects. Check project restrictions, Edit cannot change setup or users, View Only cannot change data, the nine modules show Coming Soon and their routes and commands are refused, **Revoke** blocks the next request, **Resend invitation** works.
 12. ☐ Confirm staging still signs in with Access and uses `nexus-staging`.
