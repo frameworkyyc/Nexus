@@ -1,3 +1,4 @@
+import { mountCount, resolveAnchorages } from '../anchorageMounts'
 import { componentMap, embedComponent } from '../plates'
 import type { AnchorageComponent, ConstructionState, FoundationBolt } from '../types'
 import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, RequirementPart, TrackerLine, TrackerState } from './types'
@@ -9,7 +10,7 @@ import type { AuditEntry, ComponentCategory, QtyBasis, QuantityCalc, Requirement
  * anchorage, and a foundation design stands for `quantity` physical foundations, so a design with 3 plinths of type A and a quantity of 12
  * has 36 anchorages of type A. Totals are grouped by area and specification: the same item on many foundations is one requirement.
  */
-export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits' | 'foundationEmbeds' | 'libraryEmbedPlates'>>
+export type RefSource = Pick<ConstructionState, 'areas' | 'foundations' | 'plinths' | 'anchorageTypes'> & Partial<Pick<ConstructionState, 'anchorageComponents' | 'foundationBolts' | 'foundationUnits' | 'foundationEmbeds' | 'libraryEmbedPlates' | 'foundationAnchorages' | 'anchorageGroups'>>
 
 export interface Requirement {
   key: string
@@ -89,7 +90,10 @@ export function overriddenFootings(c: RefSource, foundationId: string): number {
   return (c.foundationUnits ?? []).filter((u) => u.foundationId === foundationId && u.embeds.some((e) => embeds.has(e.componentId))).length
 }
 
-/** Physical anchorages of each type on each foundation: the foundation's quantity times its plinths of that type. */
+/**
+ * Physical anchorages of each type on each foundation: the foundation's quantity times every anchorage group of that type, each counting its own quantity
+ * on the footing, or on every plinth of its set (see `resolveAnchorages`). The footing and plinth counts themselves are not touched by any of this.
+ */
 export function anchorageInstances(c: RefSource) {
   const out: { foundationId: string; areaId: string; number: string; typeId: string; instances: number; /** The same, for embed plates only: footings with their own individual embed plates are not counted. */ embedInstances: number }[] = []
   for (const f of c.foundations) {
@@ -97,7 +101,7 @@ export function anchorageInstances(c: RefSource) {
     const qty = f.quantity ?? 1
     const embedQty = Math.max(0, qty - overriddenFootings(c, f.id))
     const byType = new Map<string, number>()
-    for (const p of c.plinths) if (p.foundationId === f.id && p.anchorageTypeId) byType.set(p.anchorageTypeId, (byType.get(p.anchorageTypeId) ?? 0) + 1)
+    for (const a of resolveAnchorages(c, f.id)) byType.set(a.typeId, (byType.get(a.typeId) ?? 0) + a.perFoundation)
     for (const [typeId, n] of byType) out.push({ foundationId: f.id, areaId: f.areaId, number: f.number, typeId, instances: qty * n, embedInstances: embedQty * n })
   }
   return out
@@ -141,13 +145,14 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     const area = f && !f.archived ? areaOf.get(f.areaId) : undefined
     if (!f || !area) continue
     const total = fb.mode === 'total'
-    const footings = total ? 1 : f.quantity ?? 1
-    const sentinel = total ? '#bolt-total' : ''
+    const onPlinths = !!fb.mountGroupId
+    const footings = total ? 1 : mountCount(c, f, fb.mountGroupId)
+    const sentinel = total ? '#bolt-total' : onPlinths ? '#bolt-plinth' : ''
     for (const it of itemsOf(boltAsComponent(fb))) {
       const key = reqKey(area.id, it, f.number)
       const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: f.number }
       const part = g.parts.find((p) => p.anchorageTypeId === sentinel && p.each === it.each)
-      if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: sentinel, code: 'Footing', instances: footings, each: it.each })
+      if (part) part.instances += footings; else g.parts.push({ anchorageTypeId: sentinel, code: onPlinths ? 'Plinths' : 'Footing', instances: footings, each: it.each })
       g.required += it.each * footings
       groups.set(key, g)
     }
@@ -184,8 +189,8 @@ export function deriveRequirements(c: RefSource): Requirement[] {
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
       const key = reqKey(area.id, it, typeOf.get(comp.anchorageTypeId)?.code || f.number)
       const g = groups.get(key) ?? { key, id: requirementId(key), areaId: area.id, areaName: area.name, category: it.category, name: it.name, spec: it.spec, size: it.size, required: 0, parts: [], anchorageCodes: [], expression: '', designation: typeOf.get(comp.anchorageTypeId)?.code || f.number }
-      const id = each ? '#embed-each' : '#embed-total'
-      const n = each ? (f.quantity ?? 1) : 1
+      const id = each ? (fe.mountGroupId ? '#embed-plinth' : '#embed-each') : '#embed-total'
+      const n = each ? mountCount(c, f, fe.mountGroupId) : 1
       const part = g.parts.find((p) => p.anchorageTypeId === id && p.each === it.each && p.code === code)
       if (part) part.instances += n; else g.parts.push({ anchorageTypeId: id, code, instances: n, each: it.each })
       g.required += it.each * n
@@ -195,7 +200,7 @@ export function deriveRequirements(c: RefSource): Requirement[] {
   return [...groups.values()].map((g) => {
     g.parts.sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true }))
     g.anchorageCodes = g.parts.map((p) => p.code)
-    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-each' ? `${fmt(p.each)} per foundation × ${fmt(p.instances)} foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-total' ? `${fmt(p.each * p.instances)} in total` : p.anchorageTypeId === '#bolt-total' ? `${fmt(p.each * p.instances)} extra on the footings, in total` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
+    g.expression = `${g.parts.map((p) => (p.anchorageTypeId === '' ? `${fmt(p.each)} per footing × ${fmt(p.instances)} footing${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#unit' ? `${fmt(p.each)} on each of ${fmt(p.instances)} individual foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-each' ? `${fmt(p.each)} per foundation × ${fmt(p.instances)} foundation${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-plinth' || p.anchorageTypeId === '#bolt-plinth' ? `${fmt(p.each)} per plinth × ${fmt(p.instances)} plinth${p.instances === 1 ? '' : 's'}` : p.anchorageTypeId === '#embed-total' ? `${fmt(p.each * p.instances)} in total` : p.anchorageTypeId === '#bolt-total' ? `${fmt(p.each * p.instances)} extra on the footings, in total` : `${fmt(p.each)} per anchorage × ${fmt(p.instances)} ${p.code}`)).join(' + ')}${g.parts.length > 1 ? ` = ${fmt(g.required)}` : ''}`
     return g
   }).sort((a, b) => a.areaName.localeCompare(b.areaName, 'en') || a.category.localeCompare(b.category) || a.name.localeCompare(b.name) || a.spec.localeCompare(b.spec))
 }
@@ -220,8 +225,8 @@ export function multiplierFor(c: RefSource, basis: QtyBasis, foundationId: strin
   const mine = c.plinths.filter((p) => p.foundationId === f.id)
   if (basis === 'per-plinth') return mine.length === 0 ? { error: `${f.number} has no plinths yet, so a per-plinth quantity cannot be calculated.` } : { count: qty * mine.length }
   if (!anchorageTypeId) return { error: 'Choose the anchorage type this quantity is counted per.' }
-  const n = mine.filter((p) => p.anchorageTypeId === anchorageTypeId).length
-  return n === 0 ? { error: `${f.number} has no plinths with that anchorage type.` } : { count: qty * n }
+  const n = resolveAnchorages(c, f.id).filter((a) => a.typeId === anchorageTypeId).reduce((t, a) => t + a.perFoundation, 0)
+  return n === 0 ? { error: `${f.number} has no anchorage of that type.` } : { count: qty * n }
 }
 
 export function scopedCalc(c: RefSource, basis: QtyBasis, each: number, foundationId: string | null | undefined, anchorageTypeId: string | null | undefined): { total: number; calc: QuantityCalc } | { error: string } {
@@ -325,13 +330,13 @@ export function expectedTotals(c: RefSource): Map<string, number> {
     const footings = f.quantity ?? 1
     const all = componentMap(c)
     const overridden = (c.foundationUnits ?? []).filter((u) => u.foundationId === f.id && u.embeds.some((e) => all.get(e.componentId)?.kind === 'embed-plate')).length
-    for (const p of c.plinths) {
-      if (p.foundationId !== f.id || !p.anchorageTypeId) continue
-      for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === p.anchorageTypeId)) {
+    // Anchorage groups, counted one at a time: each is `qty` anchorages on the footing, or on each plinth of its set.
+    for (const a of resolveAnchorages(c, f.id)) {
+      for (const comp of (c.anchorageComponents ?? []).filter((x) => x.anchorageTypeId === a.typeId)) {
         const n = comp.kind === 'embed-plate' ? ((c.foundationEmbeds ?? []).some((e) => e.foundationId === f.id && e.componentId === comp.id) ? 0 : Math.max(0, footings - overridden)) : footings
         for (const it of itemsOf(comp)) {
-          const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code ?? '')
-          out.set(key, (out.get(key) ?? 0) + n * it.each)
+          const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === a.typeId)?.code ?? '')
+          out.set(key, (out.get(key) ?? 0) + n * a.perFoundation * it.each)
         }
       }
     }
@@ -340,7 +345,7 @@ export function expectedTotals(c: RefSource): Map<string, number> {
       if (!comp || comp.kind !== 'embed-plate') continue
       for (const it of itemsOf({ ...comp, qty: e.qty })) {
         const key = reqKey(f.areaId, it, c.anchorageTypes.find((t) => t.id === comp.anchorageTypeId)?.code || f.number)
-        out.set(key, (out.get(key) ?? 0) + it.each * (e.mode === 'total' ? 1 : footings))
+        out.set(key, (out.get(key) ?? 0) + it.each * (e.mode === 'total' ? 1 : mountCount(c, f, e.mountGroupId)))
       }
     }
     for (const u of (c.foundationUnits ?? []).filter((x) => x.foundationId === f.id)) {
@@ -356,7 +361,7 @@ export function expectedTotals(c: RefSource): Map<string, number> {
     for (const b of (c.foundationBolts ?? []).filter((x) => x.foundationId === f.id)) {
       for (const it of itemsOf(boltAsComponent(b))) {
         const key = reqKey(f.areaId, it, f.number)
-        out.set(key, (out.get(key) ?? 0) + (b.mode === 'total' ? 1 : footings) * it.each)
+        out.set(key, (out.get(key) ?? 0) + (b.mode === 'total' ? 1 : mountCount(c, f, b.mountGroupId)) * it.each)
       }
     }
   }

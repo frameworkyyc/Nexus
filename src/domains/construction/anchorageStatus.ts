@@ -12,9 +12,10 @@ export function anchorageIssue(s: Pick<ConstructionState, 'anchorageComponents'>
   return null
 }
 
-/** One line per anchorage type used by a foundation (its anchorage groups or plinths) that is not fully configured. Empty when nothing is missing. */
-export function foundationAnchorageIssues(s: Pick<ConstructionState, 'anchorageComponents' | 'anchorageTypes' | 'anchorageGroups' | 'plinths'>, foundationId: string): string[] {
+/** One line per anchorage type used by a foundation (on its footing or plinths) that is not fully configured. Empty when nothing is missing. */
+export function foundationAnchorageIssues(s: Pick<ConstructionState, 'anchorageComponents' | 'anchorageTypes' | 'anchorageGroups' | 'plinths' | 'foundationAnchorages'>, foundationId: string): string[] {
   const ids = new Set<string>()
+  for (const a of s.foundationAnchorages ?? []) if (a.foundationId === foundationId) ids.add(a.anchorageTypeId)
   for (const g of s.anchorageGroups ?? []) if (g.foundationId === foundationId && g.anchorageTypeId) ids.add(g.anchorageTypeId)
   for (const p of s.plinths) if (p.foundationId === foundationId && p.anchorageTypeId) ids.add(p.anchorageTypeId)
   const out: string[] = []

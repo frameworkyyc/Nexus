@@ -53,12 +53,13 @@ describe('anchorage groups', () => {
     expect(err(s, K.configureFoundation(f.id, { groups: [{ id: groups[0].id, anchorageTypeId: A, count: 1 }, { id: groups[1].id, anchorageTypeId: B, count: 1 }] }))).toMatch(/cannot be removed/) // the highest-numbered plinths of A go first; plinth 2 has its own dimensions
   })
 
-  it('refuses duplicate types, unknown types and bad counts; an unassigned group is allowed once', () => {
+  it('refuses unknown types and bad counts; the same type may be listed twice on one mount, separate sets may repeat a type and sets may have no anchorage', () => {
     const { s, f, A } = world()
-    expect(err(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: A, count: 1 }, { anchorageTypeId: A, count: 1 }] }))).toMatch(/already in another group/)
     expect(err(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: 'nope', count: 1 }] }))).toMatch(/library/)
     expect(err(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: A, count: 0 }] }))).toMatch(/whole number/)
-    expect(err(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: null, count: 1 }, { anchorageTypeId: null, count: 1 }] }))).toMatch(/Only one group/)
+        expect(err(s, K.configureFoundation(f.id, { anchorages: [{ anchorageTypeId: A, qty: 0 }] }))).toMatch(/whole number of anchorages/)
+    expect(apply(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: A, count: 1 }, { anchorageTypeId: A, count: 2 }] })).plinths.filter((p) => p.foundationId === f.id)).toHaveLength(3)
+    expect(apply(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: null, count: 1 }, { anchorageTypeId: null, count: 1 }] })).plinths.filter((p) => p.foundationId === f.id && p.anchorageTypeId === null)).toHaveLength(2)
     expect(apply(s, K.configureFoundation(f.id, { groups: [{ anchorageTypeId: null, count: 2 }] })).plinths.filter((p) => p.foundationId === f.id && p.anchorageTypeId === null)).toHaveLength(2)
   })
 

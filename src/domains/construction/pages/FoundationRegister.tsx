@@ -20,6 +20,7 @@ import { foundationQuantity, foundationTotals, plinthsPerFoundationFromGroups } 
 import { AddAreaButton, AddFoundationButton, ManageFoundationButton } from './AddFoundation'
 import { IndividualFoundations } from './IndividualFoundations'
 import { FoundationStateBadge, fraction } from '../ui'
+import { resolveAnchorages } from '../anchorageMounts'
 import { foundationAnchorageIssues } from '../anchorageStatus'
 import { AnchorageWarning } from './AnchorageWarning'
 import type { Area, ConstructionState, Foundation, Plinth } from '../types'
@@ -80,10 +81,12 @@ export function FoundationRegister({ projectId, areaId }: { projectId: string; a
         const plinths = idx.plinthsByFoundation.get(f.id) ?? []
         const groups = (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)
         const perOf = plinthsPerFoundationFromGroups(f, plinths.length, groups)
+        const mountedTypes = [...resolveAnchorages(state, f.id).reduce((m, a) => m.set(a.typeId, (m.get(a.typeId) ?? 0) + a.perFoundation), new Map<string, number>())]
         return {
           f, plinths, qty: foundationQuantity(f), per: perOf, total: perOf === null ? null : foundationQuantity(f) * perOf, area: idx.area.get(f.areaId)!, stats: computeStats(idx, [f]), state: foundationState(idx, f), step: footingStep(idx, f),
-          types: [...new Set(plinths.map((p) => p.anchorageTypeId ?? '—'))],
-          groups: groups.length ? groups.map((g) => ({ typeId: g.anchorageTypeId, count: g.count })) : [...new Set(plinths.map((p) => p.anchorageTypeId ?? null))].map((t) => ({ typeId: t, count: plinths.filter((p) => (p.anchorageTypeId ?? null) === t).length })),
+          types: mountedTypes.length ? mountedTypes.map(([t]) => t) : ['—'],
+          // Anchorages per foundation by type, wherever they are mounted (footing or plinths): not the number of plinths.
+          groups: mountedTypes.map(([typeId, count]) => ({ typeId, count })),
           concrete: foundationConcrete(f, plinths, groups),
           anchorageIssues: foundationAnchorageIssues(state, f.id),
         }

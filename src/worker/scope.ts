@@ -51,7 +51,7 @@ export function projectsOfRow(table: string, r: Row, ix: Index): string[] {
     case 'projects': return list(str(r.id))
     case 'areas': case 'anchorage_types': case 'library_embed_plates': case 'pours': case 'vehicle_assignments': return list(str(r.project_id))
     case 'foundations': return list(ofArea(ix, r.area_id))
-    case 'foundation_embeds': case 'foundation_units': case 'foundation_bolts': case 'foundation_anchorage_groups': case 'plinths': case 'activities': case 'material_allocations': return list(ofFoundation(ix, r.foundation_id))
+    case 'foundation_embeds': case 'foundation_units': case 'foundation_bolts': case 'foundation_anchorage_groups': case 'foundation_anchorages': case 'plinths': case 'activities': case 'material_allocations': return list(ofFoundation(ix, r.foundation_id))
     case 'pour_items': return list(ix.pour.get(String(r.pour_id)) ?? null)
     case 'anchorage_components': return list(ix.anchorage.get(String(r.anchorage_type_id)) ?? null)
     case 'foundation_unit_embeds': return list(ofFoundation(ix, ix.unitFoundation.get(String(r.unit_id))))

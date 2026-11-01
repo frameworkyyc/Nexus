@@ -31,7 +31,8 @@ function previewOf(draft: ConfigDraft, run: (cfg: FoundationConfig) => { state?:
   const cfg = configFromDraft(draft)
   if ('error' in cfg) return cfg.error
   if (!cfg.config.footing && !cfg.config.footingShape && (cfg.config.groups ?? []).every((g) => !g.dims)) return null
-  const r = run({ ...cfg.config, bolts: undefined, embeds: undefined }) // bolts do not affect concrete; an unfinished bolt entry must not hide the calculation
+  // What is mounted does not affect concrete; an unfinished anchorage, bolt or plate entry must not hide the calculation.
+  const r = run({ ...cfg.config, anchorages: undefined, bolts: undefined, embeds: undefined, groups: cfg.config.groups?.map((g) => ({ id: g.id, count: g.count, dims: g.dims })) })
   if (r.error !== undefined || !r.state) return r.error ?? null
   const f = pick(r.state)
   return f ? foundationConcrete(f, r.state.plinths, (r.state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id)) : null
@@ -63,7 +64,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
   const [number, setNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [description, setDescription] = useState('')
-  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], bolts: [], embeds: [] })
+  const [draft, setDraft] = useState<ConfigDraft>({ footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], anchorages: [], bolts: [], embeds: [], noPlinths: false })
   const [bulk, setBulk] = useState('')
   const types = state.anchorageTypes.filter((t) => t.projectId === projectId)
   const [problem, setProblem] = useState('')
@@ -74,8 +75,8 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
     const cfg = configFromDraft(draft)
     if ('error' in cfg) { setProblem(cfg.error); return }
     setProblem('')
-    // No anchorage groups entered = plinth count not known (nothing is assumed).
-    return run(createFoundation(area, number, description, null, parseQuantity(quantity), { ...cfg.config, ...(cfg.config.groups?.length ? {} : { groups: undefined }) }), onClose)
+    // No plinths entered = plinth count not known (nothing is assumed), unless the foundation is marked as having none.
+    return run(createFoundation(area, number, description, null, parseQuantity(quantity), { ...cfg.config, ...(cfg.config.groups?.length || draft.noPlinths ? {} : { groups: undefined }) }), onClose)
   }
   const q = parseQuantity(quantity)
   const preview = mode === 'one' ? previewOf(draft, (cfg) => createFoundation(area, 'ZZ-PREVIEW', '', null, Number.isInteger(q) && q >= 1 ? q : 1, cfg)(state), (st) => st.foundations.find((f) => f.number === 'ZZ-PREVIEW')) : null
@@ -90,7 +91,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
         {mode === 'one' ? (
           <>
             <FoundationBasics autoFocus required number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
-            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} embedOptions={embedChoices(state, projectId).map((x) => ({ component: x.component, type: x.type }))} foundationName={number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={(code) => createAnchorageType(projectId, code)} />
+            <FoundationConfigFields draft={draft} onChange={setDraft} types={types} components={state.anchorageComponents ?? []} embedOptions={embedChoices(state, projectId).map((x) => ({ component: x.component, type: x.type }))} foundationName={number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={(code) => createAnchorageType(projectId, code)} />
             {problem && <p role="alert" className="border-l-2 border-bad pl-3">{problem}</p>}
           </>
         ) : (
@@ -218,8 +219,8 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [notes, setNotes] = useState(f?.notes ?? '')
   const [quantity, setQuantity] = useState(String(f ? foundationQuantity(f) : 1))
   const [areaId, setAreaId] = useState(f?.areaId ?? '')
-  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? []) : null))
-  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? [])
+  const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? [], state.foundationAnchorages) : null))
+  const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? [], state.foundationAnchorages)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   if (!f || !draft) return null
@@ -253,7 +254,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default Foundations view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
         <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} area={{ value: areaId, onChange: setAreaId, options: areaOptions }} />
-        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} embedOptions={embedChoices(state, project).map((x) => ({ component: x.component, type: x.type }))} foundationName={f.number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
+        <FoundationConfigFields draft={draft} onChange={setDraft} types={types} components={state.anchorageComponents ?? []} embedOptions={embedChoices(state, project).map((x) => ({ component: x.component, type: x.type }))} foundationName={f.number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
         <div className="border-t border-line pt-5"><Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field></div>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}
         <div className="flex flex-wrap gap-2">

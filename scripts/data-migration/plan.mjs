@@ -27,6 +27,7 @@ export const TABLES = {
   foundation_anchorage_groups: m('construction', 'Plinth groups per foundation.'),
   foundation_bolts: m('construction', 'Footing anchor bolts.'),
   foundation_embeds: m('construction', 'Embed plates on foundations.'),
+  foundation_anchorages: m('construction', 'Anchorage groups mounted on footings and plinths.'),
   foundation_units: m('construction', 'Individual foundations within a designation.'),
   foundation_unit_embeds: m('construction', 'Embed plates on individual foundations.'),
   library_embed_plates: m('construction', 'Embed plates saved to the project library.'),

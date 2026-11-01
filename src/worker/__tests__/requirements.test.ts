@@ -747,3 +747,50 @@ describe('unlinked deliveries on the server', () => {
     expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
   })
 })
+
+describe('anchorage mounted on footings and plinths, on the server', () => {
+  const rowsOf = async (db: TestDb) => { const m = await get(db, 'materials'); const c = await get(db, 'construction'); return procurementRows(refreshRequirements(m, c, { log: false }), c) }
+  const total = async (db: TestDb, cat: string) => (await rowsOf(db)).filter((r) => r.category === cat).reduce((a, r) => a + r.required, 0)
+
+  it('a pad with anchorage groups and no plinths saves one footing, no plinths and no plinth activities, and totals from the library type', async () => {
+    const { db, A, aid } = await setup() // OP-1: 12 × 3 plinths of type A (4 bolts, 1 template each): 144 bolts, 36 templates
+    const r = await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'OP1-21-29', '', 0, 1, { footing: { length: 8.5, width: 3.5, height: 0.5, unit: 'm' }, anchorages: [{ anchorageTypeId: A, qty: 1 }, { anchorageTypeId: A, qty: 1 }] }])
+    expect(r.status).toBe(200)
+    const fid = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'OP1-21-29'").get() as { id: string }).id
+    expect(db.raw.prepare('SELECT mount_group_id, anchorage_type_id, qty FROM foundation_anchorages WHERE foundation_id = ? ORDER BY seq').all(fid)).toEqual([{ mount_group_id: null, anchorage_type_id: A, qty: 1 }, { mount_group_id: null, anchorage_type_id: A, qty: 1 }])
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM plinths WHERE foundation_id = ?').get(fid)).toEqual({ n: 0 })
+    expect(db.raw.prepare("SELECT COUNT(*) AS n FROM activities WHERE foundation_id = ? AND scope = 'plinth'").get(fid)).toEqual({ n: 0 })
+    expect(db.raw.prepare('SELECT plinths_per_foundation AS n FROM foundations WHERE id = ?').get(fid)).toEqual({ n: 0 })
+    expect(await total(db, 'bolt')).toBe(144 + 2 * 4)
+    expect(await total(db, 'template')).toBe(36 + 2)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('mixed mounts survive a reload and a backup; removing the plinths removes only what was mounted on them', async () => {
+    const { db, A, aid } = await setup()
+    const mk = { qty: 3, diameter: 'M16', length: 400, lengthUnit: 'mm', thread: 'all-thread', nutsPerBolt: 1, washersPerBolt: 1 }
+    await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'MX-1', '', null, 2, { anchorages: [{ anchorageTypeId: A, qty: 1 }], bolts: [mk], groups: [{ count: 2, anchorages: [{ anchorageTypeId: A, qty: 2 }], bolts: [{ ...mk, qty: 5 }] }] }])
+    const fid = (db.raw.prepare("SELECT id FROM foundations WHERE number = 'MX-1'").get() as { id: string }).id
+    const gid = (db.raw.prepare('SELECT id FROM foundation_anchorage_groups WHERE foundation_id = ?').get(fid) as { id: string }).id
+    // Type A: 2 foundations × (1 on the footing + 2 plinths × 2) = 10 anchorages → 40 bolts, 10 templates; individual M16 bolts: 2 × 3 on the footing + 2 × 2 × 5 on the plinths.
+    expect(await total(db, 'template')).toBe(36 + 10)
+    expect(await total(db, 'bolt')).toBe(144 + 40 + 6 + 20)
+    expect(db.raw.prepare('SELECT mount_group_id FROM foundation_bolts WHERE foundation_id = ? ORDER BY mount_group_id').all(fid)).toEqual([{ mount_group_id: null }, { mount_group_id: gid }])
+    const backup = (await as(db, 'admin@example.com', 'GET', '/api/backup')).body
+    expect(backup.tables.foundation_anchorages.filter((x: { foundation_id: string }) => x.foundation_id === fid)).toHaveLength(2)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+    // Take the plinths away: the footing keeps its anchorage and bolts.
+    expect((await cmd(db, 'admin@example.com', 'construction', 'configureFoundation', [fid, { groups: [] }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM plinths WHERE foundation_id = ?').get(fid)).toEqual({ n: 0 })
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM foundation_anchorages WHERE foundation_id = ?').get(fid)).toEqual({ n: 1 })
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM foundation_bolts WHERE foundation_id = ?').get(fid)).toEqual({ n: 1 })
+    expect(await total(db, 'template')).toBe(36 + 2)
+    expect((await as(db, 'admin@example.com', 'GET', '/api/integrity')).body.ok).toBe(true)
+  })
+
+  it('refuses a footing anchorage group for a type from another project and a bad quantity, and saves nothing', async () => {
+    const { db, aid } = await setup()
+    expect((await cmd(db, 'admin@example.com', 'construction', 'createFoundation', [aid, 'BAD-1', '', 0, 1, { anchorages: [{ anchorageTypeId: 'nope', qty: 1 }] }])).status).toBe(422)
+    expect(db.raw.prepare("SELECT COUNT(*) AS n FROM foundations WHERE number = 'BAD-1'").get()).toEqual({ n: 0 })
+  })
+})

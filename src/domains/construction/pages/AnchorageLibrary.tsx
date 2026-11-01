@@ -1,3 +1,4 @@
+import { resolveAnchorages } from '../anchorageMounts'
 import { Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -34,7 +35,7 @@ export function AnchorageLibrary() {
   const [error, setError] = useState<string | null>(null)
   const types = state.anchorageTypes.filter((t) => (t.projectId ?? projectId) === projectId)
   const usedBy = (t: AnchorageType) => [...tracker.lines, ...tracker.manual].filter((l) => !l.archived && l.anchorageTypeId === t.id).length
-  const plinths = (t: AnchorageType) => state.plinths.filter((p) => p.anchorageTypeId === t.id).length
+  const anchorages = (t: AnchorageType) => resolveAnchorages(state).filter((a) => a.typeId === t.id).reduce((n, a) => n + a.perFoundation, 0)
   const q = query.trim().toLowerCase()
   const shown = types.filter((t) => (showArchived || !t.archived) && (!q || `${t.code} ${t.description}`.toLowerCase().includes(q))).sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true }))
   const workbookOnly = useMemo(() => {
@@ -70,7 +71,7 @@ export function AnchorageLibrary() {
                       </td>
                       <td className="py-3 pr-4 text-muted">{t.description || '—'}</td>
                       <td className="py-3 pr-4 text-muted">{anchorageIssue(state, t.id) ? <span className="text-[var(--nx-bad)]">{componentsSummary(state.anchorageComponents ?? [], t.id)}</span> : componentsSummary(state.anchorageComponents ?? [], t.id)}</td>
-                      <td className="py-3 pr-4 tabular-nums text-muted">{usedBy(t)} material{usedBy(t) === 1 ? '' : 's'} · {plinths(t)} plinth{plinths(t) === 1 ? '' : 's'}</td>
+                      <td className="py-3 pr-4 tabular-nums text-muted">{usedBy(t)} material{usedBy(t) === 1 ? '' : 's'} · {anchorages(t)} anchorage{anchorages(t) === 1 ? '' : 's'}</td>
                       <td className="py-3 pr-4 text-right">{admin && <span className="flex justify-end gap-1"><Button variant="ghost" className="h-8 px-2" onClick={() => setEditing(t)}>Edit</Button><Button variant="ghost" className="h-8 px-2" aria-label={`Configure ${t.code}`} onClick={() => setConfiguring(t)}>Configure</Button><Button variant="ghost" className="h-8 px-2" onClick={() => void run(constructionStore.run(archiveAnchorageType(t.id, !t.archived)))}>{t.archived ? 'Restore' : 'Archive'}</Button></span>}</td>
                     </tr>
                   ))}

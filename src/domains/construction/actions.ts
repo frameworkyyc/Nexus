@@ -3,7 +3,7 @@ import { addDays, type ISODate } from '@/lib/date'
 import { blankActivitiesFor } from './blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS, getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
-import { applyBolts, applyEmbeds, applyGroups, cleanShape, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
+import { applyGroups, applyMounts, cleanShape, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
 import type { TrackerState } from './tracker/types'
 import type {
   ProjectIssue, ProjectStatus, Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
@@ -412,8 +412,7 @@ export const createFoundation = (areaId: string, number: string, description: st
   const withDims = { ...made, foundations: made.foundations.map((f) => (f.id === foundation.id ? { ...f, ...(config.footing ? { footing: config.footing } : {}), ...(config.footingShape ? { footingShape: cleanShape(config.footingShape) } : {}), ...(config.plinthBase ? { plinthBase: config.plinthBase } : {}) } : f)) }
   const applied = config.groups ? applyGroups(withDims, { ...fresh }, config.groups) : withDims
   if (typeof applied === 'string') return fail(applied)
-  const withBolts = config.bolts ? applyBolts(applied, applied.foundations.find((f) => f.id === foundation.id)!, config.bolts) : applied
-  return ok(config.embeds ? applyEmbeds(withBolts, withBolts.foundations.find((f) => f.id === foundation.id)!, config.embeds, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString())) : withBolts)
+  return ok(applyMounts(applied, applied.foundations.find((f) => f.id === foundation.id)!, config, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString())))
 }
 
 /** Renames a foundation. Its id, plinths, activities and every material, survey and QA/QC record that points at it are unaffected. */
@@ -468,7 +467,7 @@ export const editFoundation = (id: string, patch: { areaId?: string; description
       base = { ...base, foundations: base.foundations.map((x) => (x.id === id ? { ...x, plinthsPerFoundation: null } : x)) }
     } else {
       if (groups.length > 1) return fail('This foundation has several anchorage groups. Change the number of plinths in each group instead.')
-      const input = target === 0 ? [] : [{ id: groups[0]?.id, anchorageTypeId: groups[0]?.anchorageTypeId ?? null, count: target, dims: groups[0]?.dims ?? null }]
+      const input = target === 0 ? [] : [{ id: groups[0]?.id, count: target, dims: groups[0]?.dims ?? null }]
       const applied = applyGroups(base, next, input)
       if (typeof applied === 'string') return fail(applied)
       base = applied

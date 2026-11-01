@@ -63,13 +63,31 @@ export type LengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft'
 /** Rectangular dimensions in one unit. Any value may be null (not measured yet); null is never treated as zero. */
 export interface Dims { length: number | null; width: number | null; height: number | null; unit: LengthUnit }
 
-/** One kind of plinth in a foundation design: how many plinths use an anchorage type (null = not known yet), with optional default dimensions. */
+/** A set of identical plinths in a foundation design: how many plinths (per physical foundation), with optional default dimensions. What is mounted on them is in FoundationAnchorage, bolts and embeds (`anchorageTypeId` is the first anchorage's type, kept for older views; null = none). */
 export interface AnchorageGroup {
   id: string
   foundationId: string
   anchorageTypeId: string | null
   count: number
   dims: Dims | null
+}
+
+/**
+ * Where something is mounted: on the footing (pad) of each physical foundation, or on every plinth of one set of plinths (an `AnchorageGroup`, a legacy name:
+ * it is a set of identical plinths with a count and default dimensions). `null`/absent = the footing. Plinth and footing quantities never depend on what is mounted.
+ */
+export type MountGroupId = string | null
+
+/**
+ * One anchorage group: `qty` anchorages of one Anchorage Library type mounted on the footing or on each plinth of a set. A mount can have several, of different
+ * types. Bolt, nut, washer, template and plate totals come from the type's components × `qty` × how many footings or plinths carry it × the foundation's quantity.
+ */
+export interface FoundationAnchorage {
+  id: string
+  foundationId: string
+  mountGroupId: MountGroupId
+  anchorageTypeId: string
+  qty: number
 }
 
 /** A rectangular piece of concrete added to, or taken from, a footing's base shape. Millimetres. */
@@ -208,7 +226,7 @@ export interface PlateSpec { thickness: number; width: number; length: number; u
 export interface LibraryEmbedPlate extends PlateSpec { id: string; projectId: string; createdAt: string; createdBy: string }
 /** An embed plate added directly to a foundation. `componentId` names a library embed plate (an anchorage type's, or a saved library plate); empty means the plate's own
  * specification is on the foundation (`plate`). `per-foundation` multiplies `qty` by the number of physical foundations; `total` is the total across all of them. */
-export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec }
+export interface FoundationEmbed { id: string; foundationId: string; componentId: string; qty: number; mode: 'per-foundation' | 'total'; plate?: PlateSpec; /** Absent/null = the footing; otherwise every plinth of that set (qty per plinth). */ mountGroupId?: MountGroupId }
 
 /** One physical foundation (or a set sharing a label) within a foundation designation, such as A-1 within OP1-01-01. Optional. It inherits the designation's footing,
  * anchorage configuration and quantity, and adds only its identifier and its own embed plates, chosen from the Anchorage Library. */
@@ -242,6 +260,8 @@ export interface FoundationBolt {
   washerSize: string
   /** 'per-foundation' (default): `qty` × the foundation's physical foundations. 'total': `qty` is the total across all of them. */
   mode?: 'per-foundation' | 'total'
+  /** Where the bolts are mounted: absent/null = the footing (qty per footing); a plinth set = qty per plinth of that set. */
+  mountGroupId?: MountGroupId
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */
@@ -477,6 +497,8 @@ export interface ConstructionState {
   plinths: Plinth[]
   /** Optional so older saved data and the demo still load; treat absent as empty. */
   anchorageGroups?: AnchorageGroup[]
+  /** Anchorage groups mounted on footings and plinths. Absent in data from before they existed: the plinths' own anchorage types are used then. */
+  foundationAnchorages?: FoundationAnchorage[]
   foundationBolts?: FoundationBolt[]
   foundationUnits?: FoundationUnit[]
   foundationEmbeds?: FoundationEmbed[]

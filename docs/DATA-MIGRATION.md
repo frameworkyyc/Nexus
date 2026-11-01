@@ -126,6 +126,7 @@ Then run the live pre-flight and sign in as the first administrator (they see al
 * Failure paths (earlier rehearsal, still covered by tests): a second run on a migrated copy is refused and writes nothing; selecting `user_roles` is refused; excluding records cascades to their dependents only.
 
 ## Risks
+* **Schema version**: staging and production must be at the same schema before a data migration. Migration 0028 (anchorage mounts, `docs/ANCHORAGE-MOUNTS.md`) adds the table `foundation_anchorages`, which the tool classifies as construction data and migrates with the foundations.
 * **Staging changes after the export**: a freeze and a final export solve it; the plan always runs against the latest export.
 * **A new migration adding a table**: the tool stops until the table is classified in `plan.mjs` (a test enforces this).
 * **Attribution text names people**: carried as written.

@@ -1,3 +1,4 @@
+import { MountedAnchorage, mountedAnchorageText } from './MountedAnchorage'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
@@ -68,6 +69,7 @@ export function FoundationPage() {
         <Stat label="QA/QC" value={fraction(stats.qaqc)} sub={`${stats.qaqc.pending} pending review`} />
       </dl>
       <p className="mt-3 max-w-2xl text-xs leading-relaxed text-muted">{FOUNDATION_COMPLETE_DEFINITION}</p>
+      <MountedAnchorage foundationId={f.id} />
 
       <Section title="At a glance" description="The footing and each plinth, side by side.">
         <Glance idx={idx} f={f} plinths={plinths} />
@@ -165,7 +167,7 @@ function PlinthBlock({ f, p, defaultOpen }: { f: Foundation; p: Plinth; defaultO
       summary={
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[13px]">
           <span className="font-medium">Plinth {p.index}</span>
-          <span>{state.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code ?? 'No anchorage type'}</span>
+          <span>{(p.groupId && mountedAnchorageText(state, p.foundationId, p.groupId)) || state.anchorageTypes.find((t) => t.id === p.anchorageTypeId)?.code || 'No anchorage'}</span>
           <span className="text-muted">{plinthStep(idx, p)}</span>
           <ProgressBar value={progressOf(idx, acts)} width="w-20" />
           <FoundationStateBadge state={ps.state} blocked={ps.blocked} />
@@ -179,7 +181,7 @@ function PlinthBlock({ f, p, defaultOpen }: { f: Foundation; p: Plinth; defaultO
               <option value="">None assigned</option>
               {state.anchorageTypes.map((t) => <option key={t.id} value={t.id}>{t.code} — {t.description}</option>)}
             </Select>
-            {grouped && <p className="mt-1 text-xs text-muted">Set by this foundation’s anchorage groups (Manage in Foundations).</p>}
+            {grouped && <p className="mt-1 text-xs text-muted">Set by the anchorage groups on this plinth’s set (Manage in Foundations).</p>}
           </Field>
           <div>
             <span className="t-label mb-1.5 block">Materials</span>

@@ -1,5 +1,6 @@
 import type { ConstructionState } from '../types'
 import { areaIdFor, CATEGORY_LABEL, CATEGORY_ORDER, allLines } from './selectors'
+import { mountCount } from '../anchorageMounts'
 import { componentMap, embedComponent } from '../plates'
 import { anchorageInstances, boltAsComponent, instancesOf, itemsOf, reqKey, type RefSource } from './requirements'
 import type { ComponentCategory, GroupRef, TrackerLine, TrackerState } from './types'
@@ -89,7 +90,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     if (!f || f.archived || !comp || comp.kind !== 'embed-plate') continue
     for (const it of itemsOf({ ...comp, qty: fe.qty })) {
       if (reqKey(f.areaId, it, typeOf.get(comp.anchorageTypeId)?.code || f.number) !== l.deriveKey) continue
-      const qty = it.each * (fe.mode === 'total' ? 1 : (f.quantity ?? 1))
+      const qty = it.each * (fe.mode === 'total' ? 1 : mountCount(c, f, fe.mountGroupId))
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === comp.anchorageTypeId && !x.individual)
       if (existing) existing.qty += qty
       else out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: f.number, anchorageTypeId: comp.anchorageTypeId, anchorage: typeOf.get(comp.anchorageTypeId)?.code ?? f.number, qty })
@@ -101,7 +102,7 @@ function calculatedContributions(l: TrackerLine, c: ConsolidationSource): Contri
     for (const it of itemsOf(boltAsComponent(fb))) {
       if (reqKey(f.areaId, it, f.number) !== l.deriveKey) continue
       const existing = out.find((x) => x.foundationId === f.id && x.anchorageTypeId === null)
-      const qty = it.each * (fb.mode === 'total' ? 1 : f.quantity ?? 1)
+      const qty = it.each * (fb.mode === 'total' ? 1 : mountCount(c, f, fb.mountGroupId))
       if (existing) existing.qty += qty
       else out.push({ lineId: l.id, source: 'calculated', foundationId: f.id, foundation: f.number, anchorageTypeId: null, anchorage: 'Footing', qty })
     }

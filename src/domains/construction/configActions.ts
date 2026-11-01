@@ -1,7 +1,7 @@
 import { blankActivitiesFor } from './blankActivities'
 import { dimsProblem, hasAnyDim, shapeProblem } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, FootingShape, Foundation, FoundationBolt, FoundationEmbed, FoundationUnit, LibraryEmbedPlate, PlateSpec, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, FoundationUnit, LibraryEmbedPlate, MountGroupId, PlateSpec, Plinth } from './types'
 import { plateText, plateAsComponent, samePlate } from './plates'
 
 const fail = (error: string) => ({ error }) as const
@@ -9,8 +9,15 @@ const ok = (state: ConstructionState) => ({ state }) as const
 
 export const MAX_PLINTHS = 100
 
-/** One kind of plinth as entered on the form. `id` names an existing group (so its plinths and records are kept); absent = a new group. */
-export interface GroupInput { id?: string; anchorageTypeId: string | null; count: number; dims?: Dims | null }
+/** An anchorage group as entered on the form: `qty` anchorages of a library type. `id` names an existing one; absent = new. */
+export interface AnchorageInput { id?: string; anchorageTypeId: string; qty: number }
+export const MAX_ANCHORAGES_PER_MOUNT = 20
+/**
+ * One set of identical plinths as entered on the form: how many plinths, their default dimensions, and what is mounted on each of them. `id` names an existing set (so its plinths
+ * and records are kept); absent = a new set. `anchorages`, `bolts` and `embeds` replace what is mounted on the set when given and leave it unchanged when absent.
+ * `anchorageTypeId` is the older shorthand for one anchorage of that type on each plinth (null = nothing); it applies only when `anchorages` is absent.
+ */
+export interface GroupInput { id?: string; anchorageTypeId?: string | null; count: number; dims?: Dims | null; anchorages?: AnchorageInput[]; bolts?: FootingBoltInput[]; embeds?: FoundationEmbedInput[] }
 /** Anchor bolts installed in each footing, as entered on the form (a ComponentInput that is always a bolt). `id` names an existing entry; absent = new. */
 export type FootingBoltInput = Omit<ComponentInput, 'kind'> & { mode?: 'per-foundation' | 'total' }
 export const MAX_FOOTING_BOLTS = 10
@@ -32,7 +39,7 @@ export function plateProblem(p: PlateSpec | undefined): string | null {
   return null
 }
 export const MAX_FOUNDATION_EMBEDS = 10
-export interface FoundationConfig { footing?: Dims | null; /** The footing's shape and additions/deductions; null = back to the plain rectangle; absent = unchanged. */ footingShape?: FootingShape | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Absent = unchanged; a list replaces the foundation's footing bolts (empty = none). */ bolts?: FootingBoltInput[]; /** Absent = unchanged; a list replaces the foundation's embed plates (empty = none). */ embeds?: FoundationEmbedInput[] }
+export interface FoundationConfig { footing?: Dims | null; /** The footing's shape and additions/deductions; null = back to the plain rectangle; absent = unchanged. */ footingShape?: FootingShape | null; plinthBase?: 'above-footing' | 'from-footing-base'; groups?: GroupInput[]; /** Anchorage groups mounted on the footing. Absent = unchanged; a list replaces them (empty = none). */ anchorages?: AnchorageInput[]; /** Absent = unchanged; a list replaces the bolts mounted on the footing (empty = none). */ bolts?: FootingBoltInput[]; /** Absent = unchanged; a list replaces the embed plates mounted on the footing (empty = none). */ embeds?: FoundationEmbedInput[] }
 
 export const groupsOf = (s: ConstructionState, foundationId: string): AnchorageGroup[] => (s.anchorageGroups ?? []).filter((g) => g.foundationId === foundationId)
 
@@ -61,6 +68,60 @@ export function plinthTouched(s: ConstructionState, p: Plinth): boolean {
   return s.activities.some((a) => a.plinthId === p.id && !(a.status === 'not-started' && a.plannedDate === null && a.actualDate === null && a.notes === ''))
 }
 
+
+/** What is wrong with a list of anchorage groups for one mount (footing, or one set of plinths), or null. `mountId` is the set's existing id, to allow archived types already in use. */
+export function anchoragesProblem(s: ConstructionState, f: Foundation, list: AnchorageInput[], label: string, mountId?: string): string | null {
+  if (!Array.isArray(list) || list.length > MAX_ANCHORAGES_PER_MOUNT) return `${label}: at most ${MAX_ANCHORAGES_PER_MOUNT} anchorage groups per footing or set of plinths.`
+  const projectId = projectOfFoundation(s, f)
+  for (const [i, a] of list.entries()) {
+    const at = `${label} ${i + 1}`
+    if (!a || typeof a.anchorageTypeId !== 'string' || !a.anchorageTypeId) return `${at}: choose an anchorage type from this project’s library.`
+    if (!Number.isInteger(a.qty) || a.qty < 1 || a.qty > 100_000) return `${at}: enter a whole number of anchorages of 1 or more.`
+    const t = s.anchorageTypes.find((x) => x.id === a.anchorageTypeId)
+    if (!t || (t.projectId && t.projectId !== projectId)) return `${at}: choose an anchorage type from this project’s library.`
+    const had = (s.foundationAnchorages ?? []).some((x) => x.foundationId === f.id && x.anchorageTypeId === a.anchorageTypeId && (x.mountGroupId ?? null) === (mountId ?? null))
+    if (t.archived && !had) return `${at}: “${t.code}” is archived and cannot be used for new assignments.`
+    if (a.id && !(s.foundationAnchorages ?? []).some((x) => x.id === a.id && x.foundationId === f.id)) return `${at} no longer exists. Reload and try again.`
+  }
+  return null
+}
+
+export function boltsProblem(s: ConstructionState, f: Foundation, bolts: FootingBoltInput[], label: string, per: string): string | null {
+  if (!Array.isArray(bolts) || bolts.length > MAX_FOOTING_BOLTS) return `A foundation can have up to ${MAX_FOOTING_BOLTS} anchor bolt configurations on each footing or set of plinths.`
+  for (const [i, b] of bolts.entries()) {
+    if (b.mode !== undefined && b.mode !== 'per-foundation' && b.mode !== 'total') return `${label} ${i + 1}: choose per foundation or total.`
+    const p = componentProblem({ ...b, kind: 'bolt' }, i + 1)
+    if (p) return p.replace(/^Component \d+:/, `${label} ${i + 1}:`).replace('per anchorage', b.mode === 'total' ? 'in total' : per)
+    if (b.id && !(s.foundationBolts ?? []).some((x) => x.id === b.id && x.foundationId === f.id)) return `${label} ${i + 1} no longer exist. Reload and try again.`
+  }
+  return null
+}
+
+export function embedsProblem(s: ConstructionState, f: Foundation, embeds: FoundationEmbedInput[], label: string): string | null {
+  if (!Array.isArray(embeds) || embeds.length > MAX_FOUNDATION_EMBEDS) return `A foundation can have up to ${MAX_FOUNDATION_EMBEDS} embed plate configurations on each footing or set of plinths.`
+  const choices = new Set(embedChoices(s, projectOfFoundation(s, f)).map((x) => x.component.id))
+  const seen = new Set<string>()
+  for (const [i, e] of embeds.entries()) {
+    const at = `${label} ${i + 1}`
+    if (!e || typeof e !== 'object') return `${at}: choose an embed plate.`
+    if (e.mode !== 'per-foundation' && e.mode !== 'total') return `${at}: choose per foundation or total.`
+    if (!Number.isInteger(e.qty) || e.qty < 1 || e.qty > 1_000_000) return `${at}: enter a whole number of 1 or more.`
+    if (e.componentId) {
+      const existing = (s.foundationEmbeds ?? []).some((x) => x.foundationId === f.id && x.componentId === e.componentId)
+      if (!choices.has(e.componentId) && !existing) return `${at}: choose an embed plate from the Anchorage Library.`
+    } else {
+      const bad = plateProblem(e.plate)
+      if (bad) return `${at}: ${bad}`
+      if (e.save !== undefined && e.save !== 'foundation' && e.save !== 'library') return `${at}: choose where to save the plate.`
+    }
+    const key = `${e.componentId || plateText(e.plate as PlateSpec)}|${e.mode}`
+    if (seen.has(key)) return `${at}: that embed plate is already listed with the same quantity method. Combine them.`
+    seen.add(key)
+    if (e.id && !(s.foundationEmbeds ?? []).some((x) => x.id === e.id && x.foundationId === f.id)) return `${at} no longer exists. Reload and try again.`
+  }
+  return null
+}
+
 export function configProblem(s: ConstructionState, f: Foundation, cfg: FoundationConfig): string | null {
   const bad = dimsProblem(cfg.footing, 'Footing')
   if (bad) return bad
@@ -69,58 +130,23 @@ export function configProblem(s: ConstructionState, f: Foundation, cfg: Foundati
     if (shaped) return shaped
   }
   if (cfg.plinthBase !== undefined && cfg.plinthBase !== 'above-footing' && cfg.plinthBase !== 'from-footing-base') return 'Choose how plinth height is measured.'
-  if (cfg.bolts !== undefined) {
-    if (!Array.isArray(cfg.bolts) || cfg.bolts.length > MAX_FOOTING_BOLTS) return `A foundation can have up to ${MAX_FOOTING_BOLTS} anchor bolt configurations.`
-    for (const [i, b] of cfg.bolts.entries()) {
-      if (b.mode !== undefined && b.mode !== 'per-foundation' && b.mode !== 'total') return `Anchor bolts ${i + 1}: choose per foundation or total.`
-      const p = componentProblem({ ...b, kind: 'bolt' }, i + 1)
-      if (p) return p.replace(/^Component \d+:/, `Anchor bolts ${i + 1}:`).replace('per anchorage', b.mode === 'total' ? 'in total' : 'per footing')
-      if (b.id && !(s.foundationBolts ?? []).some((x) => x.id === b.id && x.foundationId === f.id)) return `Anchor bolts ${i + 1} no longer exist. Reload and try again.`
-    }
-  }
-  if (cfg.embeds !== undefined) {
-    if (!Array.isArray(cfg.embeds) || cfg.embeds.length > MAX_FOUNDATION_EMBEDS) return `A foundation can have up to ${MAX_FOUNDATION_EMBEDS} embed plate configurations.`
-    const choices = new Set(embedChoices(s, projectOfFoundation(s, f)).map((x) => x.component.id))
-    const seen = new Set<string>()
-    for (const [i, e] of cfg.embeds.entries()) {
-      const at = `Embed plates ${i + 1}`
-      if (!e || typeof e !== 'object') return `${at}: choose an embed plate.`
-      if (e.mode !== 'per-foundation' && e.mode !== 'total') return `${at}: choose per foundation or total.`
-      if (!Number.isInteger(e.qty) || e.qty < 1 || e.qty > 1_000_000) return `${at}: enter a whole number of 1 or more.`
-      if (e.componentId) {
-        const existing = (s.foundationEmbeds ?? []).some((x) => x.foundationId === f.id && x.componentId === e.componentId)
-        if (!choices.has(e.componentId) && !existing) return `${at}: choose an embed plate from the Anchorage Library.`
-      } else {
-        const bad = plateProblem(e.plate)
-        if (bad) return `${at}: ${bad}`
-        if (e.save !== undefined && e.save !== 'foundation' && e.save !== 'library') return `${at}: choose where to save the plate.`
-      }
-      const key = `${e.componentId || plateText(e.plate as PlateSpec)}|${e.mode}`
-      if (seen.has(key)) return `${at}: that embed plate is already listed with the same quantity method. Combine them.`
-      seen.add(key)
-      if (e.id && !(s.foundationEmbeds ?? []).some((x) => x.id === e.id && x.foundationId === f.id)) return `${at} no longer exists. Reload and try again.`
-    }
-  }
+  if (cfg.anchorages !== undefined) { const p = anchoragesProblem(s, f, cfg.anchorages, 'Footing anchorage'); if (p) return p }
+  if (cfg.bolts !== undefined) { const p = boltsProblem(s, f, cfg.bolts, 'Anchor bolts', 'per footing'); if (p) return p }
+  if (cfg.embeds !== undefined) { const p = embedsProblem(s, f, cfg.embeds, 'Embed plates'); if (p) return p }
   if (!cfg.groups) return null
-  const types = new Set<string | null>()
   let total = 0
-  const projectId = projectOfFoundation(s, f)
   for (const [i, g] of cfg.groups.entries()) {
-    const label = `Anchorage group ${i + 1}`
+    const label = `Plinths ${i + 1}`
     if (!Number.isInteger(g.count) || g.count < 1 || g.count > MAX_PLINTHS) return `${label}: enter a whole number of plinths from 1 to ${MAX_PLINTHS}.`
     total += g.count
-    const key = g.anchorageTypeId ?? null
-    if (types.has(key)) return key === null ? 'Only one group can be left without an anchorage type. Combine them.' : `${label}: that anchorage type is already in another group. Combine them into one group.`
-    types.add(key)
-    if (key !== null) {
-      const t = s.anchorageTypes.find((x) => x.id === key)
-      const existing = g.id ? (s.anchorageGroups ?? []).find((x) => x.id === g.id) : undefined
-      if (!t || (t.projectId && t.projectId !== projectId)) return `${label}: choose an anchorage type from this project’s library.`
-      if (t.archived && existing?.anchorageTypeId !== key) return `${label}: “${t.code}” is archived and cannot be used for new assignments.`
-    }
     const d = dimsProblem(g.dims, `${label} dimensions`)
     if (d) return d
-    if (g.id && !(s.anchorageGroups ?? []).some((x) => x.id === g.id && x.foundationId === f.id)) return `${label} no longer exists. Reload and try again.`
+    if (g.id && !(s.anchorageGroups ?? []).some((x) => x.id === g.id && x.foundationId === f.id)) return `${label} no longer exist. Reload and try again.`
+    const shorthand = g.anchorages === undefined && g.anchorageTypeId ? [{ anchorageTypeId: g.anchorageTypeId, qty: 1 }] : undefined
+    const mounts = g.anchorages ?? shorthand
+    if (mounts) { const p = anchoragesProblem(s, f, mounts, `${label} anchorage`, g.id); if (p) return p }
+    if (g.bolts) { const p = boltsProblem(s, f, g.bolts, `${label} anchor bolts`, 'per plinth'); if (p) return p }
+    if (g.embeds) { const p = embedsProblem(s, f, g.embeds, `${label} embed plates`); if (p) return p }
   }
   if (total > MAX_PLINTHS) return `A foundation can have at most ${MAX_PLINTHS} plinths.`
   return null
@@ -158,7 +184,7 @@ export function applyGroups(s: ConstructionState, f: Foundation, inputs: GroupIn
   for (const inp of inputs) {
     const existing = inp.id ? oldGroups.find((g) => g.id === inp.id) : undefined
     const id = existing?.id ?? makeId(++gn)
-    const type = inp.anchorageTypeId ?? null
+    const type = inp.anchorageTypeId !== undefined ? inp.anchorageTypeId : existing?.anchorageTypeId ?? inp.anchorages?.[0]?.anchorageTypeId ?? null
     const members = mine.filter((p) => p.groupId === id).sort((a, b) => a.index - b.index)
     const adoptees = existing ? [] : ungrouped.filter((p) => (p.anchorageTypeId ?? null) === type && !adopted.has(p.id))
     for (const p of adoptees) adopted.set(p.id, id)
@@ -189,16 +215,23 @@ export function applyGroups(s: ConstructionState, f: Foundation, inputs: GroupIn
   plinths = [...plinths, ...added]
   activities = [...activities.filter((a) => !(a.plinthId && rem.has(a.plinthId))), ...blankActivitiesFor(f, added).filter((a: Activity) => a.plinthId && added.some((p) => p.id === a.plinthId))]
   const total = groups.reduce((t, g) => t + g.count, 0)
+  // A set of plinths that is taken away takes what was mounted on it with it (anchorage groups, bolts and embed plates).
+  const gone = new Set(oldGroups.filter((g) => !groups.some((n) => n.id === g.id)).map((g) => g.id))
   return {
     ...s, plinths, activities,
+    ...(s.foundationAnchorages ? { foundationAnchorages: s.foundationAnchorages.filter((a) => !a.mountGroupId || !gone.has(a.mountGroupId)) } : {}),
+    ...(s.foundationBolts ? { foundationBolts: s.foundationBolts.filter((b) => !b.mountGroupId || !gone.has(b.mountGroupId)) } : {}),
+    ...(s.foundationEmbeds ? { foundationEmbeds: s.foundationEmbeds.filter((e) => !e.mountGroupId || !gone.has(e.mountGroupId)) } : {}),
     anchorageGroups: [...(s.anchorageGroups ?? []).filter((g) => g.foundationId !== f.id), ...groups],
     foundations: s.foundations.map((x) => (x.id === f.id ? { ...x, plinthsPerFoundation: total } : x)),
   }
 }
 
-/** Sets a foundation's footing bolts to exactly `inputs`, keeping the id of any entry that is edited in place. */
-export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingBoltInput[]): ConstructionState {
-  const mine = (s.foundationBolts ?? []).filter((b) => b.foundationId === f.id)
+const sameMount = (a: MountGroupId | undefined, b: MountGroupId) => (a ?? null) === b
+
+/** Sets the anchor bolts mounted on a foundation's footing (or on one set of plinths) to exactly `inputs`, keeping the id of any entry that is edited in place. Other mounts are untouched. */
+export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingBoltInput[], mount: MountGroupId = null): ConstructionState {
+  const mine = (s.foundationBolts ?? []).filter((b) => b.foundationId === f.id && sameMount(b.mountGroupId, mount))
   const used = new Set((s.foundationBolts ?? []).map((b) => b.id))
   const text = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max)
   const next: FoundationBolt[] = []
@@ -208,15 +241,15 @@ export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingB
     next.push({
       id, foundationId: f.id, qty: b.qty, spec: text(b.spec, 120), diameter: text(b.diameter, 30), length: b.length as number, lengthUnit: b.lengthUnit === 'in' ? 'in' : 'mm',
       thread: b.thread as 'both-ends' | 'all-thread', topThread: b.thread === 'both-ends' ? (b.topThread as number) : null, bottomThread: b.thread === 'both-ends' ? (b.bottomThread as number) : null,
-      nutsPerBolt: b.nutsPerBolt ?? 0, washersPerBolt: b.washersPerBolt ?? 0, nutSize: text(b.nutSize, 30), washerSize: text(b.washerSize, 30), mode: b.mode === 'total' ? 'total' : 'per-foundation',
+      nutsPerBolt: b.nutsPerBolt ?? 0, washersPerBolt: b.washersPerBolt ?? 0, nutSize: text(b.nutSize, 30), washerSize: text(b.washerSize, 30), mode: b.mode === 'total' ? 'total' : 'per-foundation', ...(mount ? { mountGroupId: mount } : {}),
     })
   }
-  return { ...s, foundationBolts: [...(s.foundationBolts ?? []).filter((b) => b.foundationId !== f.id), ...next] }
+  return { ...s, foundationBolts: [...(s.foundationBolts ?? []).filter((b) => b.foundationId !== f.id || !sameMount(b.mountGroupId, mount)), ...next] }
 }
 
-/** Sets a foundation's embed plates to exactly `inputs`, keeping the id of any entry edited in place. */
-export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: FoundationEmbedInput[], by = '', now = ''): ConstructionState {
-  const mine = (s.foundationEmbeds ?? []).filter((e) => e.foundationId === f.id)
+/** Sets the embed plates mounted on a foundation's footing (or on one set of plinths) to exactly `inputs`, keeping the id of any entry edited in place. Other mounts are untouched. */
+export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: FoundationEmbedInput[], by = '', now = '', mount: MountGroupId = null): ConstructionState {
+  const mine = (s.foundationEmbeds ?? []).filter((e) => e.foundationId === f.id && sameMount(e.mountGroupId, mount))
   const projectId = projectOfFoundation(s, f) ?? ''
   let library = s.libraryEmbedPlates ?? []
   const cleanPlate = (p: PlateSpec): PlateSpec => ({ thickness: p.thickness, width: p.width, length: p.length, unit: p.unit, studCount: p.studCount ?? null, studDiameter: p.studDiameter ?? null, studLength: p.studLength ?? null })
@@ -236,11 +269,57 @@ export function applyEmbeds(s: ConstructionState, f: Foundation, inputs: Foundat
   for (const [i, e] of inputs.entries()) {
     let id = e.id ?? ''
     if (!id) { let n = mine.length + i + 1; id = `${f.id}-em${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-em${++n}` }
-    if (e.componentId) next.push({ id, foundationId: f.id, componentId: e.componentId, qty: e.qty, mode: e.mode })
-    else if (e.save === 'library') next.push({ id, foundationId: f.id, componentId: libraryPlate(e.plate as PlateSpec), qty: e.qty, mode: e.mode })
-    else next.push({ id, foundationId: f.id, componentId: '', qty: e.qty, mode: e.mode, plate: cleanPlate(e.plate as PlateSpec) })
+    const at = mount ? { mountGroupId: mount } : {}
+    if (e.componentId) next.push({ id, foundationId: f.id, componentId: e.componentId, qty: e.qty, mode: e.mode, ...at })
+    else if (e.save === 'library') next.push({ id, foundationId: f.id, componentId: libraryPlate(e.plate as PlateSpec), qty: e.qty, mode: e.mode, ...at })
+    else next.push({ id, foundationId: f.id, componentId: '', qty: e.qty, mode: e.mode, plate: cleanPlate(e.plate as PlateSpec), ...at })
   }
-  return { ...s, libraryEmbedPlates: library, foundationEmbeds: [...(s.foundationEmbeds ?? []).filter((e) => e.foundationId !== f.id), ...next] }
+  return { ...s, libraryEmbedPlates: library, foundationEmbeds: [...(s.foundationEmbeds ?? []).filter((e) => e.foundationId !== f.id || !sameMount(e.mountGroupId, mount)), ...next] }
+}
+
+/** Sets the anchorage groups mounted on a foundation's footing (or on one set of plinths) to exactly `inputs`, keeping the id of any entry edited in place. Other mounts are untouched. */
+export function applyAnchorages(s: ConstructionState, f: Foundation, inputs: AnchorageInput[], mount: MountGroupId = null): ConstructionState {
+  const all = s.foundationAnchorages ?? []
+  const mine = all.filter((a) => a.foundationId === f.id && sameMount(a.mountGroupId, mount))
+  const used = new Set(all.map((a) => a.id))
+  const next: FoundationAnchorage[] = []
+  for (const [i, a] of inputs.entries()) {
+    let id = a.id ?? ''
+    if (!id) { let n = mine.length + i + 1; id = `${f.id}-a${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-a${++n}` }
+    next.push({ id, foundationId: f.id, mountGroupId: mount, anchorageTypeId: a.anchorageTypeId, qty: a.qty })
+  }
+  return { ...s, foundationAnchorages: [...all.filter((a) => a.foundationId !== f.id || !sameMount(a.mountGroupId, mount)), ...next] }
+}
+
+/** Keeps the older single-type view of each set of plinths (and its plinths) in step with its first anchorage group. */
+export function syncPrimaryTypes(s: ConstructionState, f: Foundation): ConstructionState {
+  const groups = groupsOf(s, f.id)
+  if (groups.length === 0) return s
+  const type = new Map(groups.map((g) => [g.id, (s.foundationAnchorages ?? []).find((a) => a.foundationId === f.id && a.mountGroupId === g.id)?.anchorageTypeId ?? null]))
+  return {
+    ...s,
+    anchorageGroups: (s.anchorageGroups ?? []).map((g) => (g.foundationId === f.id ? { ...g, anchorageTypeId: type.get(g.id) ?? null } : g)),
+    plinths: s.plinths.map((p) => (p.foundationId === f.id && p.groupId && type.has(p.groupId) ? { ...p, anchorageTypeId: type.get(p.groupId) ?? null } : p)),
+  }
+}
+
+/** What each set of plinths (in the order given) and the footing carry, as asked for by `cfg`; anything not mentioned is left as it is. Run after `applyGroups`. */
+export function applyMounts(s: ConstructionState, f: Foundation, cfg: FoundationConfig, by = '', now = ''): ConstructionState {
+  let next = s
+  const ids = groupsOf(next, f.id).map((g) => g.id)
+  if (cfg.groups && ids.length === cfg.groups.length) {
+    for (const [i, g] of cfg.groups.entries()) {
+      const gid = ids[i]
+      const anchorages = g.anchorages ?? (g.anchorageTypeId !== undefined ? (g.anchorageTypeId ? [{ anchorageTypeId: g.anchorageTypeId, qty: 1 }] : []) : undefined)
+      if (anchorages) next = applyAnchorages(next, f, anchorages, gid)
+      if (g.bolts) next = applyBolts(next, f, g.bolts, gid)
+      if (g.embeds) next = applyEmbeds(next, f, g.embeds, by, now, gid)
+    }
+  }
+  if (cfg.anchorages) next = applyAnchorages(next, f, cfg.anchorages, null)
+  if (cfg.bolts) next = applyBolts(next, f, cfg.bolts, null)
+  if (cfg.embeds) next = applyEmbeds(next, f, cfg.embeds, by, now, null)
+  return syncPrimaryTypes(next, f)
 }
 
 /** Quantity can only fall to the highest physical foundation that has no pour records. */
@@ -281,9 +360,7 @@ export const configureFoundation = (id: string, cfg: FoundationConfig & { descri
     if (typeof r === 'string') return fail(r)
     next = r
   }
-  if (cfg.embeds) next = applyEmbeds(next, next.foundations.find((x) => x.id === id)!, cfg.embeds, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString()))
-  if (cfg.bolts) next = applyBolts(next, next.foundations.find((x) => x.id === id)!, cfg.bolts)
-  return ok(next)
+  return ok(applyMounts(next, next.foundations.find((x) => x.id === id)!, cfg, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString())))
 }
 
 /** Sets (or clears, with null) the individual dimensions of one plinth. They replace its group's default for that plinth only. */
