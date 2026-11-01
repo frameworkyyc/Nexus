@@ -62,7 +62,12 @@ export function AnchorageLibrary() {
                 <tbody>
                   {shown.map((t) => (
                     <tr key={t.id} className="border-b border-line">
-                      <td className="py-3 pr-4 font-medium"><span className="inline-flex items-center gap-1.5">{t.code}<AnchorageWarning issues={t.archived || !anchorageIssue(state, t.id) ? [] : [anchorageIssue(state, t.id) as string]} label="Not fully configured" /></span>{t.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</td>
+                      <td className="py-3 pr-4 font-medium">
+                        <div className="flex items-start gap-2">
+                          <span className="min-w-0 flex-1 break-words">{t.code}{t.archived && <span className="ml-2 text-xs font-normal text-muted">Archived</span>}</span>
+                          <span className="flex h-[1lh] w-5 shrink-0 items-center justify-end"><AnchorageWarning issues={t.archived || !anchorageIssue(state, t.id) ? [] : [anchorageIssue(state, t.id) as string]} label="Not fully configured" align="right" /></span>
+                        </div>
+                      </td>
                       <td className="py-3 pr-4 text-muted">{t.description || '—'}</td>
                       <td className="py-3 pr-4 text-muted">{anchorageIssue(state, t.id) ? <span className="text-[var(--nx-bad)]">{componentsSummary(state.anchorageComponents ?? [], t.id)}</span> : componentsSummary(state.anchorageComponents ?? [], t.id)}</td>
                       <td className="py-3 pr-4 tabular-nums text-muted">{usedBy(t)} material{usedBy(t) === 1 ? '' : 's'} · {plinths(t)} plinth{plinths(t) === 1 ? '' : 's'}</td>
