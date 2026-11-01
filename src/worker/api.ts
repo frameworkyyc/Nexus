@@ -1,13 +1,15 @@
-import { authenticate, AuthError, type AuthEnv } from './auth'
+import { AuthError } from './auth'
+import { handleAuthRoute, identify, providerOf, type AuthRouteEnv } from './authRoutes'
+import { invitationsClient, workosConfig } from './workos'
 import type { D1 } from './db'
 import { applyMigration, previewMigration, type MigrationBundle } from './migrate'
 import { checkIntegrity, createBackup, HttpError, readModule, runCommand, systemClock, versions, type Clock } from './service'
-import { inviteMember, listMembers, listRoles, requirePermission, resolveActor, restoreMember, revokeMember, setRole, updateMember, type RoleEnv } from './roles'
+import { inviteMember, listMembers, listRoles, requirePermission, resendInvitation, resolveActor, restoreMember, revokeMember, setRole, updateMember, type RoleEnv } from './roles'
 import { scopeOf } from './scope'
 import { ROLE_PERMISSIONS } from '@/shared/rbac'
 import { MODULE_NAMES, type ModuleName } from '@/shared/registry'
 
-export interface Env extends AuthEnv, RoleEnv {
+export interface Env extends AuthRouteEnv, RoleEnv {
   DB?: D1
   NEXUS_ENV?: string // "demo" (public, API off) | "staging" | "production"
 }
@@ -35,10 +37,13 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
     // are even considered, so nothing a visitor sends can reach a record.
     if (env.NEXUS_ENV === 'demo') return json({ error: 'This is the public demo. It has no server API; sample data stays in your browser.', code: 'demo' }, 404)
     if (path === '/api/health') {
-      return json({ ok: true, environment: env.NEXUS_ENV ?? 'unknown', database: !!env.DB, access: !!(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) || env.DEV_BYPASS_AUTH === 'true' })
+      return json({ ok: true, environment: env.NEXUS_ENV ?? 'unknown', database: !!env.DB, access: (providerOf(env) !== 'workos' && !!(env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD)) || (providerOf(env) !== 'access' && !!workosConfig(env)) || env.DEV_BYPASS_AUTH === 'true', auth: providerOf(env) })
     }
     if (!path.startsWith('/api/')) return json({ error: 'Not found.' }, 404)
-    const who = await authenticate(request, env, fetcher, clock.now().getTime())
+    // Sign-in, callback and sign-out run before authentication: they are how a session starts and ends.
+    const authResponse = await handleAuthRoute(path, request, env, env.DB, fetcher, clock.now())
+    if (authResponse) return authResponse
+    const who = await identify(request, env, env.DB, fetcher, clock.now().getTime())
     // State-changing requests must come from this site, not from a page on another origin that rides the user's session.
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       const origin = request.headers.get('origin')
@@ -48,22 +53,25 @@ export async function handleApi(request: Request, env: Env, clock: Clock = syste
     const db = env.DB
     // Who the verified identity is *allowed* to be, from the server's own records. Nothing in the request chooses the role.
     const actor = await resolveActor(db, env, who, clock.now())
+    // WorkOS emails the invitations itself; without WorkOS sign-in (the Access setup) invitations stay manual.
+    const workos = providerOf(env) === 'access' ? null : workosConfig(env)
+    const invites = workos ? invitationsClient(workos, fetcher) : null
 
     if (path === '/api/session' && request.method === 'GET') {
       const info = await db.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").first<{ value: string }>()
-      return json({ ok: true, user: who.email, role: actor.role, permissions: actor.role ? ROLE_PERMISSIONS[actor.role] : [], revoked: !!actor.revoked, projects: scopeOf(actor), environment: env.NEXUS_ENV ?? 'unknown', schemaVersion: info?.value ?? 'unknown', versions: await versions(db), serverDate: clock.now().toISOString().slice(0, 10) })
+      return json({ ok: true, user: who.email, role: actor.role, permissions: actor.role ? ROLE_PERMISSIONS[actor.role] : [], auth: providerOf(env), via: who.via, revoked: !!actor.revoked, projects: scopeOf(actor), environment: env.NEXUS_ENV ?? 'unknown', schemaVersion: info?.value ?? 'unknown', versions: await versions(db), serverDate: clock.now().toISOString().slice(0, 10) })
     }
     if (path === '/api/roles' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json({ roles: await listRoles(db) }) }
     if (path === '/api/roles' && request.method === 'POST') {
       const body = (await readJson(request)) as { email?: unknown; role?: unknown }
       return json({ roles: await setRole(db, actor, body.email, body.role ?? null, clock.now()) })
     }
-    if (path === '/api/members' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json({ members: await listMembers(db) }) }
-    const memberAction = /^\/api\/members\/(invite|update|revoke|restore)$/.exec(path)
+    if (path === '/api/members' && request.method === 'GET') { requirePermission(actor, 'access.manage'); return json({ members: await listMembers(db), invitations: { enabled: !!invites, signInUrl: workos ? `${workos.origin}/api/auth/login` : null } }) }
+    const memberAction = /^\/api\/members\/(invite|update|revoke|restore|resend)$/.exec(path)
     if (memberAction && request.method === 'POST') {
       const body = (await readJson(request)) as Record<string, unknown>
-      const act = { invite: inviteMember, update: updateMember, revoke: revokeMember, restore: restoreMember }[memberAction[1] as 'invite']
-      return json({ members: await act(db, actor, body, clock.now()) })
+      const act = { invite: inviteMember, update: updateMember, revoke: revokeMember, restore: restoreMember, resend: resendInvitation }[memberAction[1] as 'invite']
+      return json({ members: await act(db, actor, body, clock.now(), invites) })
     }
     const stateMatch = /^\/api\/state\/(\w+)$/.exec(path)
     if (stateMatch && request.method === 'GET') {

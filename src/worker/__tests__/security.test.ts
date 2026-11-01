@@ -99,7 +99,7 @@ describe('the API is not publicly readable or writable', () => {
   it('the health endpoint reveals only configuration, never data', async () => {
     const r = await api(configured, {}, '/api/health')
     expect(r.status).toBe(200)
-    expect(Object.keys(r.body).sort()).toEqual(['access', 'database', 'environment', 'ok'])
+    expect(Object.keys(r.body).sort()).toEqual(['access', 'auth', 'database', 'environment', 'ok'])
   })
 
   it('an unauthenticated request cannot read the backup or the integrity report', async () => {

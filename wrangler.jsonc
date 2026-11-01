@@ -41,7 +41,11 @@
       "ACCESS_TEAM_DOMAIN": "https://frameworkco-admin.cloudflareaccess.com",
       "ACCESS_AUD": "4026513ce48dab9a17746204c3dff5e2a86400a7db34632ff4f701d805318a2f",
       // First administrator (docs/MATERIALS.md): used only while no administrator exists, and only for a request Cloudflare Access has verified.
-      "INITIAL_ADMIN_EMAIL": "hello@frameworkco.ca"
+      "INITIAL_ADMIN_EMAIL": "hello@frameworkco.ca",
+      // Sign-in: "access" (Cloudflare Access, the default and what runs today), "both" (accept either, for verifying WorkOS), or "workos" (WorkOS AuthKit only).
+      // Leave "access" until docs/AUTH.md steps 1-4 are done and verified. WorkOS needs WORKOS_CLIENT_ID and APP_BASE_URL here, and the secrets WORKOS_API_KEY and SESSION_PEPPER
+      // (npx wrangler preview secret put ... --name staging). Never put the API key or pepper in this file.
+      "AUTH_PROVIDER": "access"
     },
     // The STAGING database only. Never put nexus-production here. Migrations 0001-0007 are applied to it (docs/OPERATIONS.md).
     "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150", "migrations_dir": "migrations" }]

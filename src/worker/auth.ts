@@ -10,7 +10,7 @@ export interface AuthEnv {
   DEV_BYPASS_AUTH?: string // "true" only honoured for localhost requests
 }
 
-export interface Identity { email: string; via: 'access' | 'dev' }
+export interface Identity { email: string; via: 'access' | 'dev' | 'workos' }
 export class AuthError extends Error {
   constructor(public status: 401 | 403 | 503, message: string, public code: string) { super(message) }
 }
@@ -33,7 +33,7 @@ async function keys(teamDomain: string, fetcher: typeof fetch, forceRefresh: boo
 
 export const resetAuthCache = () => { cache = null }
 
-const isLocal = (url: URL) => ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+export const isLocal = (url: URL) => ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
 
 export async function authenticate(request: Request, env: AuthEnv, fetcher: typeof fetch = fetch, nowMs = Date.now()): Promise<Identity> {
   const url = new URL(request.url)

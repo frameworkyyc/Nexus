@@ -1,6 +1,8 @@
 import type { AuthEnv, Identity } from './auth'
 import type { D1 } from './db'
 import { HttpError } from './service'
+import { InviteError, type Invitations } from './workos'
+import { revokeSessionsOf } from './session'
 import { can, isRole, permissionForCommand, ROLES, type Permission, type Role } from '@/shared/rbac'
 
 export interface RoleEnv extends AuthEnv {
@@ -99,14 +101,21 @@ export async function setRole(db: D1, actor: Actor, targetRaw: unknown, roleRaw:
 
 /* ── Team members: invitations, permissions, project access, revocation ─────────────────────────────────────────────────────────── */
 
-export interface Member { email: string; role: Role; status: MemberStatus; projectIds: string[]; assignedBy: string; assignedAt: string; lastSeenAt: string | null }
+export type InvitationDelivery = 'sent' | 'failed' | 'existing_user' | 'not_configured'
+export interface Member {
+  email: string; role: Role; status: MemberStatus; projectIds: string[]; assignedBy: string; assignedAt: string; lastSeenAt: string | null
+  /** Has signed in through WorkOS at least once. */
+  signedIn: boolean
+  /** What is known about the WorkOS invitation email. delivery null = none was ever sent. */
+  invitation: { delivery: InvitationDelivery | null; sentAt: string | null; expiresAt: string | null }
+}
 
 export async function listMembers(db: D1): Promise<Member[]> {
   const [{ results: rows }, { results: links }] = await Promise.all([
-    db.prepare('SELECT email, role, status, assigned_by, assigned_at, last_seen_at FROM user_roles ORDER BY email').all<{ email: string; role: Role; status: MemberStatus; assigned_by: string; assigned_at: string; last_seen_at: string | null }>(),
+    db.prepare('SELECT email, role, status, assigned_by, assigned_at, last_seen_at, workos_user_id, invitation_delivery, invitation_sent_at, invitation_expires_at FROM user_roles ORDER BY email').all<{ email: string; role: Role; status: MemberStatus; assigned_by: string; assigned_at: string; last_seen_at: string | null; workos_user_id: string | null; invitation_delivery: InvitationDelivery | null; invitation_sent_at: string | null; invitation_expires_at: string | null }>(),
     db.prepare('SELECT email, project_id FROM user_projects ORDER BY project_id').all<{ email: string; project_id: string }>(),
   ])
-  return rows.map((r) => ({ email: r.email, role: r.role, status: r.status, projectIds: r.role === 'admin' ? [] : links.filter((l) => l.email === r.email).map((l) => l.project_id), assignedBy: r.assigned_by, assignedAt: r.assigned_at, lastSeenAt: r.last_seen_at }))
+  return rows.map((r) => ({ email: r.email, role: r.role, status: r.status, projectIds: r.role === 'admin' ? [] : links.filter((l) => l.email === r.email).map((l) => l.project_id), assignedBy: r.assigned_by, assignedAt: r.assigned_at, lastSeenAt: r.last_seen_at, signedIn: !!r.workos_user_id, invitation: { delivery: r.invitation_delivery, sentAt: r.invitation_sent_at, expiresAt: r.invitation_expires_at } }))
 }
 
 async function validProjectIds(db: D1, raw: unknown): Promise<string[]> {
@@ -145,8 +154,28 @@ const roleOf = (raw: unknown): Role => {
   return raw
 }
 
+const INVITE_DAYS = 7
+/** Asks WorkOS to email an invitation (when WorkOS sign-in is configured) and records what happened. A failure never undoes the membership: the admin can Resend. */
+async function sendInvitation(db: D1, invites: Invitations | null, email: string, now: Date): Promise<void> {
+  let delivery: InvitationDelivery = 'not_configured'
+  let id: string | null = null
+  let sentAt: string | null = null
+  let expiresAt: string | null = null
+  if (invites) {
+    try {
+      const r = await invites.create(email, INVITE_DAYS)
+      id = r.id; sentAt = now.toISOString(); expiresAt = r.expiresAt ?? new Date(now.getTime() + INVITE_DAYS * 86_400_000).toISOString(); delivery = 'sent'
+    } catch (e) {
+      delivery = 'failed'
+      // WorkOS refuses to invite someone who already has a sign-in: they just need the Nexus link, not an invitation.
+      if (e instanceof InviteError && e.code === 'workos_rejected') { try { if ((await invites.findUserByEmail(email)).exists) delivery = 'existing_user' } catch { /* stays failed */ } }
+    }
+  }
+  await db.prepare('UPDATE user_roles SET workos_invitation_id = ?, invitation_sent_at = ?, invitation_expires_at = ?, invitation_delivery = ? WHERE email = ?').bind(id, sentAt, expiresAt, delivery, email).run()
+}
+
 /** Adds a member as Invited. They become Active on their first verified sign-in. No email is sent: the administrator tells them. */
-export async function inviteMember(db: D1, actor: Actor, input: { email?: unknown; role?: unknown; projectIds?: unknown }, now: Date): Promise<Member[]> {
+export async function inviteMember(db: D1, actor: Actor, input: { email?: unknown; role?: unknown; projectIds?: unknown }, now: Date, invites: Invitations | null = null): Promise<Member[]> {
   requirePermission(actor, 'access.manage')
   const email = emailOf(input.email)
   const role = roleOf(input.role)
@@ -159,6 +188,7 @@ export async function inviteMember(db: D1, actor: Actor, input: { email?: unknow
     ...projectStatements(db, email, projectIds, actor.email, at),
     auditStatement(db, at, actor.email, email, existing ? 'revoked' : null, `invited:${role}`),
   ])
+  await sendInvitation(db, invites, email, now)
   return listMembers(db)
 }
 
@@ -182,7 +212,7 @@ export async function updateMember(db: D1, actor: Actor, input: { email?: unknow
 }
 
 /** Withdraws access immediately: the very next request from this person is refused, whatever Cloudflare Access says. The record is kept. */
-export async function revokeMember(db: D1, actor: Actor, input: { email?: unknown }, now: Date): Promise<Member[]> {
+export async function revokeMember(db: D1, actor: Actor, input: { email?: unknown }, now: Date, invites: Invitations | null = null): Promise<Member[]> {
   requirePermission(actor, 'access.manage')
   const email = emailOf(input.email)
   if (email === normalizeEmail(actor.email)) throw new HttpError(409, 'You cannot revoke your own access.', 'self')
@@ -191,12 +221,16 @@ export async function revokeMember(db: D1, actor: Actor, input: { email?: unknow
   if (current.status === 'revoked') return listMembers(db)
   if (current.role === 'admin' && (await otherActiveAdmins(db, email)) === 0) throw new HttpError(409, 'There must always be at least one administrator.', 'last-admin')
   const at = now.toISOString()
+  const pending = await db.prepare('SELECT workos_invitation_id AS id FROM user_roles WHERE email = ?').bind(email).first<{ id: string | null }>()
   await db.batch([db.prepare("UPDATE user_roles SET status = 'revoked' WHERE email = ?").bind(email), auditStatement(db, at, actor.email, email, current.role, 'revoked')])
+  // Every Nexus session ends now; a pending WorkOS invitation is withdrawn on a best-effort basis (the membership check already refuses them).
+  await revokeSessionsOf(db, email, 'revoked', now)
+  if (invites && pending?.id) { try { await invites.revoke(pending.id) } catch { /* the invitation can no longer be used to get in */ } }
   return listMembers(db)
 }
 
 /** Puts a revoked member back as Invited (they become Active on their next sign-in), with the permission and projects they had. */
-export async function restoreMember(db: D1, actor: Actor, input: { email?: unknown }, now: Date): Promise<Member[]> {
+export async function restoreMember(db: D1, actor: Actor, input: { email?: unknown }, now: Date, invites: Invitations | null = null): Promise<Member[]> {
   requirePermission(actor, 'access.manage')
   const email = emailOf(input.email)
   const current = await memberRow(db, email)
@@ -204,5 +238,32 @@ export async function restoreMember(db: D1, actor: Actor, input: { email?: unkno
   if (current.status !== 'revoked') return listMembers(db)
   const at = now.toISOString()
   await db.batch([db.prepare("UPDATE user_roles SET status = 'invited', last_seen_at = NULL WHERE email = ?").bind(email), auditStatement(db, at, actor.email, email, 'revoked', `restored:${current.role}`)])
+  await sendInvitation(db, invites, email, now)
+  return listMembers(db)
+}
+
+/**
+ * Sends the invitation email again. WorkOS keeps the original expiry when it re-sends; if there is no live invitation (never sent, failed, expired or already used up) a new
+ * one is created. Allowed for an invited member, or an active one who has never signed in through WorkOS (the first administrator).
+ */
+export async function resendInvitation(db: D1, actor: Actor, input: { email?: unknown }, now: Date, invites: Invitations | null = null): Promise<Member[]> {
+  requirePermission(actor, 'access.manage')
+  const email = emailOf(input.email)
+  const row = await db.prepare('SELECT status, workos_user_id AS wid, workos_invitation_id AS id, invitation_delivery AS delivery, invitation_expires_at AS expires FROM user_roles WHERE email = ?').bind(email).first<{ status: MemberStatus; wid: string | null; id: string | null; delivery: InvitationDelivery | null; expires: string | null }>()
+  if (!row) throw new HttpError(404, 'That person is not a member.', 'not-found')
+  if (row.status === 'revoked') throw new HttpError(409, 'Restore this person’s access first.', 'revoked')
+  if (row.status === 'active' && row.wid) throw new HttpError(409, 'This person has already signed in, so there is nothing to resend.', 'already-signed-in')
+  if (!invites) throw new HttpError(409, 'Invitation emails are not set up for this environment. Share the sign-in link instead.', 'invitations-off')
+  const live = row.id && row.delivery === 'sent' && (!row.expires || Date.parse(row.expires) > now.getTime())
+  if (live) {
+    try {
+      const r = await invites.resend(row.id as string)
+      await db.prepare("UPDATE user_roles SET invitation_sent_at = ?, invitation_expires_at = COALESCE(?, invitation_expires_at), invitation_delivery = 'sent' WHERE email = ?").bind(now.toISOString(), r.expiresAt, email).run()
+      await db.prepare('INSERT INTO role_audit (at, actor, target, from_role, to_role) VALUES (?, ?, ?, ?, ?)').bind(now.toISOString(), actor.email, email, null, 'invitation-resent').run()
+      return listMembers(db)
+    } catch { /* it can no longer be resent (used or expired): send a new one below */ }
+  }
+  await sendInvitation(db, invites, email, now)
+  await db.prepare('INSERT INTO role_audit (at, actor, target, from_role, to_role) VALUES (?, ?, ?, ?, ?)').bind(now.toISOString(), actor.email, email, null, 'invitation-resent').run()
   return listMembers(db)
 }

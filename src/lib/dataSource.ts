@@ -17,7 +17,7 @@ import type { ModuleName } from '@/shared/registry'
  * unavailable — the application bundle has no database / Access to talk to. Nothing is shown or kept in this browser instead.
  */
 export type Mode = 'checking' | 'server' | 'demo' | 'blocked' | 'unavailable'
-export interface BackendState { mode: Mode; serverAvailable: boolean; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string }
+export interface BackendState { mode: Mode; serverAvailable: boolean; /** Which sign-in this installation uses: Cloudflare Access (`access`) or WorkOS (`workos`, or `both` while it is being verified). */ auth?: string; /** How this request was authenticated; only `workos` has a Nexus session to sign out of. */ via?: string; environment?: string; user?: string; /** Role the server has on record for this user (display only: the server re-checks every change). */ role?: Role | null; schemaVersion?: string; reason?: string }
 
 let backend: BackendState = { mode: 'checking', serverAvailable: false }
 const backendListeners = new Set<() => void>()
@@ -40,20 +40,28 @@ export const setModuleContext = (module: ModuleName, provider: () => Record<stri
 export async function startBackend(): Promise<void> {
   if (IS_PUBLIC_DEMO) { setBackend({ mode: 'demo', serverAvailable: false, reason: 'Public demo: sample data is kept in this browser only.' }); return }
   setBackend({ mode: 'checking', serverAvailable: false })
-  const health = await api<{ database?: boolean; access?: boolean; environment?: string }>('GET', '/api/health').catch(() => null)
+  const health = await api<{ database?: boolean; access?: boolean; environment?: string; auth?: string }>('GET', '/api/health').catch(() => null)
   if (!health || !health.database || !health.access) {
     // Never fall back to browser-held records: without the database the app says what is missing and stops.
     setBackend({ mode: 'unavailable', serverAvailable: false, reason: !health ? 'The Nexus server could not be reached.' : !health.database ? 'The database is not connected to this environment (the D1 binding named DB is missing).' : 'Cloudflare Access is not configured for this environment (ACCESS_TEAM_DOMAIN and ACCESS_AUD are empty), so saved data is switched off.' })
     return
   }
   try {
-    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string }>('GET', '/api/session')
-    setBackend({ mode: 'server', serverAvailable: true, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion })
+    const s = await api<{ user: string; role: Role | null; environment: string; schemaVersion: string; via?: string }>('GET', '/api/session')
+    setBackend({ mode: 'server', serverAvailable: true, auth: health.auth, via: s.via, environment: s.environment, user: s.user, role: s.role ?? null, schemaVersion: s.schemaVersion })
     await Promise.all(stores.map((m) => m.load()))
   } catch (e) {
-    if (e instanceof ApiError && e.authRequired) setBackend({ mode: 'blocked', serverAvailable: true, reason: e.message })
-    else setBackend({ mode: 'blocked', serverAvailable: true, reason: e instanceof Error ? e.message : 'The server could not be reached.' })
+    if (e instanceof ApiError && e.authRequired) setBackend({ mode: 'blocked', serverAvailable: true, auth: health.auth, reason: e.message })
+    else setBackend({ mode: 'blocked', serverAvailable: true, auth: health.auth, reason: e instanceof Error ? e.message : 'The server could not be reached.' })
   }
+}
+
+/** Ends this browser's Nexus session (WorkOS sign-in only), then the WorkOS session, and returns to the sign-in. */
+export async function signOut(): Promise<void> {
+  try {
+    const r = await api<{ logoutUrl: string | null }>('POST', '/api/auth/logout', {})
+    window.location.assign(r.logoutUrl ?? '/')
+  } catch { window.location.assign('/') }
 }
 
 /** Reload every module's saved records (after switching from demonstration data, or when the tab regains focus). */

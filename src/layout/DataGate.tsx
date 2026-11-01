@@ -19,7 +19,9 @@ export function DataGate({ children }: { children: ReactNode }) {
       <EmptyState
         title="Sign-in needed"
         description={backend.reason ?? 'This browser is not signed in, so saved data cannot be shown.'}
-        action={<div className="flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={() => window.location.reload()}>Reload and sign in</Button></div>}
+        action={<div className="flex flex-wrap justify-center gap-2">{backend.auth && backend.auth !== 'access'
+          ? <Button variant="primary" onClick={() => window.location.assign('/api/auth/login')}>Sign in</Button>
+          : <Button variant="primary" onClick={() => window.location.reload()}>Reload and sign in</Button>}</div>}
       />
     )
   }

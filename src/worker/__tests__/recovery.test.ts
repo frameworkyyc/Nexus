@@ -30,7 +30,7 @@ describe('backups', () => {
     const res = await s.call('GET', '/api/backup')
     expect(res.status).toBe(200)
     const b = res.body as Backup
-    expect(b).toMatchObject({ format: 'nexus-backup', formatVersion: 1, schemaVersion: '26' })
+    expect(b).toMatchObject({ format: 'nexus-backup', formatVersion: 1, schemaVersion: '27' })
     for (const t of TABLES) expect(b.tables).toHaveProperty(t.name)
     expect(b.counts.vehicles).toBe(4)
     expect(b.counts.material_lines).toBe(14)

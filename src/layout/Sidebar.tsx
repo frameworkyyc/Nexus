@@ -6,7 +6,7 @@ import { applyLocks, containsCurrent, isCurrent, primarySections, toolNodes, typ
 import { useProjectContext } from '@/app/projectContext'
 import { sectionOf } from '@/domains/construction/navigation'
 import { useConstruction } from '@/domains/construction/store'
-import { useBackend } from '@/lib/dataSource'
+import { signOut, useBackend } from '@/lib/dataSource'
 import { useMediaQuery } from '@/lib/useMedia'
 
 const WIDE = '(min-width: 1024px)'
@@ -83,10 +83,12 @@ export interface SidebarViewProps {
   footer: string
   /** Shown as a close button instead of the collapse toggle (the sidebar is a temporary overlay). */
   overlay?: boolean
+  /** Present only for WorkOS sign-in: ends the Nexus session. */
+  onSignOut?: () => void
 }
 
 /** The persistent left sidebar: the four primary sections (each expandable to its pages), then the secondary Tools group. Pure: the connected Sidebar below feeds it. */
-export function SidebarView({ sections, tools, pathname, search, rail, onToggle, onNavigate, footer, overlay = false }: SidebarViewProps) {
+export function SidebarView({ sections, tools, pathname, search, rail, onToggle, onNavigate, footer, overlay = false, onSignOut }: SidebarViewProps) {
   const here = sectionOf(pathname)
   // Groups that own a part of the app (Status, Foundation, Fleet) are active anywhere inside it; everything else only on its own pages.
   const isActive = (n: NavNode, section?: string) => (section ? here === section : containsCurrent(n, pathname, search))
@@ -150,7 +152,7 @@ export function SidebarView({ sections, tools, pathname, search, rail, onToggle,
           </ul>
         </nav>
       </div>
-      <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{footer}</div>
+      <div className="border-t border-sidebar-line px-5 py-4 text-micro text-sidebar-muted">{footer}{onSignOut && <button type="button" onClick={onSignOut} className="mt-2 block underline underline-offset-4 hover:text-sidebar-ink">Sign out</button>}</div>
     </div>
   )
 }
@@ -162,7 +164,7 @@ export function SidebarView({ sections, tools, pathname, search, rail, onToggle,
 export function Sidebar() {
   const { projectId } = useProjectContext()
   const { state } = useConstruction()
-  const { mode, environment } = useBackend()
+  const { mode, environment, via } = useBackend()
   const { pathname, search } = useLocation()
   const wide = useMediaQuery(WIDE)
   const [pref, setPref] = useState<boolean | null>(readPref)
@@ -183,7 +185,7 @@ export function Sidebar() {
 
   const toggle = () => { if (wide) { const next = !(pref === true); setPref(next); writePref(next) } else setOverlayOpen((o) => !o) }
   const view = (rail: boolean, ov: boolean) => (
-    <SidebarView sections={sections} tools={tools} pathname={pathname} search={search} rail={rail} overlay={ov} onToggle={toggle} onNavigate={() => !wide && setOverlayOpen(false)} footer={footer} />
+    <SidebarView sections={sections} tools={tools} pathname={pathname} search={search} rail={rail} overlay={ov} onToggle={toggle} onNavigate={() => !wide && setOverlayOpen(false)} footer={footer} onSignOut={via === 'workos' ? () => void signOut() : undefined} />
   )
   return (
     <>

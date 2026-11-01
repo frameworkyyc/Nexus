@@ -13,7 +13,21 @@ import { ROLES, ROLE_LABEL, ROLE_SUMMARY, isRole, type Role } from '@/shared/rba
 import { useConstruction } from '../store'
 
 type Status = 'invited' | 'active' | 'revoked'
-interface Member { email: string; role: Role; status: Status; projectIds: string[]; assignedBy: string; assignedAt: string; lastSeenAt: string | null }
+type Delivery = 'sent' | 'failed' | 'existing_user' | 'not_configured'
+interface Member { email: string; role: Role; status: Status; projectIds: string[]; assignedBy: string; assignedAt: string; lastSeenAt: string | null; signedIn?: boolean; invitation?: { delivery: Delivery | null; sentAt: string | null; expiresAt: string | null } }
+interface Invitations { enabled: boolean; signInUrl: string | null }
+const day = (iso: string) => iso.slice(0, 10)
+/** What to tell the administrator about a member's invitation email. */
+function invitationText(m: Member, now = Date.now()): string {
+  const i = m.invitation
+  if (m.status === 'revoked') return '—'
+  if (m.signedIn) return `Signed in${m.lastSeenAt ? ` ${day(m.lastSeenAt)}` : ''}`
+  if (!i || !i.delivery || i.delivery === 'not_configured') return m.status === 'invited' ? 'Not sent (manual)' : '—'
+  if (i.delivery === 'failed') return 'Email failed — resend'
+  if (i.delivery === 'existing_user') return 'Already has a sign-in — share the link'
+  const expired = i.expiresAt && Date.parse(i.expiresAt) < now
+  return `${expired ? 'Expired' : 'Emailed'} ${i.sentAt ? day(i.sentAt) : ''}${!expired && i.expiresAt ? ` · expires ${day(i.expiresAt)}` : ''}`
+}
 
 const STATUS: Record<Status, { label: string; tone: Tone }> = { invited: { label: 'Invited', tone: 'info' }, active: { label: 'Active', tone: 'ok' }, revoked: { label: 'Revoked', tone: 'bad' } }
 
@@ -26,6 +40,8 @@ export function TeamMembers() {
   const server = useIsServer()
   const { state } = useConstruction()
   const [members, setMembers] = useState<Member[] | null>(null)
+  const [invites, setInvites] = useState<Invitations>({ enabled: false, signInUrl: null })
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Member | 'new' | null>(null)
   const projects = state.projects.map((p) => ({ id: p.id, name: p.name }))
@@ -33,8 +49,9 @@ export function TeamMembers() {
 
   const call = useCallback(async (path: string, body?: unknown) => {
     try {
-      const r = body === undefined ? await api<{ members: Member[] }>('GET', path) : await api<{ members: Member[] }>('POST', path, body)
+      const r = body === undefined ? await api<{ members: Member[]; invitations?: Invitations }>('GET', path) : await api<{ members: Member[]; invitations?: Invitations }>('POST', path, body)
       setMembers(r.members)
+      if (r.invitations) setInvites(r.invitations)
       setError(null)
       return true
     } catch (e) {
@@ -50,26 +67,36 @@ export function TeamMembers() {
 
   const order: Record<Status, number> = { active: 0, invited: 1, revoked: 2 }
   const rows = [...(members ?? [])].sort((a, b) => order[a.status] - order[b.status] || a.email.localeCompare(b.email))
+  const resend = async (m: Member) => {
+    setNotice(null)
+    if (await call('/api/members/resend', { email: m.email })) setNotice(`Invitation sent again to ${m.email}.`)
+  }
+  const canResend = (m: Member) => invites.enabled && (m.status === 'invited' || (m.status === 'active' && !m.signedIn))
   const projectsText = (m: Member) => (m.role === 'admin' ? 'All projects' : m.projectIds.length === 0 ? 'No projects' : m.projectIds.map(nameOf).join(', '))
 
   return (
     <>
       <PageHeader title="Team members" description="Invite people, set what they can do and which projects they see, and revoke access." actions={<Button variant="primary" onClick={() => setEditing('new')}><UserPlus size={14} strokeWidth={1.5} />Invite member</Button>} />
       {error && <p role="alert" className="mb-3 border-l-2 border-bad pl-3 text-[13px]">{error}</p>}
-      <p className="mb-4 max-w-2xl text-xs text-muted">Invitations are manual: no email is sent. Tell the person, and make sure Cloudflare Access allows their email to sign in. They become Active the first time they do.</p>
+      {notice && <p role="status" className="mb-3 border-l-2 border-ok pl-3 text-[13px]">{notice}</p>}
+      <p className="mb-4 max-w-2xl text-xs text-muted">{invites.enabled
+        ? 'WorkOS emails each invitation with a link to sign in with an emailed code. Nobody can sign up without being invited here. They become Active the first time they sign in.'
+        : 'Invitations are manual: no email is sent. Tell the person, and make sure Cloudflare Access allows their email to sign in. They become Active the first time they do.'}{invites.signInUrl && <> Sign-in link: <span className="select-all break-all text-ink">{invites.signInUrl}</span></>}</p>
       {members === null ? <p className="text-muted">Loading…</p> : rows.length === 0 ? <EmptyState title="No team members yet" /> : (
         <div className="overflow-x-auto">
-          <table className="card-table w-full min-w-[640px] border-collapse text-left text-[13px]">
-            <thead><tr className="border-b border-line">{['Member', 'Status', 'Permission', 'Projects', ''].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
+          <table className="card-table w-full min-w-[760px] border-collapse text-left text-[13px]">
+            <thead><tr className="border-b border-line">{['Member', 'Status', 'Invitation', 'Permission', 'Projects', ''].map((h) => <th key={h} className="t-label py-3 pr-4 font-medium">{h}</th>)}</tr></thead>
             <tbody>
               {rows.map((m) => (
                 <tr key={m.email} className="border-b border-line">
                   <td className="py-3 pr-4 font-medium break-all">{m.email}{m.email === access.user?.toLowerCase() && <span className="ml-2 text-xs font-normal text-muted">You</span>}</td>
                   <td className="py-3 pr-4"><StatusBadge tone={STATUS[m.status].tone} label={STATUS[m.status].label} /></td>
+                  <td className="py-3 pr-4 text-muted">{invitationText(m)}</td>
                   <td className="py-3 pr-4">{ROLE_LABEL[m.role]}</td>
                   <td className="py-3 pr-4 text-muted">{projectsText(m)}</td>
                   <td className="py-3 pr-4 text-right">
                     <span className="flex justify-end gap-1">
+                      {canResend(m) && <Button variant="ghost" className="h-8 px-2" aria-label={`Resend invitation to ${m.email}`} onClick={() => void resend(m)}>Resend invitation</Button>}
                       {m.status !== 'revoked' && <Button variant="ghost" className="h-8 px-2" aria-label={`Edit ${m.email}`} onClick={() => setEditing(m)}>Edit</Button>}
                       {m.status === 'revoked'
                         ? <Button variant="ghost" className="h-8 px-2" aria-label={`Restore ${m.email}`} onClick={() => void call('/api/members/restore', { email: m.email })}>Restore</Button>
