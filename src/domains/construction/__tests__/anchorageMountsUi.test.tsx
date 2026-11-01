@@ -4,7 +4,7 @@ import * as K from '../actions'
 import { anchoragesOn } from '../anchorageMounts'
 import type { ComponentInput, FoundationConfig } from '../configActions'
 import { emptyConstruction } from '../empty'
-import { configFromDraft, draftFromFoundation, FoundationConfigFields, emptyMount, type ConfigDraft } from '../pages/FoundationConfigFields'
+import { blankBolt, configFromDraft, draftFromFoundation, FoundationConfigFields, emptyMount, type ConfigDraft } from '../pages/FoundationConfigFields'
 import { mountedAnchorageText } from '../pages/MountedAnchorage'
 import type { ConstructionState, Dims, Foundation } from '../types'
 
@@ -39,7 +39,7 @@ describe('the setup form round-trips anchorage mounts', () => {
     const cfg = configFromDraft(draft)
     if ('error' in cfg) throw new Error(cfg.error)
     expect(cfg.config.groups).toEqual([])
-    expect(cfg.config.anchorages).toEqual([{ id: r.s.foundationAnchorages![0].id, anchorageTypeId: w.A11, qty: 2 }])
+    expect(cfg.config.anchorages).toEqual([{ id: r.s.foundationAnchorages![0].id, anchorageTypeId: w.A11, qty: 2, installMethod: 'wet-set' }])
     const again = apply(r.s, K.configureFoundation(r.f.id, cfg.config))
     expect(again.foundationAnchorages).toEqual(r.s.foundationAnchorages) // saving the unchanged form changes nothing
     expect(again.plinths).toEqual(r.s.plinths)
@@ -69,16 +69,16 @@ describe('the setup form round-trips anchorage mounts', () => {
     const w = world()
     const r = add(w.s, w.areaId, 'OLD', null, 2, { groups: [{ anchorageTypeId: w.A11, count: 3 }] })
     const legacy = { ...r.s, foundationAnchorages: undefined }
-    expect(draftOf(legacy, r.f).groups[0].anchorages).toEqual([{ typeId: w.A11, qty: '1' }])
+    expect(draftOf(legacy, r.f).groups[0].anchorages).toEqual([{ typeId: w.A11, qty: '1', installMethod: 'wet-set' }])
     expect(mountedAnchorageText(legacy, r.f.id, legacy.anchorageGroups![0].id)).toBe('OP1-A11')
     expect(anchoragesOn(r.s, r.f.id, r.s.anchorageGroups![0].id)).toHaveLength(1)
   })
 
   it('says what is wrong instead of saving: a group with no type, or a quantity that is not a whole number', () => {
     const base: ConfigDraft = { footing: { length: '', width: '', height: '', unit: 'm' }, plinthBase: 'above-footing', groups: [], ...emptyMount() }
-    expect(configFromDraft({ ...base, anchorages: [{ typeId: '', qty: '1' }] })).toEqual({ error: 'Footing anchorage group 1: choose an anchorage type from the library.' })
-    expect(configFromDraft({ ...base, anchorages: [{ typeId: 'x', qty: '1.5' }] })).toEqual({ error: 'Footing anchorage group 1: enter the number of anchorages (a whole number of 1 or more).' })
-    expect(configFromDraft({ ...base, groups: [{ count: '2', dims: { length: '', width: '', height: '', unit: 'm' }, anchorages: [{ typeId: 'x', qty: '' }], bolts: [], embeds: [] }] })).toEqual({ error: 'Plinths 1 anchorage group 1: enter the number of anchorages (a whole number of 1 or more).' })
+    expect(configFromDraft({ ...base, anchorages: [{ typeId: '', qty: '1', installMethod: 'wet-set' as const }] })).toEqual({ error: 'Footing anchorage group 1: choose an anchorage type from the library.' })
+    expect(configFromDraft({ ...base, anchorages: [{ typeId: 'x', qty: '1.5', installMethod: 'wet-set' as const }] })).toEqual({ error: 'Footing anchorage group 1: enter the number of anchorages (a whole number of 1 or more).' })
+    expect(configFromDraft({ ...base, groups: [{ count: '2', dims: { length: '', width: '', height: '', unit: 'm' }, anchorages: [{ typeId: 'x', qty: '', installMethod: 'wet-set' as const }], bolts: [], embeds: [] }] })).toEqual({ error: 'Plinths 1 anchorage group 1: enter the number of anchorages (a whole number of 1 or more).' })
   })
 })
 
@@ -102,12 +102,43 @@ describe('the setup form', () => {
 
   it('offers "no plinths" when none are entered, and shows what an anchorage group adds up to', () => {
     const w = world()
-    const draft: ConfigDraft = { ...blank, anchorages: [{ typeId: w.A11, qty: '2' }] }
+    const draft: ConfigDraft = { ...blank, anchorages: [{ typeId: w.A11, qty: '2', installMethod: 'wet-set' as const }] }
     const out = renderToStaticMarkup(<FoundationConfigFields draft={draft} onChange={() => undefined} types={w.s.anchorageTypes} components={w.s.anchorageComponents ?? []} quantity={1} preview={null} />)
     expect(out).toContain('This foundation has no plinths')
     expect(out).toContain('24 anchor bolts')
     expect(out).toContain('48 nuts')
     expect(out).toContain('2 plywood templates')
     expect(out).toContain('the plinth count is not known yet')
+  })
+})
+
+describe('the setup form: anchor bolt installation method', () => {
+  it('offers wet-set or post-installed on individual bolts and on anchorage groups whose type has bolts, and saves the choice', () => {
+    const w = world()
+    const blank: ConfigDraft = { footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], ...emptyMount() }
+    const draft: ConfigDraft = { ...blank, anchorages: [{ typeId: w.A11, qty: '2', installMethod: 'post-installed' }], bolts: [{ ...blankBolt(), diameter: '5/8"', length: '250', thread: 'all-thread', installMethod: 'post-installed' }] }
+    const out = renderToStaticMarkup(<FoundationConfigFields draft={draft} onChange={() => undefined} types={w.s.anchorageTypes} components={w.s.anchorageComponents ?? []} quantity={1} preview={null} />)
+    expect(out).toContain('Anchor bolts are installed') // the anchorage group's type (OP1-A11) contains bolts
+    expect(out).toContain('Bolt installation, Footing group 1')
+    expect(out).toContain('Bolt installation 1 (footing)') // the individual bolts
+    expect(out.match(/Wet-set/g)!.length).toBeGreaterThanOrEqual(2)
+    expect(out.match(/Post-installed/g)!.length).toBeGreaterThanOrEqual(2)
+    const cfg = configFromDraft(draft)
+    if ('error' in cfg) throw new Error(cfg.error)
+    expect(cfg.config.anchorages?.[0]).toMatchObject({ qty: 2, installMethod: 'post-installed' })
+    expect(cfg.config.bolts?.[0]).toMatchObject({ installMethod: 'post-installed' })
+    // Round trip: saving then reopening shows the same methods.
+    const saved = apply(w.s, K.createFoundation(w.areaId, 'OP1-01-06', '', 0, 1, cfg.config))
+    const f = saved.foundations.find((x) => x.number === 'OP1-01-06') as Foundation
+    const again = draftOf(saved, f)
+    expect(again.anchorages[0].installMethod).toBe('post-installed')
+    expect(again.bolts[0].installMethod).toBe('post-installed')
+  })
+
+  it('does not ask for a method on an anchorage type that has no bolts', () => {
+    const w = world()
+    const blank: ConfigDraft = { footing: { length: '', width: '', height: '', unit: 'mm' }, plinthBase: 'above-footing', groups: [], ...emptyMount() }
+    const out = renderToStaticMarkup(<FoundationConfigFields draft={{ ...blank, anchorages: [{ typeId: w.B2, qty: '1', installMethod: 'wet-set' }] }} onChange={() => undefined} types={w.s.anchorageTypes} components={w.s.anchorageComponents ?? []} quantity={1} preview={null} />)
+    expect(out).not.toContain('Anchor bolts are installed')
   })
 })

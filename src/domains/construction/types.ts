@@ -78,6 +78,9 @@ export interface AnchorageGroup {
  */
 export type MountGroupId = string | null
 
+/** How anchor bolts go in: cast into the concrete as it is poured (wet-set), or drilled and set into hardened concrete afterwards (post-installed). Absent = wet-set. */
+export type InstallMethod = 'wet-set' | 'post-installed'
+
 /**
  * One anchorage group: `qty` anchorages of one Anchorage Library type mounted on the footing or on each plinth of a set. A mount can have several, of different
  * types. Bolt, nut, washer, template and plate totals come from the type's components × `qty` × how many footings or plinths carry it × the foundation's quantity.
@@ -88,6 +91,8 @@ export interface FoundationAnchorage {
   mountGroupId: MountGroupId
   anchorageTypeId: string
   qty: number
+  /** How the anchor bolts of this group's type are installed. Absent = wet-set. */
+  installMethod?: InstallMethod
 }
 
 /** A rectangular piece of concrete added to, or taken from, a footing's base shape. Millimetres. */
@@ -262,6 +267,8 @@ export interface FoundationBolt {
   mode?: 'per-foundation' | 'total'
   /** Where the bolts are mounted: absent/null = the footing (qty per footing); a plinth set = qty per plinth of that set. */
   mountGroupId?: MountGroupId
+  /** How these bolts are installed. Absent = wet-set. */
+  installMethod?: InstallMethod
 }
 
 /* ── Anchorage library & material specifications ───────────────────────── */

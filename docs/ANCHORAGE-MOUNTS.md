@@ -36,3 +36,17 @@ Production is at schema 27 and needs 0028 too, before it receives the new code.
 * **2026-11-01, production** (GitHub Actions `production-release.yml`, run on commit `6294b0e`). Rehearsed first on an export of production's own data (52 designations, 140 physical foundations, 190 anchorages, 81 calculated requirements and the 21 progress figures identical before and after; OP1-21-29 with two OP1-A11 groups gives 24 bolts, 2 templates, no plinths, no plinth activities).
   Time Travel bookmark taken before any write: `0000002b-00000000-00005116-b1a1609244f6c689c39bc1c5c7be464f`. Migration 0028 applied atomically (schema 28, 28 ledger rows, 49 anchorage groups = the 49 typed plinth sets, `foreign_key_check` empty), then the pre-flighted version `db06d5fd-90b9-4edd-b098-a59197a53f40` was deployed at 100% (previous: `21f40bde-631a-4d13-b61b-62c5bf55286d`).
   All 28 `scripts/preflight.mjs` checks passed on `https://nexus.frameworktools.ca`. Rollback of the schema, if ever needed: drop `foundation_anchorages`, set `schema_version` to 27 and delete the ledger row (the empty `mount_group_id` columns stay); do not restore the bookmark, which would also discard what users saved since.
+
+## Anchor bolt installation (migration 0029)
+Anchor bolts have an **installation method**: *wet-set* (cast into the concrete as it is poured) or *post-installed* (set into hardened concrete afterwards). It is set per individual-bolt entry (`foundation_bolts.install_method`) and per anchorage group,
+for the bolts of its library type (`foundation_anchorages.install_method`); the default is wet-set.
+
+* Wherever anchor bolts are required, the footing or plinth gets an **Anchor bolts installed** construction activity per method present there: `anchorBoltsWetSet` and `anchorBoltsPostInstalled`. Where no bolts are required there is no such activity.
+  Required means an anchorage group whose type contains a bolt component, or an individual-bolt entry, mounted on that footing or plinth (`boltOwners` in `anchorageMounts.ts`).
+* They are construction activities, tracked independently of forming, rebar and pouring. Wet-set installation is a prerequisite of the pour (shown as waiting, never blocking the record); post-installed installation follows the pour and never holds it up.
+* Progress: installation is a further equal stage of a footing or plinth that needs bolts (its two methods split the stage evenly, like built/installed rebar), so outstanding bolts keep the foundation below 100% and out of the Complete state, under every completion basis.
+  Foundations that need no bolts have exactly the figures they had.
+* The activities are generated from the configuration, not stored as rows; recorded status, dates and notes are stored like any other activity and kept when groups or bolts are added or edited. Changing an item's method moves its work to the other activity; removing all bolts of a method removes that activity.
+* Migration 0029 is additive: existing bolts and groups become wet-set, no row is rewritten, and existing activity records and material quantities are untouched. **Existing foundations that need bolts will show the new activity as not started**, so their progress drops until installation is recorded (OP1-01-06: 100% → 75%).
+  Where bolts are really post-installed, set the method in Foundation Setup.
+* The construction panel lists the bolts each activity covers (source, count, specification) and, at the top, which are outstanding by method.

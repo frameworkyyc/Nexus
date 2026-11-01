@@ -1,7 +1,7 @@
-import { blankActivitiesFor } from './blankActivities'
+import { blankActivitiesFor, syncBoltActivities } from './blankActivities'
 import { dimsProblem, hasAnyDim, shapeProblem } from './concrete'
 import type { Reducer } from './actions'
-import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, FoundationUnit, LibraryEmbedPlate, MountGroupId, PlateSpec, Plinth } from './types'
+import type { Activity, AnchorageComponent, AnchorageGroup, AnchorageType, ConstructionState, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, FoundationUnit, InstallMethod, LibraryEmbedPlate, MountGroupId, PlateSpec, Plinth } from './types'
 import { plateText, plateAsComponent, samePlate } from './plates'
 
 const fail = (error: string) => ({ error }) as const
@@ -10,7 +10,7 @@ const ok = (state: ConstructionState) => ({ state }) as const
 export const MAX_PLINTHS = 100
 
 /** An anchorage group as entered on the form: `qty` anchorages of a library type. `id` names an existing one; absent = new. */
-export interface AnchorageInput { id?: string; anchorageTypeId: string; qty: number }
+export interface AnchorageInput { id?: string; anchorageTypeId: string; qty: number; /** How the bolts of this type are installed; absent = unchanged for an existing group, wet-set for a new one. */ installMethod?: InstallMethod }
 export const MAX_ANCHORAGES_PER_MOUNT = 20
 /**
  * One set of identical plinths as entered on the form: how many plinths, their default dimensions, and what is mounted on each of them. `id` names an existing set (so its plinths
@@ -19,7 +19,9 @@ export const MAX_ANCHORAGES_PER_MOUNT = 20
  */
 export interface GroupInput { id?: string; anchorageTypeId?: string | null; count: number; dims?: Dims | null; anchorages?: AnchorageInput[]; bolts?: FootingBoltInput[]; embeds?: FoundationEmbedInput[] }
 /** Anchor bolts installed in each footing, as entered on the form (a ComponentInput that is always a bolt). `id` names an existing entry; absent = new. */
-export type FootingBoltInput = Omit<ComponentInput, 'kind'> & { mode?: 'per-foundation' | 'total' }
+export type FootingBoltInput = Omit<ComponentInput, 'kind'> & { mode?: 'per-foundation' | 'total'; /** Wet-set (cast in as the concrete is poured) or post-installed; absent = unchanged for existing bolts, wet-set for new ones. */ installMethod?: InstallMethod }
+const METHODS: InstallMethod[] = ['wet-set', 'post-installed']
+const methodProblem = (m: unknown) => (m === undefined || METHODS.includes(m as InstallMethod) ? null : 'choose wet-set or post-installed.')
 export const MAX_FOOTING_BOLTS = 10
 /** An embed plate added directly to a foundation. `id` names an existing entry; absent = new. */
 /** An embed plate entry: a library plate (`componentId`), or a plate created here (`plate`) saved only to this foundation or to the Anchorage Library. */
@@ -77,6 +79,8 @@ export function anchoragesProblem(s: ConstructionState, f: Foundation, list: Anc
     const at = `${label} ${i + 1}`
     if (!a || typeof a.anchorageTypeId !== 'string' || !a.anchorageTypeId) return `${at}: choose an anchorage type from this project’s library.`
     if (!Number.isInteger(a.qty) || a.qty < 1 || a.qty > 100_000) return `${at}: enter a whole number of anchorages of 1 or more.`
+    const mp = methodProblem(a.installMethod)
+    if (mp) return `${at}: ${mp}`
     const t = s.anchorageTypes.find((x) => x.id === a.anchorageTypeId)
     if (!t || (t.projectId && t.projectId !== projectId)) return `${at}: choose an anchorage type from this project’s library.`
     const had = (s.foundationAnchorages ?? []).some((x) => x.foundationId === f.id && x.anchorageTypeId === a.anchorageTypeId && (x.mountGroupId ?? null) === (mountId ?? null))
@@ -90,6 +94,8 @@ export function boltsProblem(s: ConstructionState, f: Foundation, bolts: Footing
   if (!Array.isArray(bolts) || bolts.length > MAX_FOOTING_BOLTS) return `A foundation can have up to ${MAX_FOOTING_BOLTS} anchor bolt configurations on each footing or set of plinths.`
   for (const [i, b] of bolts.entries()) {
     if (b.mode !== undefined && b.mode !== 'per-foundation' && b.mode !== 'total') return `${label} ${i + 1}: choose per foundation or total.`
+    const mp = methodProblem(b.installMethod)
+    if (mp) return `${label} ${i + 1}: ${mp}`
     const p = componentProblem({ ...b, kind: 'bolt' }, i + 1)
     if (p) return p.replace(/^Component \d+:/, `${label} ${i + 1}:`).replace('per anchorage', b.mode === 'total' ? 'in total' : per)
     if (b.id && !(s.foundationBolts ?? []).some((x) => x.id === b.id && x.foundationId === f.id)) return `${label} ${i + 1} no longer exist. Reload and try again.`
@@ -242,6 +248,7 @@ export function applyBolts(s: ConstructionState, f: Foundation, inputs: FootingB
       id, foundationId: f.id, qty: b.qty, spec: text(b.spec, 120), diameter: text(b.diameter, 30), length: b.length as number, lengthUnit: b.lengthUnit === 'in' ? 'in' : 'mm',
       thread: b.thread as 'both-ends' | 'all-thread', topThread: b.thread === 'both-ends' ? (b.topThread as number) : null, bottomThread: b.thread === 'both-ends' ? (b.bottomThread as number) : null,
       nutsPerBolt: b.nutsPerBolt ?? 0, washersPerBolt: b.washersPerBolt ?? 0, nutSize: text(b.nutSize, 30), washerSize: text(b.washerSize, 30), mode: b.mode === 'total' ? 'total' : 'per-foundation', ...(mount ? { mountGroupId: mount } : {}),
+      ...((b.installMethod ?? mine.find((x) => x.id === b.id)?.installMethod) === 'post-installed' ? { installMethod: 'post-installed' as const } : {}),
     })
   }
   return { ...s, foundationBolts: [...(s.foundationBolts ?? []).filter((b) => b.foundationId !== f.id || !sameMount(b.mountGroupId, mount)), ...next] }
@@ -286,7 +293,8 @@ export function applyAnchorages(s: ConstructionState, f: Foundation, inputs: Anc
   for (const [i, a] of inputs.entries()) {
     let id = a.id ?? ''
     if (!id) { let n = mine.length + i + 1; id = `${f.id}-a${n}`; while (used.has(id) || next.some((x) => x.id === id)) id = `${f.id}-a${++n}` }
-    next.push({ id, foundationId: f.id, mountGroupId: mount, anchorageTypeId: a.anchorageTypeId, qty: a.qty })
+    const method = a.installMethod ?? mine.find((x) => x.id === a.id)?.installMethod
+    next.push({ id, foundationId: f.id, mountGroupId: mount, anchorageTypeId: a.anchorageTypeId, qty: a.qty, ...(method === 'post-installed' ? { installMethod: 'post-installed' as const } : {}) })
   }
   return { ...s, foundationAnchorages: [...all.filter((a) => a.foundationId !== f.id || !sameMount(a.mountGroupId, mount)), ...next] }
 }
@@ -360,7 +368,7 @@ export const configureFoundation = (id: string, cfg: FoundationConfig & { descri
     if (typeof r === 'string') return fail(r)
     next = r
   }
-  return ok(applyMounts(next, next.foundations.find((x) => x.id === id)!, cfg, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString())))
+  return ok(syncBoltActivities(applyMounts(next, next.foundations.find((x) => x.id === id)!, cfg, String(ctx?.actor ?? ''), String(ctx?.now ?? new Date().toISOString()))))
 }
 
 /** Sets (or clears, with null) the individual dimensions of one plinth. They replace its group's default for that plinth only. */
@@ -478,7 +486,8 @@ export const setAnchorageComponents = (anchorageTypeId: string, components: Comp
       studCount: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studCount as number) : null, studDiameter: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studDiameter as number) : null, studLength: c.kind === 'embed-plate' && pos(c.studLength) ? (c.studLength as number) : null,
     })
   }
-  return ok({ ...s, anchorageComponents: [...(s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId !== anchorageTypeId), ...next] })
+  // A type that gains or loses its bolts changes which footings and plinths need anchor bolt installation, so the activities follow.
+  return ok(syncBoltActivities({ ...s, anchorageComponents: [...(s.anchorageComponents ?? []).filter((c) => c.anchorageTypeId !== anchorageTypeId), ...next] }))
 }
 
 /* ── Individual foundations ─────────────────────────────────────────────── */

@@ -1,7 +1,7 @@
 import { identity } from '@/app/identity'
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
 import { formatShortDate, pct, percentOf } from '@/lib/format'
-import { FOOTING_ACTIVITIES, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
+import { ACTIVITY_DEFS, BOLT_KEYS, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
 import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
   Foundation, HandoverRecord, HardwareKind, Person, Plinth, PlinthReady, POLine, PurchaseOrder, Supplier,
@@ -277,8 +277,16 @@ export const tallyCategory = (idx: Index, acts: Activity[], category: 'construct
 
 /**
  * Construction progress for a set of activities (0–100).
- * Each element (footing or plinth) = average of three equal stages: rebar (built + installed, split evenly), forming, pouring.
+ * Each element (footing or plinth) = average of equal stages: rebar (built + installed, split evenly), forming, pouring, and — only where anchor bolts are required —
+ * anchor bolt installation (its wet-set and post-installed activities split evenly, like rebar). A footing or plinth with outstanding bolts is therefore never complete.
  */
+/** One element's completion, 0–1: the average of its stages. `bolts` holds 1 or 0 per anchor bolt installation activity it has (empty = no bolts required, no such stage). */
+export function elementStages(done: (key: string) => number, bolts: number[], poured = done('poured')): number {
+  const stages = [(done('rebarBuilt') + done('rebarInstalled')) / 2, done('formed'), poured]
+  if (bolts.length) stages.push(bolts.reduce((t, x) => t + x, 0) / bolts.length)
+  return stages.reduce((t, x) => t + x, 0) / stages.length
+}
+
 export function progressOf(idx: Index, acts: Activity[]): number {
   const owners = new Map<string, Activity[]>()
   for (const a of acts) if (isConstructionCategory(categoryOf(a))) push(owners, a.plinthId ?? a.foundationId, a)
@@ -289,7 +297,7 @@ export function progressOf(idx: Index, acts: Activity[]): number {
       const a = list.find((x) => x.key === key)
       return a && isDone(effectiveStatus(idx, a)) ? 1 : 0
     }
-    sum += ((done('rebarBuilt') + done('rebarInstalled')) / 2 + done('formed') + done('poured')) / 3
+    sum += elementStages(done, list.filter((x) => BOLT_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0)))
   }
   return percentOf(sum, owners.size) ?? 0
 }
@@ -398,8 +406,8 @@ export function currentStep(idx: Index, acts: Activity[], seq: ActivityDef[]): s
   }
   return 'Complete'
 }
-export const footingStep = (idx: Index, f: Foundation) => currentStep(idx, footingActivities(idx, f), FOOTING_ACTIVITIES)
-export const plinthStep = (idx: Index, p: Plinth) => currentStep(idx, plinthActivities(idx, p), PLINTH_ACTIVITIES)
+export const footingStep = (idx: Index, f: Foundation) => currentStep(idx, footingActivities(idx, f), ACTIVITY_DEFS.footing)
+export const plinthStep = (idx: Index, p: Plinth) => currentStep(idx, plinthActivities(idx, p), ACTIVITY_DEFS.plinth)
 
 /** Whether an activity's same-scope (and footing) prerequisites are complete. */
 export function isReady(idx: Index, a: Activity): boolean {

@@ -1,14 +1,14 @@
 import { percentOf } from '@/lib/format'
-import { isConstructionCategory, isDone, getDef } from './config'
+import { BOLT_KEYS, isConstructionCategory, isDone, getDef } from './config'
 import { concreteOf, compKey, componentVolume, itemKey } from './pours'
-import { effectiveStatus, foundationActivities, type Index } from './selectors'
+import { elementStages, effectiveStatus, foundationActivities, type Index } from './selectors'
 import { foundationQuantity } from './foundationQuantity'
 import type { ConstructionState, Foundation } from './types'
 
 /**
  * What a completion percentage is weighted by. Only the weighting differs: under every basis a designation's progress is built from the same
- * construction stages of its footing and plinth records (rebar built and installed split evenly, forming, pouring; each record is the average of
- * the three, a designation is the average of its records), with the pouring stage raised to the concrete actually poured where pours are recorded.
+ * construction stages of its footing and plinth records (rebar built and installed split evenly, forming, pouring, and anchor bolt installation where bolts are required; each record is the average of
+ * its stages, a designation is the average of its records), with the pouring stage raised to the concrete actually poured where pours are recorded.
  *  - type:   each foundation designation (one code, whatever its quantity, plinth count or size) counts once. 50% done contributes half, finished contributes all.
  *  - count:  each designation is weighted by how many physical foundations it represents (its quantity).
  *  - volume: each footing and plinth record is weighted by its concrete volume (m³) across the quantity.
@@ -80,7 +80,8 @@ function elementsOf(idx: Index, f: Foundation): Element[] {
   const concrete = concreteOf(idx.state, f)
   return [...owners.values()].map(({ plinthId, acts }) => {
     const done = (key: string) => { const a = acts.find((x) => x.key === key); return a && isDone(effectiveStatus(idx, a)) ? 1 : 0 }
-    const stages = (poured: number) => ((done('rebarBuilt') + done('rebarInstalled')) / 2 + done('formed') + poured) / 3
+    const bolts = acts.filter((x) => BOLT_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0))
+    const stages = (poured: number) => elementStages(done, bolts, poured)
     const perUnit = componentVolume(concrete, plinthId)
     return {
       foundationId: f.id,

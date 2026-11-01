@@ -5,7 +5,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import * as K from '@/domains/construction/actions'
 import { completionOf, type CompletionBasis } from '@/domains/construction/completionBasis'
-import { foundationsOf, getIndex } from '@/domains/construction/selectors'
+import { BOLT_KEYS } from '@/domains/construction/config'
+import { foundationActivities, foundationState, foundationsOf, getIndex, progressOf } from '@/domains/construction/selectors'
 import { anchorageInstances, deriveRequirements } from '@/domains/construction/tracker/requirements'
 import type { ConstructionState } from '@/domains/construction/types'
 import { checkIntegrity, readModule, runCommand } from '../service'
@@ -19,6 +20,7 @@ const count = (raw: DatabaseSync, table: string) => (raw.prepare(`SELECT count(*
 
 /** What each foundation had before: plinths of each type × quantity, straight from the old tables (archived foundations need no materials, as before). */
 const oldTotals = (raw: DatabaseSync) => Object.fromEntries((raw.prepare(`SELECT p.foundation_id AS f, p.anchorage_type_id AS t, count(*) * f.quantity AS n FROM plinths p JOIN foundations f ON f.id = p.foundation_id WHERE p.anchorage_type_id IS NOT NULL AND f.archived = 0 GROUP BY p.foundation_id, p.anchorage_type_id`).all() as { f: string; t: string; n: number }[]).map((r) => [`${r.f}|${r.t}`, r.n]))
+const old0028Totals = { 'f1|t1': 8, 'f1|t2': 4 } // F1 x 4: 2 plinths of t1 and 1 of t2
 const newTotals = (s: ConstructionState) => Object.fromEntries(anchorageInstances(s).map((r) => [`${r.foundationId}|${r.typeId}`, r.instances]))
 
 describe('migration 0028: anchorage mounts', () => {
@@ -53,8 +55,35 @@ describe('migration 0028: anchorage mounts', () => {
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '28' })
     expect(db.raw.prepare('PRAGMA foreign_key_check').all()).toEqual([])
     // The application reads the same anchorage totals it did before the migration.
+    db.raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8')) // the application reads both new columns
     expect(newTotals(await state(db.raw))).toEqual(old.totals)
     expect(old.totals).toEqual({ 'f1|t1': 8, 'f1|t2': 4 })
+    expect((await checkIntegrity(db.d1)).ok).toBe(true)
+  })
+
+  it('migration 0029 makes every existing bolt and anchorage group wet-set, keeps every record, and adds the installation activities as not started', async () => {
+    const db = legacy()
+    db.raw.exec(readFileSync(`migrations/${MIGRATION}`, 'utf8'))
+    db.raw.exec("INSERT INTO anchorage_components (id, anchorage_type_id, kind, qty, seq) VALUES ('c1', 't1', 'bolt', 12, 0)")
+    db.raw.exec("INSERT INTO activities (id, scope, activity_key, foundation_id, plinth_id, status, actual_date, seq) VALUES ('f1:poured', 'footing', 'poured', 'f1', NULL, 'complete', '2026-10-30', 0), ('p1:formed', 'plinth', 'formed', 'f1', 'p1', 'complete', '2026-10-30', 1)")
+    const before = { activities: db.raw.prepare('SELECT * FROM activities ORDER BY id').all(), bolts: db.raw.prepare('SELECT id, qty, diameter FROM foundation_bolts').all(), anchorages: db.raw.prepare('SELECT id, qty FROM foundation_anchorages ORDER BY id').all(), plinths: count(db.raw, 'plinths') }
+    db.raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8'))
+    expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '29' })
+    expect(db.raw.prepare('SELECT DISTINCT install_method FROM foundation_bolts').all()).toEqual([{ install_method: 'wet-set' }])
+    expect(db.raw.prepare('SELECT DISTINCT install_method FROM foundation_anchorages').all()).toEqual([{ install_method: 'wet-set' }])
+    expect(db.raw.prepare('SELECT * FROM activities ORDER BY id').all()).toEqual(before.activities) // no activity row is added, changed or removed
+    expect(db.raw.prepare('SELECT id, qty, diameter FROM foundation_bolts').all()).toEqual(before.bolts)
+    expect(db.raw.prepare('SELECT id, qty FROM foundation_anchorages ORDER BY id').all()).toEqual(before.anchorages)
+    expect(count(db.raw, 'plinths')).toBe(before.plinths)
+    expect(() => db.raw.exec("UPDATE foundation_bolts SET install_method = 'glued'")).toThrow()
+    expect(db.raw.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    // The application now shows the installation work as not started, next to the records that were already there.
+    const st = await state(db.raw)
+    const bolts = st.activities.filter((a) => /^anchorBolts(WetSet|PostInstalled)$/.test(a.key)) // not the older 'anchorBolts' materials activity
+    expect(bolts.map((a) => [a.id, a.status]).sort()).toEqual([['f1:anchorBoltsWetSet', 'not-started'], ['p1:anchorBoltsWetSet', 'not-started'], ['p2:anchorBoltsWetSet', 'not-started']]) // F1's footing bolts, and the plinths of the type that has bolts (p3's type has none)
+    expect(st.activities.find((a) => a.id === 'f1:poured')).toMatchObject({ status: 'complete', actualDate: '2026-10-30' })
+    expect(st.activities.find((a) => a.id === 'p1:formed')).toMatchObject({ status: 'complete' })
+    expect(newTotals(st)).toEqual(old0028Totals)
     expect((await checkIntegrity(db.d1)).ok).toBe(true)
   })
 
@@ -197,5 +226,71 @@ describe.skipIf(!BEFORE || !AFTER)('the real staging database after migration 00
     const need = (name: string) => deriveRequirements(re).filter((r) => r.designation === 'OP1-A11' && r.name === name).reduce((t, r) => t + r.required, 0)
     expect([need('Anchor bolt'), need('Plywood template')]).toEqual([24, 2])
     expect(newTotals(re)).toEqual({ ...newTotals(st), [`${pad.id}|${a11.id}`]: 2 })
+  })
+})
+
+/**
+ * Migration 0029 and anchor bolt installation on a REAL database, read from a local SQLite copy at schema 28 (never a live one):
+ *   BOLT_INSTALL_DB=/tmp/mig/production-after-0028.sqlite npx vitest run src/worker/__tests__/anchorageMigration.test.ts
+ * Shows what changes for every foundation, and follows OP1-01-06 (four post-installed bolts on a footing that was 100% built) through the real server write path.
+ */
+const BOLTS = process.env.BOLT_INSTALL_DB
+describe.skipIf(!BOLTS)('anchor bolt installation on a copy of real data', () => {
+  it('keeps every record and quantity, changes progress only where bolts are required, and holds OP1-01-06 below 100% until its bolts are installed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bolts-'))
+    const file = join(dir, 'copy.sqlite')
+    copyFileSync(BOLTS as string, file)
+    const raw = new DatabaseSync(file)
+    const db = d1Over(raw)
+    const stored = raw.prepare('SELECT id, status, actual_date FROM activities').all() as { id: string; status: string; actual_date: string | null }[]
+    const rowsBefore = Object.fromEntries(['foundations', 'plinths', 'foundation_bolts', 'foundation_anchorages', 'activities'].map((t) => [t, count(raw, t)]))
+    raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8'))
+    for (const t of Object.keys(rowsBefore)) expect(count(raw, t), t).toBe(rowsBefore[t])
+    expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+    expect((await checkIntegrity(db)).ok).toBe(true)
+    const st = await state(raw)
+    const idx = getIndex(st)
+    // Every stored activity record is exactly as it was.
+    for (const r of stored) { const a = st.activities.find((x) => x.id === r.id); expect(a?.status, r.id).toBe(r.status); expect(a?.actualDate ?? null, r.id).toBe(r.actual_date) }
+    // Progress per foundation, before (without installation) and after; only foundations that need bolts may change, and only downward.
+    const changed: string[] = []
+    for (const f of st.foundations) {
+      const acts = foundationActivities(idx, f)
+      const hasBolts = acts.some((a) => BOLT_KEYS.includes(a.key))
+      const before = progressOf(idx, acts.filter((a) => !BOLT_KEYS.includes(a.key)))
+      const after = progressOf(idx, acts)
+      if (!hasBolts) expect(after, f.number).toBe(before)
+      else { expect(after, f.number).toBeLessThanOrEqual(before); if (after !== before) changed.push(`${f.number} ${before}→${after}`) }
+    }
+    // OP1-01-06: built to 100%, with four bolts and no installation activity until now.
+    const pad = st.foundations.find((f) => f.number === 'OP1-01-06')
+    if (pad) {
+      const padActs = () => foundationActivities(getIndex(st), pad)
+      expect(progressOf(idx, foundationActivities(idx, pad).filter((a) => !BOLT_KEYS.includes(a.key)))).toBe(100) // the problem
+      expect(progressOf(idx, foundationActivities(idx, pad))).toBeLessThan(100) // fixed: the bolts are outstanding (wet-set by default)
+      void padActs
+      const admin = { email: 'admin@example.com', role: 'admin' as const, projects: 'all' as const }
+      let n = 0
+      const run = (name: string, args: unknown[]) => runCommand(db, { module: 'construction', name, args, requestId: `req-bolt-${n++}-xxxxxxxx`, clientToday: TODAY }, admin, clock())
+      const b = st.foundationBolts!.find((x) => x.foundationId === pad.id)!
+      await run('configureFoundation', [pad.id, { bolts: [{ id: b.id, qty: b.qty, diameter: b.diameter, length: b.length, lengthUnit: b.lengthUnit, thread: b.thread, topThread: b.topThread, bottomThread: b.bottomThread, nutsPerBolt: b.nutsPerBolt, washersPerBolt: b.washersPerBolt, nutSize: b.nutSize, washerSize: b.washerSize, spec: b.spec, mode: b.mode, installMethod: 'post-installed' }] }])
+      const after = await state(raw)
+      const ia = getIndex(after)
+      const f2 = after.foundations.find((f) => f.id === pad.id)!
+      const keys = foundationActivities(ia, f2).filter((a) => BOLT_KEYS.includes(a.key)).map((a) => a.key)
+      expect(keys).toEqual(['anchorBoltsPostInstalled'])
+      expect(foundationActivities(ia, f2).find((a) => a.key === 'poured')!.status).toBe('complete') // concrete stays poured with the bolts outstanding
+      expect(progressOf(ia, foundationActivities(ia, f2))).toBe(75)
+      expect(foundationState(ia, f2).state).toBe('in-progress')
+      await run('updateActivity', [`${pad.id}:anchorBoltsPostInstalled`, { status: 'complete' }, TODAY])
+      const done = await state(raw)
+      const id = getIndex(done)
+      const f3 = done.foundations.find((f) => f.id === pad.id)!
+      expect(progressOf(id, foundationActivities(id, f3))).toBe(100)
+      expect(foundationState(id, f3).state).toBe('constructed')
+      expect(raw.prepare('PRAGMA foreign_key_check').all()).toEqual([])
+      expect((await checkIntegrity(db)).ok).toBe(true)
+    }
+    process.stderr.write(`\nanchor bolt installation on a copy: ${st.foundations.length} designations, ${changed.length} change progress because bolts are required and not yet recorded as installed${changed.length ? ': ' + changed.slice(0, 12).join(', ') + (changed.length > 12 ? ', …' : '') : ''}. OP1-01-06: 100% → 75% (bolts outstanding), poured stays complete, 100% once installed.\n`)
   })
 })

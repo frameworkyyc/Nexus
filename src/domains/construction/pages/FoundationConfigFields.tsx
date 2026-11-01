@@ -4,7 +4,9 @@ import { Field, Input, Select } from '@/components/ui/Field'
 import { SearchSelect } from '@/components/ui/SearchSelect'
 import { useState } from 'react'
 import { footingVolume, hasAnyDim, LENGTH_UNITS, volumeLabel, type FoundationConcrete } from '../concrete'
-import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, LengthUnit, PlateSpec, Plinth } from '../types'
+import { typeHasBolts } from '../anchorageMounts'
+import { INSTALL_METHOD_LABEL } from '../config'
+import type { AnchorageComponent, AnchorageGroup, AnchorageType, Dims, FootingShape, Foundation, FoundationAnchorage, FoundationBolt, FoundationEmbed, InstallMethod, LengthUnit, PlateSpec, Plinth } from '../types'
 import type { AnchorageInput, FoundationConfig, FoundationEmbedInput, FootingBoltInput, GroupInput } from '../configActions'
 import { itemsOf } from '../tracker/requirements'
 import { plateText } from '../plates'
@@ -12,7 +14,7 @@ import { plateText } from '../plates'
 /** Text-box state for a set of dimensions. */
 export interface DimsDraft { length: string; width: string; height: string; unit: LengthUnit }
 /** One anchorage group on the footing or on each plinth of a set: a library type and how many. */
-export interface AnchorageDraft { id?: string; typeId: string; qty: string }
+export interface AnchorageDraft { id?: string; typeId: string; qty: string; /** How the bolts of this type are installed. */ installMethod: InstallMethod }
 /** What is mounted on the footing, or on each plinth of one set: anchorage groups, individual anchor bolts and embed plates. */
 export interface MountDraft { anchorages: AnchorageDraft[]; bolts: BoltDraft[]; embeds: EmbedDraft[] }
 /** A set of identical plinths, with what is mounted on each of them. */
@@ -23,13 +25,15 @@ export interface BoltDraft {
   nutsPerBolt: string; nutSize: string; washersPerBolt: string; washerSize: string
   /** How the bolt quantity counts: per foundation (× the number of physical foundations) or a total. */
   mode: 'per-foundation' | 'total'
+  /** Wet-set (cast in as the concrete is poured) or post-installed (set into hardened concrete). */
+  installMethod: InstallMethod
 }
-export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '', mode: 'per-foundation' })
-const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize, mode: b.mode ?? 'per-foundation' })
+export const blankBolt = (): BoltDraft => ({ qty: '4', diameter: '', length: '', lengthUnit: 'mm', thread: 'both-ends', topThread: '', bottomThread: '', spec: '', nutsPerBolt: '2', nutSize: '', washersPerBolt: '2', washerSize: '', mode: 'per-foundation', installMethod: 'wet-set' })
+const boltDraft = (b: FoundationBolt): BoltDraft => ({ id: b.id, qty: String(b.qty), diameter: b.diameter, length: b.length === null ? '' : String(b.length), lengthUnit: b.lengthUnit, thread: b.thread ?? 'both-ends', topThread: b.topThread === null ? '' : String(b.topThread), bottomThread: b.bottomThread === null ? '' : String(b.bottomThread), spec: b.spec, nutsPerBolt: String(b.nutsPerBolt), nutSize: b.nutSize, washersPerBolt: String(b.washersPerBolt), washerSize: b.washerSize, mode: b.mode ?? 'per-foundation' , installMethod: b.installMethod ?? 'wet-set' })
 const numOrNull = (t: string) => (t.trim() === '' ? null : Number(t))
 const boltInput = (d: BoltDraft): FootingBoltInput => ({
   id: d.id, qty: Number(d.qty), diameter: d.diameter, length: numOrNull(d.length), lengthUnit: d.lengthUnit, thread: d.thread, topThread: d.thread === 'both-ends' ? numOrNull(d.topThread) : null, bottomThread: d.thread === 'both-ends' ? numOrNull(d.bottomThread) : null,
-  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize, mode: d.mode,
+  spec: d.spec, nutsPerBolt: Number(d.nutsPerBolt || 0), washersPerBolt: Number(d.washersPerBolt || 0), nutSize: d.nutSize, washerSize: d.washerSize, mode: d.mode, installMethod: d.installMethod,
 })
 /** Text-box state for a plate created in the form: size and optional headed studs. */
 export interface PlateDraft { thickness: string; width: string; length: string; unit: 'mm' | 'in'; studCount: string; studDiameter: string; studLength: string }
@@ -85,11 +89,11 @@ export function draftFromFoundation(f: Foundation, plinths: Plinth[], groups: An
     embeds: myEmbeds.filter((e) => (e.mountGroupId ?? null) === mount).map(embedDraft),
   })
   const anchoragesOn = (mount: string | null, legacyType: string | null): AnchorageDraft[] => anchorages
-    ? anchorages.filter((a) => a.foundationId === f.id && (a.mountGroupId ?? null) === mount).map((a) => ({ id: a.id, typeId: a.anchorageTypeId, qty: String(a.qty) }))
-    : legacyType ? [{ typeId: legacyType, qty: '1' }] : []
+    ? anchorages.filter((a) => a.foundationId === f.id && (a.mountGroupId ?? null) === mount).map((a) => ({ id: a.id, typeId: a.anchorageTypeId, qty: String(a.qty), installMethod: a.installMethod ?? 'wet-set' as InstallMethod }))
+    : legacyType ? [{ typeId: legacyType, qty: '1', installMethod: 'wet-set' as InstallMethod }] : []
   const list: GroupDraft[] = groups.length
     ? groups.map((g) => ({ id: g.id, count: String(g.count), dims: dimsDraft(g.dims), anchorages: anchoragesOn(g.id, g.anchorageTypeId), ...on(g.id) }))
-    : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null), anchorages: t ? [{ typeId: t, qty: '1' }] : [], bolts: [], embeds: [] }))
+    : [...new Set(mine.map((p) => p.anchorageTypeId ?? ''))].map((t) => ({ count: String(mine.filter((p) => (p.anchorageTypeId ?? '') === t).length), dims: dimsDraft(null), anchorages: t ? [{ typeId: t, qty: '1', installMethod: 'wet-set' as InstallMethod }] : [], bolts: [], embeds: [] }))
   return { shape: shapeDraft(f.footingShape), footing: dimsDraft(f.footing), plinthBase: f.plinthBase ?? 'above-footing', groups: list, anchorages: anchoragesOn(null, null), ...on(null), noPlinths: f.plinthsPerFoundation === 0 && list.length === 0 }
 }
 
@@ -105,7 +109,7 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
       const qty = Number(a.qty)
       if (!a.typeId) return { error: `${label} anchorage group ${i + 1}: choose an anchorage type from the library.` }
       if (a.qty.trim() === '' || !Number.isInteger(qty) || qty < 1) return { error: `${label} anchorage group ${i + 1}: enter the number of anchorages (a whole number of 1 or more).` }
-      anchorages.push({ id: a.id, anchorageTypeId: a.typeId, qty })
+      anchorages.push({ id: a.id, anchorageTypeId: a.typeId, qty, installMethod: a.installMethod })
     }
     for (const [i, e] of (m.embeds ?? []).entries()) {
       if (e.componentId || !e.plate) continue
@@ -262,12 +266,18 @@ function MountEditor({ value, onChange, types, components, multiplier, unit, lab
                 <Field label={`Per ${where}`}><Input aria-label={`Anchorages per ${where}, ${label} group ${i + 1}`} inputMode="numeric" value={a.qty} onChange={(e) => setRow(i, { qty: e.target.value })} /></Field>
                 <Button variant="ghost" aria-label={`Remove ${label} anchorage group ${i + 1}`} onClick={() => onChange({ ...value, anchorages: value.anchorages.filter((_, j) => j !== i) })}><Trash2 size={15} strokeWidth={1.5} /></Button>
               </div>
+              {a.typeId && typeHasBolts({ anchorageComponents: components }, a.typeId) && (
+                <div className="max-w-xs"><Field label="Anchor bolts are installed">
+                  <Select aria-label={`Bolt installation, ${label} group ${i + 1}`} value={a.installMethod} onChange={(e) => setRow(i, { installMethod: e.target.value as InstallMethod })}>
+                    {(Object.keys(INSTALL_METHOD_LABEL) as InstallMethod[]).map((m) => <option key={m} value={m}>{INSTALL_METHOD_LABEL[m]}</option>)}
+                  </Select></Field></div>
+              )}
               {typeError?.row === i && <p role="alert" className="text-xs text-bad">{typeError.message}</p>}
               {a.typeId && <p role="status" aria-live="polite" className="text-xs text-muted">{totals.length ? <>{Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? `${plural(Number(a.qty) * multiplier, 'anchorage')} → ` : ''}<span className="font-medium text-ink">{totals.join(' · ')}</span></> : Number.isInteger(Number(a.qty)) && Number(a.qty) >= 1 ? 'This type has no components yet (add them in the Anchorage Library).' : 'Enter a whole number of 1 or more.'}</p>}
             </div>
           )
         })}
-        <Button onClick={() => onChange({ ...value, anchorages: [...value.anchorages, { typeId: '', qty: '1' }] })}><Plus size={14} strokeWidth={1.5} />Add anchorage group</Button>
+        <Button onClick={() => onChange({ ...value, anchorages: [...value.anchorages, { typeId: '', qty: '1', installMethod: 'wet-set' }] })}><Plus size={14} strokeWidth={1.5} />Add anchorage group</Button>
       </div>
 
       <div className="space-y-2">
@@ -386,9 +396,10 @@ function BoltCard({ index, prefix = '', unit = 'foundation', value: b, quantity,
   const grid = 'grid grid-cols-2 items-end gap-3 sm:grid-cols-4'
   return (
     <div role="group" aria-label={`Anchor bolts ${n}`} className="space-y-3 rounded-nx border border-line p-4 phone:p-3">
-      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[7rem_11rem_1fr]">
+      <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-[7rem_11rem_11rem_1fr]">
         <Field label="Quantity *"><Input aria-label={`Bolt quantity ${n}`} inputMode="numeric" value={b.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
         <Field label="Quantity is"><Select aria-label={`Bolt quantity method ${n}`} value={b.mode} onChange={(e) => set({ mode: e.target.value as BoltDraft['mode'] })}><option value="per-foundation">{`Per ${word}`}</option><option value="total">Total</option></Select></Field>
+        <Field label="Installation"><Select aria-label={`Bolt installation ${n}`} value={b.installMethod} onChange={(e) => set({ installMethod: e.target.value as InstallMethod })}>{(Object.keys(INSTALL_METHOD_LABEL) as InstallMethod[]).map((m) => <option key={m} value={m}>{INSTALL_METHOD_LABEL[m]}</option>)}</Select></Field>
         <p role="status" aria-live="polite" className="col-span-2 pb-2 text-[13px] sm:col-span-1">{(() => { const q = Number(b.qty); const ok = Number.isInteger(q) && q >= 1; if (!ok) return <span className="text-muted">Enter a whole number of 1 or more.</span>; const t = boltCount(b, quantity); return <><span className="text-muted">{b.mode === 'per-foundation' ? `${q.toLocaleString('en-CA')} per ${word} × ${quantity.toLocaleString('en-CA')} ${word}${quantity === 1 ? '' : 's'} = ` : `${q.toLocaleString('en-CA')} in total across all ${quantity.toLocaleString('en-CA')} = `}</span><span className="font-medium">{t.toLocaleString('en-CA')} bolt{t === 1 ? '' : 's'} required</span>{(Number(b.nutsPerBolt) > 0 || Number(b.washersPerBolt) > 0) && <span className="text-muted"> · {(t * (Number(b.nutsPerBolt) || 0)).toLocaleString('en-CA')} nuts · {(t * (Number(b.washersPerBolt) || 0)).toLocaleString('en-CA')} washers</span>}</> })()}</p>
       </div>
       <div className={grid}>

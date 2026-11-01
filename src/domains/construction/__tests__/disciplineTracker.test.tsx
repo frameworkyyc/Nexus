@@ -47,10 +47,10 @@ describe('construction progress (existing records and calculations)', () => {
     expect(areaTracks(idx, w.pr, TODAY).counts['in-progress']).toBe(0)
   })
 
-  it('tracks the construction activities only (formwork, pours, rebar; footing and each plinth), not survey, QA/QC or materials', () => {
+  it('tracks the construction activities only (formwork, pours, rebar and anchor bolt installation where bolts are required; footing and each plinth), not survey, QA/QC or materials', () => {
     const acts = trackedActivities(idxOf(w.c), f1(w.c))
     expect(acts.length).toBeGreaterThan(4)
-    expect(acts.every((a) => ['formed', 'poured', 'rebarBuilt', 'rebarInstalled'].includes(a.key))).toBe(true)
+    expect(acts.every((a) => ['formed', 'poured', 'rebarBuilt', 'rebarInstalled', 'anchorBoltsWetSet'].includes(a.key))).toBe(true)
     expect(acts.some((a) => a.scope === 'footing' && a.key === 'poured')).toBe(true)
     expect(acts.some((a) => a.scope === 'plinth' && a.key === 'formed')).toBe(true)
     expect(acts.filter((a) => a.key === 'poured').map(trackLabel).sort()).toEqual(['Footing concrete poured', 'Plinth concrete poured'])
