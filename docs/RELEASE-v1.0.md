@@ -14,7 +14,8 @@ separate Worker. Nothing in this document has been run against production: every
 
 ## What you must provide (WorkOS **Production** environment of the Nexus project, client `client_01M6BZ6XSCEHJM3P69FW4C2T9S`)
 1. **API key** (secret): WorkOS dashboard → Nexus → Production → API Keys → Create. (None exists yet.) It becomes the Cloudflare secret `WORKOS_API_KEY`.
-2. **AuthKit settings**: AuthKit enabled; **Email code (Magic Auth) on**; password, social sign-in and SSO **off**; **sign-up off** (invitation-only).
+2. **AuthKit settings** (checked against the live environment): AuthKit enabled; **Email code (Magic Auth) ON** (it is off today); **sign-up OFF** (it is on today: this is what makes registration invitation-only); password, passkeys and social sign-in off (already);
+   **SSO off** and **IdP-initiated SSO off** (both on today; not used); MFA off; invitation expiry 7 days (already); access-token lifetime at most 1 hour (Nexus refuses longer; the default is 5 minutes).
 3. **URLs** (AuthKit → Redirects), exactly:
    * Redirect URI: `https://nexus.frameworktools.ca/api/auth/callback`
    * Sign-in endpoint (initiate login URI; invitation emails link here): `https://nexus.frameworktools.ca/api/auth/login`
@@ -35,12 +36,18 @@ Production is empty (`nexus-production` has no tables). Apply migrations **0001 
 2. `npx wrangler d1 migrations apply nexus-production --remote`
 3. Verify: `d1_migrations` lists 0001…0027, `schema_info.schema_version = '27'`, `user_roles` is empty.
 
+## Safeguard: merging must never deploy production
+Workers Builds deploys the production Worker on every push to `main`. Before `staging` is merged into `main`, change the production Worker's **deploy command** to `npx wrangler versions upload`
+(Cloudflare dashboard → Workers & Pages → `nexus` → Settings → Build → Deploy command). A merge then builds and saves a **version** but does not promote it, so production keeps serving what it serves now.
+Promotion is the separate, explicitly approved release step: dashboard → `nexus` → Deployments → deploy that version at 100%, or `npx wrangler versions deploy <version-id>@100%`.
+(Restore `npx wrangler deploy` only if you want pushes to `main` to deploy automatically again.) This applies to `nexus` only: the `nexus-demo` project is isolated and may auto-deploy.
+
 ## Release steps (in order; each waits for your approval)
 1. **WorkOS Production**: items 1 to 3 above (dashboard).
 2. **Demo first**: from a checkout of this branch, `npx wrangler deploy --config wrangler.demo.jsonc` (creates the separate `nexus-demo` Worker; production is untouched). Attach `demo.nexus.frameworktools.ca`. Verify the page says "Demo Environment" and `/api/health` answers 404 `{"code":"demo"}`. Then connect its Workers Builds project (above).
 3. **Database**: bookmark, migrations, verify (above).
 4. **Secrets** on the production Worker (above). Nothing changes for visitors yet.
-5. **Review and merge** `staging` into `main` (pull request; the diff is the release). Workers Builds deploys `nexus` with `NEXUS_ENV=production`, the application bundle and the `nexus-production` binding. (Until then `nexus.frameworktools.ca` keeps serving the old demo.)
+5. **Review and merge** `staging` into `main` (pull request; the diff is the release), with the safeguard above in place. The build saves a version of `nexus` with `NEXUS_ENV=production`, the application bundle and the `nexus-production` binding; `nexus.frameworktools.ca` keeps serving the old demo. **Then, on your explicit approval, promote that version to 100%.**
 6. **Verify, signed out**: `GET /api/health` → `{"auth":"workos","environment":"production","database":true,"access":true}`; `GET /api/session`, `/api/state/construction`, `/api/commands`, `/api/members`, `/api/backup` → 401; `GET /api/auth/login` → redirect to `api.workos.com/user_management/authorize` with `redirect_uri=https://nexus.frameworktools.ca/api/auth/callback`; the page loads and shows "Sign in".
 7. **First administrator**: in WorkOS Production → Users → **Invite user** with the `INITIAL_ADMIN_EMAIL` address. Open the email link, enter the emailed code. The admin membership is created at that sign-in (only while no administrator exists, only for that email).
 8. **Team**: in Setup → Team members invite an Edit and a View Only user with different projects. Check: project restrictions, Edit cannot change setup or users, View Only cannot change data, the nine modules show Coming Soon and their routes and commands are refused, **Revoke** blocks the next request, **Resend invitation** works.
