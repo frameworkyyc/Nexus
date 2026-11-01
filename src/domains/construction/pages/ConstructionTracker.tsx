@@ -136,8 +136,8 @@ function Card({ t, onOpen }: { t: FoundationTrack; onOpen: () => void }) {
   const Icon = meta.icon
   const qty = t.foundation.quantity ?? 1
   return (
-    <li>
-      <button type="button" onClick={onOpen} aria-label={`${t.foundation.number}: ${meta.label}, ${t.percent}%${t.overdue ? ', overdue' : ''}. Open`} className={`block w-full border bg-surface p-3 text-left transition-colors hover:border-ink ${t.overdue ? 'border-[var(--nx-bad)]' : 'border-line'}`}>
+    <li className="h-full">
+      <button type="button" onClick={onOpen} aria-label={`${t.foundation.number}: ${meta.label}, ${t.percent}%${t.overdue ? ', overdue' : ''}. Open`} className={`flex h-full min-h-[5.75rem] w-full flex-col border bg-surface p-3 text-left transition-colors hover:border-ink ${t.overdue ? 'border-[var(--nx-bad)]' : 'border-line'}`}>
         <span className="flex items-center justify-between gap-2">
           <span className="truncate text-[13px] font-medium">{t.foundation.number}</span>
           <span className="flex shrink-0 items-center gap-1">
@@ -146,8 +146,8 @@ function Card({ t, onOpen }: { t: FoundationTrack; onOpen: () => void }) {
             <Icon size={16} strokeWidth={1.75} className={meta.text} aria-hidden="true" />
           </span>
         </span>
-        <span className="mt-0.5 flex items-center justify-between gap-2 text-xs text-muted"><span className="truncate">{t.foundation.description || ' '}</span>{qty > 1 && <span title={`${qty} footings tracked as one designation`} className="shrink-0 rounded-full border border-line px-1.5 tabular-nums">×{qty}</span>}</span>
-        <span className="mt-3 block h-1 bg-line"><span className={`block h-full ${meta.bar}`} style={{ width: `${t.percent}%` }} /></span>
+        <span className="mt-0.5 flex h-5 items-center justify-between gap-2 text-xs text-muted"><span className="min-w-0 truncate">{t.foundation.description || '\u00a0'}</span>{qty > 1 && <span title={`${qty} footings tracked as one designation`} className="shrink-0 rounded-full border border-line px-1.5 leading-4 tabular-nums">×{qty}</span>}</span>
+        <span className="mt-auto block h-1 bg-line"><span className={`block h-full ${meta.bar}`} style={{ width: `${t.percent}%` }} /></span>
         <span className="mt-1 block text-right text-[11px] tabular-nums text-muted">{t.done}/{t.total} · {t.percent}%</span>
       </button>
     </li>
