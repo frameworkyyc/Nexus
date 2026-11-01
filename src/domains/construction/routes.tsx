@@ -86,7 +86,7 @@ export const constructionRoutes: RouteObject[] = [
                 { index: true, element: IS_PUBLIC_DEMO ? <MaterialsPage /> : <ProcurementPage /> },
                 { path: 'records', element: <MaterialRecordsPage />, handle: text('Material records') },
               ] },
-              { path: 'construction', element: <ManageDiscipline kind="construction" />, handle: text('Construction / Installation') },
+              { path: 'construction', element: <ManageDiscipline kind="construction" />, handle: text('Construction') },
               { path: 'survey', element: <ManageDiscipline kind="survey" />, handle: text('Survey') },
               { path: 'qaqc', element: <ManageDiscipline kind="qaqc" />, handle: text('QA/QC') },
               { path: 'civil', element: <FutureDevelopment title="Civil / Earthworks" description="Grading, excavation, pre-pour preparation and backfill tracking is planned. Nothing is recorded here yet, and no progress is shown." />, handle: text('Civil / Earthworks') },

@@ -7,7 +7,7 @@ export type Derivation = 'bolts' | 'nuts' | 'washers' | 'templates'
 
 export const CATEGORY_LABEL: Record<ActivityCategory, string> = {
   materials: 'Materials & Procurement',
-  construction: 'Construction & Installation',
+  construction: 'Construction',
   rebar: 'Rebar',
   survey: 'Survey',
   qaqc: 'QA/QC',

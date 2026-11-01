@@ -28,7 +28,7 @@ export function operationalNodes(projectId: string | null): NavSection[] {
   const to = (section: 'materials' | 'construction' | 'survey' | 'qaqc' | 'civil') => (p ? (section === 'materials' ? paths.manage(p) : paths.manageSection(p, section)) : '/projects')
   return [
     { id: 'op-materials', label: 'Procurement', icon: ShoppingCart, to: to('materials'), prefix: true },
-    { id: 'op-construction', label: 'Construction / Installation', icon: Hammer, to: to('construction'), prefix: true },
+    { id: 'op-construction', label: 'Construction', icon: Hammer, to: to('construction'), prefix: true },
     { id: 'op-survey', label: 'Survey', icon: Ruler, to: to('survey'), prefix: true },
     { id: 'op-qaqc', label: 'QA/QC', icon: ClipboardCheck, to: to('qaqc'), prefix: true },
     { id: 'op-civil', label: 'Civil / Earthworks', icon: Shovel, to: to('civil'), prefix: true, future: true },

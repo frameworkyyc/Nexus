@@ -8,7 +8,8 @@ import { redirectFor } from '../navigation'
 import { paths } from '../paths'
 import { foundationsOf } from '../selectors'
 import { useConstruction } from '../store'
-import { Construction, Quality } from './AreaPage'
+import { Quality } from './AreaPage'
+import { ConstructionTracker } from './ConstructionTracker'
 import { OverviewPage } from './OverviewPage'
 
 /* ── Redirects ────────────────────────────────────────────────────────────── */
@@ -56,18 +57,18 @@ export function ManageDiscipline({ kind }: { kind: 'construction' | 'survey' | '
   const [params, setParams] = useSearchParams()
   const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence)
   const area = areas.find((a) => a.id === params.get('area')) ?? areas[0]
-  const title = kind === 'construction' ? 'Construction / Installation' : kind === 'survey' ? 'Survey' : 'QA/QC'
+  const title = kind === 'construction' ? 'Construction' : kind === 'survey' ? 'Survey' : 'QA/QC'
   if (!area) return <><PageHeader title={title} /><EmptyState title="No areas yet" description="Add an area in Setup to record this work." action={<Link to={paths.areas(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Areas</Link>} /></>
   return (
     <>
-      <PageHeader title={title} description={kind === 'construction' ? 'Footing and plinth work for the selected area, as recorded today.' : 'Survey checks and QA/QC inspections for the selected area. They are recorded together in one table today.'} />
+      <PageHeader title={title} description={kind === 'construction' ? 'Update each foundation’s construction activities for the selected area.' : 'Survey checks and QA/QC inspections for the selected area. They are recorded together in one table today.'} />
       <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
         {areas.map((a) => (
           <button key={a.id} type="button" aria-pressed={a.id === area.id} onClick={() => setParams({ area: a.id })}
             className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${a.id === area.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>{a.name}</button>
         ))}
       </div>
-      {kind === 'construction' ? <Construction projectId={projectId} areaId={area.id} /> : <Quality projectId={projectId} areaId={area.id} />}
+      {kind === 'construction' ? <ConstructionTracker areaId={area.id} /> : <Quality projectId={projectId} areaId={area.id} />}
     </>
   )
 }
