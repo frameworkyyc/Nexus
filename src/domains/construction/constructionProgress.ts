@@ -10,7 +10,7 @@ export type Discipline = 'construction' | 'survey' | 'qaqc' | 'civil'
 
 export const DISCIPLINES: Record<Discipline, { title: string; description: string; inDiscipline: (c: ActivityCategory) => boolean; order: string[] }> = {
   construction: { title: 'Construction', description: 'Update each foundation’s construction activities, including installing post-installed anchor bolts and embed plates.', inDiscipline: isConstructionCategory, order: ['formed', 'poured', 'anchorBoltsPostInstalled', 'embedsPostInstalled', 'rebarBuilt', 'rebarInstalled'] },
-  survey: { title: 'Survey', description: 'Record layout, pre- and post-pour surveys and the anchor bolt survey for each foundation.', inDiscipline: (c) => c === 'survey', order: ['layout', 'preSurvey', 'postSurvey', 'anchorBoltSurvey'] },
+  survey: { title: 'Survey', description: 'Record layout, pre-pour and as-built surveys and the anchor bolt survey for each foundation.', inDiscipline: (c) => c === 'survey', order: ['layout', 'preSurvey', 'postSurvey', 'anchorBoltSurvey'] },
   qaqc: { title: 'QA/QC', description: 'Record pre- and post-pour inspections and anchor bolt verification for each foundation.', inDiscipline: (c) => c === 'qaqc', order: ['preInspection', 'postInspection', 'anchorBoltVerification'] },
   civil: { title: 'Civil / Earthworks', description: 'Record excavation, subgrade, compaction, elevation, backfill and final grading for each foundation.', inDiscipline: (c) => c === 'civil', order: ['excavation', 'subgradePrep', 'compaction', 'elevationVerification', 'backfill', 'finalGrading'] },
 }

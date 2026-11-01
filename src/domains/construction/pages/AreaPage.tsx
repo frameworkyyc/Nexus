@@ -227,7 +227,7 @@ function AreaMaterials({ projectId, areaId }: { projectId: string; areaId: strin
 }
 
 const SURVEY_COLUMNS: { key: string; label: string }[] = [
-  { key: 'layout', label: 'Layout' }, { key: 'preSurvey', label: 'Pre-pour survey' }, { key: 'postSurvey', label: 'Post-pour survey' },
+  { key: 'layout', label: 'Layout' }, { key: 'preSurvey', label: 'Pre-pour survey' }, { key: 'postSurvey', label: 'As-built survey' },
 ]
 const QAQC_COLUMNS: { key: string; label: string }[] = [
   { key: 'preInspection', label: 'Pre-pour inspection (CM03)' }, { key: 'postInspection', label: 'Post-pour inspection (CM04)' },

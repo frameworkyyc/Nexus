@@ -43,7 +43,7 @@ export const FOOTING_ACTIVITIES: ActivityDef[] = [
   { key: 'preSurvey', scope: 'footing', category: 'survey', label: 'Pre-pour survey checks', statusSet: work, after: ['formed', 'rebarInstalled'] },
   { key: 'preInspection', scope: 'footing', category: 'qaqc', label: 'Pre-pour inspection', statusSet: qaqc, after: ['formed', 'rebarInstalled'] },
   { key: 'poured', scope: 'footing', category: 'construction', label: 'Footing poured', statusSet: work, after: ['preInspection'] },
-  { key: 'postSurvey', scope: 'footing', category: 'survey', label: 'Post-pour survey', statusSet: work, after: ['poured'] },
+  { key: 'postSurvey', scope: 'footing', category: 'survey', label: 'As-built survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'footing', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
   // Civil / earthworks, recorded per foundation like the rest. Added after the existing activities so the construction sequence is unchanged.
   { key: 'excavation', scope: 'footing', category: 'civil', label: 'Excavation', statusSet: work },
@@ -66,7 +66,7 @@ export const PLINTH_ACTIVITIES: ActivityDef[] = [
   { key: 'preSurvey', scope: 'plinth', category: 'survey', label: 'Pre-pour survey checks', statusSet: work, after: ['formed', 'rebarInstalled', 'anchorBolts'] },
   { key: 'preInspection', scope: 'plinth', category: 'qaqc', label: 'Pre-pour inspection', statusSet: qaqc, after: ['formed', 'rebarInstalled'] },
   { key: 'poured', scope: 'plinth', category: 'construction', label: 'Plinth poured', statusSet: work, after: ['preInspection'] },
-  { key: 'postSurvey', scope: 'plinth', category: 'survey', label: 'Post-pour survey', statusSet: work, after: ['poured'] },
+  { key: 'postSurvey', scope: 'plinth', category: 'survey', label: 'As-built survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'plinth', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
   // Added after the existing activities so the plinth sequence is unchanged: plinth layout, and the anchor bolt survey and verification.
   { key: 'layout', scope: 'plinth', category: 'survey', label: 'Layout completed', statusSet: work },

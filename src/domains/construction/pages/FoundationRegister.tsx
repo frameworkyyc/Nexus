@@ -55,7 +55,7 @@ const concreteCell = (c: FoundationConcrete) => (c.total !== null ? volumeLabel(
 const concreteTitle = (c: FoundationConcrete) => (c.complete ? `${volumeLabel(c.perFoundation!)} per foundation` : `Incomplete: missing ${c.missing.join(' and ')}`)
 
 /** Short names for the step labels, so the column stays on one line: "Layout completed" → "Layout", "Footing poured" → "Pour". */
-const STEP_SHORT: Record<string, string> = { 'Layout completed': 'Layout', 'Rebar built': 'Rebar build', 'Rebar installed': 'Rebar install', 'Footing formed': 'Forming', 'Plinth formed': 'Forming', 'Pre-pour survey checks': 'Pre-pour survey', 'Pre-pour inspection': 'Pre-pour QA/QC', 'Footing poured': 'Pour', 'Plinth poured': 'Pour', 'Post-pour survey': 'Post-pour survey', 'Post-pour inspection': 'Post-pour QA/QC' }
+const STEP_SHORT: Record<string, string> = { 'Layout completed': 'Layout', 'Rebar built': 'Rebar build', 'Rebar installed': 'Rebar install', 'Footing formed': 'Forming', 'Plinth formed': 'Forming', 'Pre-pour survey checks': 'Pre-pour survey', 'Pre-pour inspection': 'Pre-pour QA/QC', 'Footing poured': 'Pour', 'Plinth poured': 'Pour', 'As-built survey': 'As-built survey', 'Post-pour inspection': 'Post-pour QA/QC' }
 const shortStep = (label: string) => STEP_SHORT[label] ?? label
 /** Anchorage as compact as it can be while staying exact: one code on its own, "A × 2 · B × 1" for several. */
 const anchorageShort = (state: ConstructionState, r: Row) =>

@@ -72,7 +72,7 @@ export function surveyIndicator(idx: Index, areaId: string): PackageIndicator {
     key: 'survey', title: 'Survey',
     basis: 'Survey activities recorded complete. Completion is not acceptance.',
     percent: ratio(doneOf(acts), acts.length),
-    rows: [group('Layout', 'layout'), group('Pre-pour survey', 'preSurvey'), group('Post-pour survey', 'postSurvey'), { label: 'Accepted', value: NOT_TRACKED }],
+    rows: [group('Layout', 'layout'), group('Pre-pour survey', 'preSurvey'), group('As-built survey', 'postSurvey'), { label: 'Accepted', value: NOT_TRACKED }],
     gaps: ['Survey acceptance is not recorded, only completion.'],
   }
 }
