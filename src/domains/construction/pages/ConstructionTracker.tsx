@@ -7,11 +7,13 @@ import { GAUGE_GRID } from '@/components/ui/ProgressGauge'
 import { Modal } from '@/components/ui/Modal'
 import { ProgressBar } from '@/components/ui/Progress'
 import type { Status } from '@/components/viz/status'
+import { ViewToggle } from '@/components/ui/Toolbar'
 import { useAccess } from '@/lib/access'
+import { usePersistentChoice } from '@/lib/usePersistentChoice'
 import { formatShortDate } from '@/lib/format'
 import { useIsPhone } from '@/lib/useMedia'
 import { updateActivity } from '../commands'
-import { areaTracks, isLate, matchesFilter, trackLabel, type FoundationTrack, type TrackFilter, type TrackState } from '../constructionProgress'
+import { areaTracks, isLate, projectTracks, matchesFilter, trackLabel, type FoundationTrack, type TrackFilter, type TrackState } from '../constructionProgress'
 import { effectiveStatus } from '../selectors'
 import { useConstruction, useConstructionCommand } from '../store'
 import type { Activity, ActivityStatus } from '../types'
@@ -131,7 +133,7 @@ function FoundationPanel({ id, onClose }: { id: string; onClose: () => void }) {
   )
 }
 
-function Card({ t, onOpen }: { t: FoundationTrack; onOpen: () => void }) {
+function Card({ t, area, onOpen }: { t: FoundationTrack; area?: string; onOpen: () => void }) {
   const meta = STATE_META[t.state]
   const Icon = meta.icon
   const qty = t.foundation.quantity ?? 1
@@ -148,33 +150,68 @@ function Card({ t, onOpen }: { t: FoundationTrack; onOpen: () => void }) {
         </span>
         <span className="mt-0.5 flex h-5 items-center justify-between gap-2 text-xs text-muted"><span className="min-w-0 truncate">{t.foundation.description || '\u00a0'}</span>{qty > 1 && <span title={`${qty} footings tracked as one designation`} className="shrink-0 rounded-full border border-line px-1.5 leading-4 tabular-nums">×{qty}</span>}</span>
         <span className="mt-auto block h-1 bg-line"><span className={`block h-full ${meta.bar}`} style={{ width: `${t.percent}%` }} /></span>
-        <span className="mt-1 block text-right text-[11px] tabular-nums text-muted">{t.done}/{t.total} · {t.percent}%</span>
+        <span className="mt-1 flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted"><span className="min-w-0 truncate">{area ?? '\u00a0'}</span><span className="shrink-0">{t.done}/{t.total} · {t.percent}%</span></span>
       </button>
     </li>
   )
 }
 
+/** The compact table view: one row per foundation, opening the same activity panel as a card. On a phone each row is a card, like the other tables. */
+export function ConstructionList({ tracks, areaName, onOpen }: { tracks: FoundationTrack[]; areaName: (id: string) => string; onOpen: (id: string) => void }) {
+  return (
+    <table className="card-table w-full text-left text-[13px]" aria-label="Foundations">
+      <thead><tr className="border-b border-line">
+        <th scope="col" className="t-label font-medium">Foundation</th><th scope="col" className="t-label font-medium">Area</th><th scope="col" className="t-label text-right font-medium">Footings</th>
+        <th scope="col" className="t-label font-medium">Progress</th><th scope="col" className="t-label font-medium">Status</th>
+      </tr></thead>
+      <tbody>
+        {tracks.map((t) => {
+          const meta = STATE_META[t.state]
+          const Icon = meta.icon
+          return (
+            <tr key={t.foundation.id} className="cursor-pointer border-b border-line transition-colors hover:bg-hover" onClick={() => onOpen(t.foundation.id)}>
+              <td data-wrap><button type="button" onClick={(e) => { e.stopPropagation(); onOpen(t.foundation.id) }} aria-label={`${t.foundation.number}: ${meta.label}, ${t.percent}%${t.overdue ? ', overdue' : ''}. Open`} className="text-left font-medium underline-offset-4 hover:underline">{t.foundation.number}</button>{t.foundation.description && <span className="block truncate text-xs text-muted">{t.foundation.description}</span>}</td>
+              <td className="text-muted">{areaName(t.foundation.areaId)}</td>
+              <td className="text-right tabular-nums">{t.foundation.quantity ?? 1}</td>
+              <td><span className="flex items-center gap-2"><span className="block h-1 w-20 bg-line"><span className={`block h-full ${meta.bar}`} style={{ width: `${t.percent}%` }} /></span><span className="tabular-nums text-muted">{t.percent}%</span></span></td>
+              <td><span className={`inline-flex items-center gap-1.5 ${meta.text}`}><Icon size={15} strokeWidth={1.75} aria-hidden="true" />{meta.label}{t.overdue && <AlertTriangle size={14} className="text-[var(--nx-bad)]" aria-label="Overdue" />}</span></td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+export type TrackerLayout = 'grid' | 'list'
+
 /**
- * The Construction page: gauges for the selected area (Not started, In progress, Completed, Overdue), the area's foundations as cards you can filter
+ * The Construction page: gauges for the selected area (or every area, with `areaId` "all"), the foundations as cards or a compact list you can filter
  * by tapping a gauge, and a panel to update each foundation's construction activities. It reads and writes the existing activity records only.
  */
-export function ConstructionTracker({ areaId }: { areaId: string }) {
-  const { idx, today } = useConstruction()
+export function ConstructionTracker({ areaId, areaIds = [] }: { areaId: string; areaIds?: string[] }) {
+  const { idx, today, state } = useConstruction()
   const [filter, setFilter] = useState<TrackFilter | ''>('')
   const [open, setOpen] = useState<string | null>(null)
-  const { tracks, counts, scheduled } = areaTracks(idx, areaId, today)
+  // the chosen layout is remembered, so it stays as you switch areas
+  const [layout, setLayout] = usePersistentChoice<TrackerLayout>('nexus.construction.view', ['grid', 'list'], 'grid')
+  const all = areaId === 'all'
+  const { tracks, counts, scheduled } = all ? projectTracks(idx, areaIds, today) : areaTracks(idx, areaId, today)
+  const areaName = (id: string) => state.areas.find((a) => a.id === id)?.name ?? ''
   if (tracks.length === 0) return <EmptyState title="No foundations in this area yet" description="Add foundations in Setup to track their construction." />
   const shown = tracks.filter((t) => matchesFilter(t, filter))
   return (
     <>
       <Gauges counts={counts} total={tracks.length} scheduled={scheduled} active={filter} onPick={(k) => setFilter(filter === k ? '' : k)} />
-      <div className="mb-3 flex items-center justify-between text-xs text-muted">
-        <span>{filter ? `${shown.length} of ${tracks.length} foundations` : `${tracks.length} foundations`}</span>
-        {filter && <button type="button" className="underline underline-offset-4" onClick={() => setFilter('')}>Show all</button>}
+      <div className="mb-3 flex items-center justify-between gap-3 text-xs text-muted">
+        <span>{filter ? `${shown.length} of ${tracks.length} foundations` : `${tracks.length} foundations`}{filter && <> · <button type="button" className="underline underline-offset-4" onClick={() => setFilter('')}>Show all</button></>}</span>
+        <ViewToggle label="Foundations view" value={layout} onChange={setLayout} items={[{ id: 'grid', label: 'Grid' }, { id: 'list', label: 'List' }]} />
       </div>
-      {shown.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">No foundations match.</p> : (
+      {shown.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">No foundations match.</p> : layout === 'list' ? (
+        <ConstructionList tracks={shown} areaName={areaName} onOpen={setOpen} />
+      ) : (
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6" aria-label="Foundations">
-          {shown.map((t) => <Card key={t.foundation.id} t={t} onOpen={() => setOpen(t.foundation.id)} />)}
+          {shown.map((t) => <Card key={t.foundation.id} t={t} area={all ? areaName(t.foundation.areaId) : undefined} onOpen={() => setOpen(t.foundation.id)} />)}
         </ul>
       )}
       <p className="mt-6 flex items-center gap-1 text-xs text-muted"><ChevronRight size={12} aria-hidden="true" />Tap a foundation to update its activities. Progress is the same figure shown in Project Status and Foundation Overview.</p>

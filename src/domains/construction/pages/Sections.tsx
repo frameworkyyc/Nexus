@@ -56,19 +56,22 @@ export function ManageDiscipline({ kind }: { kind: 'construction' | 'survey' | '
   const { state } = useConstruction()
   const [params, setParams] = useSearchParams()
   const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence)
-  const area = areas.find((a) => a.id === params.get('area')) ?? areas[0]
+  // Construction also offers All areas (the project-wide view) as its first choice and opens on it; the other pages open on the first area
+  const allAreas = kind === 'construction' && areas.length > 0 && (params.get('area') === 'all' || !areas.some((a) => a.id === params.get('area')))
+  const area = allAreas ? undefined : areas.find((a) => a.id === params.get('area')) ?? areas[0]
   const title = kind === 'construction' ? 'Construction' : kind === 'survey' ? 'Survey' : 'QA/QC'
-  if (!area) return <><PageHeader title={title} /><EmptyState title="No areas yet" description="Add an area in Setup to record this work." action={<Link to={paths.areas(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Areas</Link>} /></>
+  if (areas.length === 0 || (!area && !allAreas)) return <><PageHeader title={title} /><EmptyState title="No areas yet" description="Add an area in Setup to record this work." action={<Link to={paths.areas(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Areas</Link>} /></>
   return (
     <>
       <PageHeader title={title} description={kind === 'construction' ? 'Update each foundation’s construction activities for the selected area.' : 'Survey checks and QA/QC inspections for the selected area. They are recorded together in one table today.'} />
       <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
+        {kind === 'construction' && <button type="button" aria-pressed={allAreas} onClick={() => setParams({ area: 'all' })} className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${allAreas ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>All areas</button>}
         {areas.map((a) => (
-          <button key={a.id} type="button" aria-pressed={a.id === area.id} onClick={() => setParams({ area: a.id })}
-            className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${a.id === area.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>{a.name}</button>
+          <button key={a.id} type="button" aria-pressed={a.id === area?.id} onClick={() => setParams({ area: a.id })}
+            className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${a.id === area?.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>{a.name}</button>
         ))}
       </div>
-      {kind === 'construction' ? <ConstructionTracker areaId={area.id} /> : <Quality projectId={projectId} areaId={area.id} />}
+      {kind === 'construction' ? <ConstructionTracker areaId={area?.id ?? 'all'} areaIds={areas.map((a) => a.id)} /> : <Quality projectId={projectId} areaId={area!.id} />}
     </>
   )
 }

@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import * as K from '../actions'
-import { areaTracks, foundationTrack, matchesFilter, trackLabel, trackedActivities } from '../constructionProgress'
+import { areaTracks, foundationTrack, projectTracks, matchesFilter, trackLabel, trackedActivities } from '../constructionProgress'
 import { computeStats, getIndex } from '../selectors'
 import type { ConstructionState } from '../types'
 import { build, TODAY, world } from './materialsFixtures'
@@ -86,7 +87,7 @@ describe('construction progress (existing records and calculations)', () => {
 const withLate = set(set(w.c, `${w.f1}:formed`, { status: 'in-progress' }), `${w.f2}:formed`, { plannedDate: '2026-10-01' })
 vi.mock('../store', async (orig) => ({ ...(await orig<Record<string, unknown>>()), useConstruction: () => ({ idx: getIndex(withLate), state: withLate, today: TODAY }), useConstructionCommand: () => ({ run: () => {}, saving: false }) }))
 vi.mock('@/lib/access', () => ({ useAccess: () => ({ can: () => true, role: 'editor', ready: true }) }))
-const { ConstructionTracker } = await import('../pages/ConstructionTracker')
+const { ConstructionList, ConstructionTracker } = await import('../pages/ConstructionTracker')
 
 describe('the Construction page', () => {
   const html = renderToStaticMarkup(<ConstructionTracker areaId={w.eh} />)
@@ -107,5 +108,53 @@ describe('the Construction page', () => {
     expect(other).toContain('F-3')
     expect(other).not.toContain('F-1')
     expect(html).not.toContain('No planned dates yet')
+  })
+})
+
+describe('All areas and the list view', () => {
+  const ids = [w.eh, w.pr]
+  it('project-wide counts add up across the areas', () => {
+    const idx = getIndex(withLate)
+    const all = projectTracks(idx, ids, TODAY), a = areaTracks(idx, w.eh, TODAY), b = areaTracks(idx, w.pr, TODAY)
+    expect(all.tracks).toHaveLength(a.tracks.length + b.tracks.length)
+    for (const k of ['not-started', 'in-progress', 'completed', 'overdue'] as const) expect(all.counts[k]).toBe(a.counts[k] + b.counts[k])
+    expect(all.counts).toMatchObject({ 'not-started': 2, 'in-progress': 1, overdue: 1 })
+    expect(all.scheduled).toBe(true) // one planned date anywhere in the project makes Overdue available
+  })
+
+  it('the All areas page shows every area\'s foundations with their area, and gauges across the project', () => {
+    const html = renderToStaticMarkup(<ConstructionTracker areaId="all" areaIds={ids} />)
+    expect([...html.matchAll(/aria-label="(Not started|In progress|Completed|Overdue): (\d+) of (\d+) foundations/g)].map((m) => `${m[1]}:${m[2]}/${m[3]}`)).toEqual(['Not started:2/3', 'In progress:1/3', 'Completed:0/3', 'Overdue:1/3'])
+    for (const f of ['F-1', 'F-2', 'F-3']) expect(html).toContain(f)
+    expect(html).toContain('E-House')
+    expect(html).toContain('Pipe Rack')
+    expect(html).toContain('Foundations view') // the Grid / List toggle
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Grid/)
+    expect(html).toContain('>List<')
+  })
+
+  it('a single area still shows only its own foundations and does not label them with an area', () => {
+    const html = renderToStaticMarkup(<ConstructionTracker areaId={w.pr} areaIds={ids} />)
+    expect(html).toContain('F-3')
+    expect(html).not.toContain('F-1')
+    expect(html).not.toContain('Pipe Rack</span><span')
+  })
+
+  it('the list is a compact table of Foundation, Area, Footings, Progress and Status, one row per foundation', () => {
+    const { tracks } = projectTracks(getIndex(withLate), ids, TODAY)
+    const html = renderToStaticMarkup(<ConstructionList tracks={tracks} areaName={(id) => (id === w.eh ? 'E-House' : 'Pipe Rack')} onOpen={() => {}} />)
+    for (const h of ['Foundation', 'Area', 'Footings', 'Progress', 'Status']) expect(html).toContain(`>${h}<`)
+    expect((html.match(/<tr class="cursor-pointer/g) ?? []).length).toBe(3)
+    expect(html).toMatch(/F-1: In progress, \d+%\. Open/)
+    expect(html).toMatch(/F-2: Not started, 0%, overdue\. Open/)
+    expect(html).toContain('>5<') // F-1's five footings
+    expect(html).toContain('card-table') // becomes cards on a phone
+  })
+
+  it('the Construction selector offers All areas first, and the layout choice is remembered across areas', () => {
+    const page = readFileSync('src/domains/construction/pages/Sections.tsx', 'utf8')
+    expect(page.indexOf('>All areas</button>')).toBeLessThan(page.indexOf('{a.name}</button>'))
+    const tracker = readFileSync('src/domains/construction/pages/ConstructionTracker.tsx', 'utf8')
+    expect(tracker).toContain("usePersistentChoice<TrackerLayout>('nexus.construction.view'")
   })
 })

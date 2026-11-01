@@ -52,7 +52,15 @@ export interface AreaTracks {
 }
 
 export function areaTracks(idx: Index, areaId: string, today: string): AreaTracks {
-  const tracks = foundationsOf(idx, areaId).filter((f) => !f.archived).map((f) => foundationTrack(idx, f, today))
+  return summarize(foundationsOf(idx, areaId).filter((f) => !f.archived).map((f) => foundationTrack(idx, f, today)))
+}
+
+/** Every foundation of several areas together (the project-wide "All areas" view), with the same counts worked out across all of them. */
+export function projectTracks(idx: Index, areaIds: string[], today: string): AreaTracks {
+  return summarize(areaIds.flatMap((id) => areaTracks(idx, id, today).tracks))
+}
+
+function summarize(tracks: FoundationTrack[]): AreaTracks {
   const counts = { 'not-started': 0, 'in-progress': 0, completed: 0, overdue: 0 }
   for (const t of tracks) { counts[t.state]++; if (t.overdue) counts.overdue++ }
   return { tracks, counts, scheduled: tracks.some((t) => t.acts.some((a) => !!a.plannedDate)) }
