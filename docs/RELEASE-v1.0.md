@@ -39,8 +39,8 @@ is created at their first verified WorkOS sign-in, only while no administrator e
 the `d1_migrations` ledger is created and filled, and the schema is compared with `nexus-staging`. See "Release log" at the end for what was done and when.
 
 ## Final checklist (each item waits for your approval where marked ⛔)
-1. ☐ WorkOS Production configured and verified (done).
-2. ☐ Production database initialised (0001–0027), bookmark recorded, schema matches staging.
+1. ☑ WorkOS Production configured and verified (done).
+2. ☑ Production database initialised (0001–0027), bookmark recorded, schema matches staging (done 2026-11-01; see the release log).
 3. ☐ Secrets set on the production Worker: `WORKOS_API_KEY`, `SESSION_PEPPER`, `INITIAL_ADMIN_EMAIL` (`npx wrangler secret list`).
 4. ☐ No Cloudflare Access application covers `nexus.frameworktools.ca` (including wildcards such as `*.frameworktools.ca`). The staging Access application stays on `staging.nexus.frameworktools.ca` only.
 5. ☐ Recommended: a WAF rate-limiting rule on `/api/auth/*`.
@@ -60,3 +60,10 @@ the `d1_migrations` ledger is created and filled, and the schema is compared wit
 * Site: Cloudflare dashboard → `nexus` → Deployments → roll back to the previous version (the old site), then remove `NEXUS_RELEASE_APPROVED`.
 * Access: revoke members in Team members (immediate), or remove the `INITIAL_ADMIN_EMAIL` secret before the first sign-in.
 * Database: `npx wrangler d1 time-travel restore nexus-production --bookmark=<recorded bookmark>`. Staging is never touched.
+
+## Release log
+* **2026-11-01, production database.** Time Travel bookmark taken first: `00000004-00000000-00005116-a830b642c49efc16c45b0f7946866ea1` (the database was empty). Migrations 0001–0027 applied in order with a ledger row after each.
+  Verified against `nexus-staging`: ledger has 27 rows ending `0027_workos_auth.sql`; `schema_version` is `27`; 57 tables, 30 indexes and 1 trigger, with identical index and trigger SQL. The only difference is a staging-only leftover
+  backup table, `odometer_readings_before_0011`, which production correctly lacks. Data: 0 projects, 0 members, 1 supplier (Nucor) and 1 preference (bolts → Nucor), module versions all 0.
+  The production Worker was not touched: still on its 2026-10-23 deployment, with no secrets set yet.
+* To restore the database to the empty state if ever needed: `npx wrangler d1 time-travel restore nexus-production --bookmark=00000004-00000000-00005116-a830b642c49efc16c45b0f7946866ea1`.
