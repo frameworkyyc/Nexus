@@ -12,3 +12,8 @@ dist
 wrangler.preview-migrations.jsonc
 .wrangler
 *.tsbuildinfo
+
+# Data-migration working files hold real project data: never commit them
+/work/
+/backups/
+*.sqlite

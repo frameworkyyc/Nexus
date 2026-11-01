@@ -53,5 +53,16 @@ export function createTestDb(opts: { migrate?: boolean; seed?: boolean; projectA
   return { d1, raw, failNextBatch: (m) => { failure = m } }
 }
 
+/** A D1-style handle over an existing SQLite connection (for checking a copy of a real database with the application's own code). */
+export function d1Over(raw: DatabaseSync): D1 {
+  return {
+    prepare: (sql) => new Stmt(raw, sql),
+    async batch(statements) {
+      raw.exec('BEGIN')
+      try { const out = (statements as Stmt[]).map((s) => ({ results: s.exec() as Record<string, unknown>[] })); raw.exec('COMMIT'); return out } catch (e) { raw.exec('ROLLBACK'); throw e }
+    },
+  }
+}
+
 export const applySeeds = (raw: DatabaseSync) => { for (const f of readdirSync('seeds/reef').filter((x) => x.endsWith('.sql')).sort()) raw.exec(readFileSync(`seeds/reef/${f}`, 'utf8')) }
 export const applyMigrationFile = (raw: DatabaseSync, name: string) => raw.exec(readFileSync(`migrations/${name}`, 'utf8'))
