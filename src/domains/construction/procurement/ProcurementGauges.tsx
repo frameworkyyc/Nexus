@@ -4,7 +4,7 @@ import { useIsPhone } from '@/lib/useMedia'
 import { fmt } from './Dialogs'
 import type { ProcurementSummary } from './summary'
 
-export type GaugeKey = 'pending' | 'awaiting' | 'delivered' | 'overdue'
+export type GaugeKey = 'pending' | 'ordered' | 'delivered' | 'overdue'
 
 /**
  * Four ring gauges above the Procurement tabs, in the Area Overview's design (same ring, label, footer and phone card). Each is a button that filters
@@ -15,7 +15,7 @@ export function ProcurementGauges({ summary, onPick, active }: { summary: Procur
   const { required: R } = summary
   const items: { key: GaugeKey; title: string; qty: number; line: string; note: string; percent: number | null }[] = [
     { key: 'pending', title: 'Pending', qty: summary.pending, line: 'Required, not yet ordered', note: 'Filters Materials to those still to order', percent: summary.percent.pending },
-    { key: 'awaiting', title: 'Ordered', qty: summary.awaiting, line: 'Ordered, awaiting delivery', note: 'Shows orders still owed material', percent: summary.percent.awaiting },
+    { key: 'ordered', title: 'Ordered', qty: summary.ordered, line: 'Ordered (delivered or not)', note: 'Shows the orders placed', percent: summary.percent.ordered },
     { key: 'delivered', title: 'Delivered', qty: summary.delivered, line: 'Received', note: 'Filters Materials to those with any quantity received', percent: summary.percent.delivered },
     { key: 'overdue', title: 'Overdue', qty: summary.overdue, line: `Undelivered, past expected date${summary.overdueOrders ? ` · ${summary.overdueOrders} order${summary.overdueOrders === 1 ? '' : 's'}` : ''}`, note: 'Shows orders past their expected delivery date', percent: summary.percent.overdue },
   ]

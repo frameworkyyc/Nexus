@@ -17,7 +17,7 @@ import { useConstruction } from '../store'
 import { CorrectDeliveryModal, OrderModal, OrderDetailsModal, ReceiveModal, RowModal } from './Dialogs'
 import { OrdersTab } from './OrdersTab'
 import { ProcurementGauges, type GaugeKey } from './ProcurementGauges'
-import { dueOf, hasLineIn, isOverdue, procurementSummary } from './summary'
+import { hasLineIn, isOverdue, orderedIn, procurementSummary } from './summary'
 import { UnlinkedNotice } from './UnlinkedNotice'
 import { RequirementsView, type RequirementsLayout } from './RequirementsView'
 import { ViewToggle } from '@/components/ui/Toolbar'
@@ -58,7 +58,7 @@ export function ProcurementPage() {
   const [tab, setTab] = useState<Tab>(params.get('tab') === 'orders' ? 'orders' : 'materials')
   const [layout, setLayout] = usePersistentChoice<RequirementsLayout>('nexus.procurement.view', ['list', 'blocks'], 'list')
   const [status, setStatus] = useState<ProcStatus | 'any-received' | ''>('')
-  const [orderFilter, setOrderFilter] = useState<'' | 'awaiting' | 'overdue'>('')
+  const [orderFilter, setOrderFilter] = useState<'' | 'ordered' | 'overdue'>('')
   const [search, setSearch] = useState('')
   const [dialog, setDialog] = useState<null | { kind: 'order' | 'receive'; keys: string[]; order?: string } | { kind: 'row'; key: string } | { kind: 'po'; order: string } | { kind: 'correct'; delivery: string }>(null)
   const areaFilter = params.get('area') ?? ''
@@ -74,12 +74,12 @@ export function ProcurementPage() {
   const orders = (state.orders ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.number.localeCompare(a.number))
   const projectOrder = (o: { id: string }) => (state.orderLines ?? []).some((l) => l.orderId === o.id && (!l.areaId || rows.some((r) => r.key === l.key) || areas.some(([id]) => id === l.areaId)))
   const summary = useMemo(() => procurementSummary(rows, state, orders.filter(projectOrder), today, areaFilter), [rows, state, orders, today, areaFilter]) // eslint-disable-line react-hooks/exhaustive-deps
-  const gauge: GaugeKey | null = tab === 'materials' ? (status === 'pending' ? 'pending' : status === 'any-received' ? 'delivered' : null) : orderFilter === 'awaiting' ? 'awaiting' : orderFilter === 'overdue' ? 'overdue' : null
+  const gauge: GaugeKey | null = tab === 'materials' ? (status === 'pending' ? 'pending' : status === 'any-received' ? 'delivered' : null) : orderFilter === 'ordered' ? 'ordered' : orderFilter === 'overdue' ? 'overdue' : null
   const pickGauge = (k: GaugeKey) => {
     if (k === 'pending' || k === 'delivered') { setTab('materials'); setStatus(k === 'pending' ? 'pending' : 'any-received'); setSearch(''); setOrderFilter('') } else { setTab('orders'); setOrderFilter(k); setStatus('') }
   }
   // with an area chosen, the Orders tab lists the orders that have lines in it, and the Ordered / Overdue filters look only at what is owed there
-  const shownOrders = orders.filter(projectOrder).filter((o) => hasLineIn(state, o.id, areaFilter)).filter((o) => !orderFilter || (orderFilter === 'overdue' ? isOverdue(state, o, today, areaFilter) : !o.cancelled && dueOf(state, o.id, areaFilter) > 0))
+  const shownOrders = orders.filter(projectOrder).filter((o) => hasLineIn(state, o.id, areaFilter)).filter((o) => !orderFilter || (orderFilter === 'overdue' ? isOverdue(state, o, today, areaFilter) : orderedIn(state, o.id, areaFilter) > 0))
   const deliveries = (state.deliveries ?? []).slice().sort((a, b) => b.date.localeCompare(a.date) || b.at.localeCompare(a.at))
   const projectDelivery = (d: { id: string }) => (state.deliveryLines ?? []).some((l) => l.deliveryId === d.id && (!l.areaId || areas.some(([id]) => id === l.areaId)))
   const dlg = dialog?.kind === 'row' ? rows.find((r) => r.key === dialog.key) : undefined
@@ -127,8 +127,8 @@ export function ProcurementPage() {
 
       {tab === 'orders' && (
         <>
-        <div className="flex flex-wrap items-center gap-3 pt-6" data-compact><span className="text-xs text-muted">{orderFilter ? `${shownOrders.length} of ${orders.filter(projectOrder).length} orders · ${orderFilter === 'overdue' ? 'past their expected delivery date' : 'still owed material'}` : `${shownOrders.length} order${shownOrders.length === 1 ? '' : 's'}`}{orderFilter && <> · <button type="button" className="underline underline-offset-4" onClick={() => setOrderFilter('')}>Show all</button></>}</span><span className="grow" />{actions}</div>
-        {orderFilter && shownOrders.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">{orderFilter === 'overdue' ? 'No orders are past their expected delivery date.' : 'No orders are still owed material.'}</p> : <OrdersTab state={state} orders={shownOrders} deliveries={deliveries.filter(projectDelivery)} perms={{ order: canOrder, receive: canReceive, void: canVoid }} act={act}
+        <div className="flex flex-wrap items-center gap-3 pt-6" data-compact><span className="text-xs text-muted">{orderFilter ? `${shownOrders.length} of ${orders.filter(projectOrder).length} orders · ${orderFilter === 'overdue' ? 'past their expected delivery date' : 'with material ordered'}` : `${shownOrders.length} order${shownOrders.length === 1 ? '' : 's'}`}{orderFilter && <> · <button type="button" className="underline underline-offset-4" onClick={() => setOrderFilter('')}>Show all</button></>}</span><span className="grow" />{actions}</div>
+        {orderFilter && shownOrders.length === 0 ? <p className="py-8 text-center text-[13px] text-muted">{orderFilter === 'overdue' ? 'No orders are past their expected delivery date.' : 'No orders have been placed.'}</p> : <OrdersTab state={state} orders={shownOrders} deliveries={deliveries.filter(projectDelivery)} perms={{ order: canOrder, receive: canReceive, void: canVoid }} act={act}
           onReceive={(id) => setDialog({ kind: 'receive', keys: [], order: id })} onAddMaterials={(id) => setDialog({ kind: 'order', keys: [], order: id })} onEdit={(id) => setDialog({ kind: 'po', order: id })} onCorrect={(id) => setDialog({ kind: 'correct', delivery: id })} />}
         </>
       )}

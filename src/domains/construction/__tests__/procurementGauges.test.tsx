@@ -6,7 +6,7 @@ import * as A from '../tracker/actions'
 import { procurementRows } from '../tracker/procurement'
 import type { TrackerState } from '../tracker/types'
 import { getIndex } from '../selectors'
-import { dueOf, hasLineIn, isOverdue, procurementSummary } from '../procurement/summary'
+import { dueOf, hasLineIn, isOverdue, orderedIn, procurementSummary } from '../procurement/summary'
 import { fails, liveRows, run, tracked, TODAY, world } from './materialsFixtures'
 
 const s = (() => { const w = world(); const t0 = tracked(w.c); return { ...w, t0, rows: liveRows(t0, w.c) } })()
@@ -19,20 +19,45 @@ describe('Procurement summary (the four gauges)', () => {
   it('starts with everything pending, as a share of what is required', () => {
     const m = summary(s.t0)
     const R = s.rows.reduce((a, r) => a + r.required, 0)
-    expect(m).toMatchObject({ required: R, pending: R, awaiting: 0, delivered: 0, overdue: 0 })
-    expect(m.percent).toEqual({ pending: 100, awaiting: 0, delivered: 0, overdue: 0 })
+    expect(m).toMatchObject({ required: R, pending: R, ordered: 0, delivered: 0, overdue: 0 })
+    expect(m.percent).toEqual({ pending: 100, ordered: 0, delivered: 0, overdue: 0 })
   })
 
   it('moves quantities from pending to ordered to delivered as orders and deliveries are recorded, and the three always add up', () => {
     let t = order(s.t0, [{ key: r1.key, qty: r1.required }])
     let m = summary(t)
-    expect(m).toMatchObject({ pending: m.required - r1.required, awaiting: r1.required, delivered: 0 })
+    expect(m).toMatchObject({ pending: m.required - r1.required, ordered: r1.required, delivered: 0 })
     const id = t.orders![0].id
     t = run(t, s.c, A.recordDelivery({ orderId: id, date: TODAY, lines: [{ key: r1.key, qty: 2 }] }, TODAY))
     m = summary(t)
-    expect(m).toMatchObject({ awaiting: r1.required - 2, delivered: 2 })
-    expect(m.pending + m.awaiting + m.delivered).toBe(m.required)
+    expect(m).toMatchObject({ ordered: r1.required, delivered: 2 }) // receiving never lowers Ordered
+    expect(m.pending + m.ordered).toBe(m.required)
     expect(m.percent.delivered).toBe(Math.round((2 / m.required) * 100))
+  })
+
+  it('Ordered is cumulative: 100% once everything is ordered, and still 100% after everything is delivered', () => {
+    const every = s.rows.map((r) => ({ key: r.key, qty: r.required }))
+    let t = order(s.t0, every)
+    let m = summary(t)
+    expect(m).toMatchObject({ ordered: m.required, pending: 0, delivered: 0 })
+    expect(m.percent).toMatchObject({ ordered: 100, pending: 0, delivered: 0 })
+    t = run(t, s.c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: every }, TODAY))
+    m = summary(t)
+    expect(m).toMatchObject({ ordered: m.required, delivered: m.required, pending: 0 })
+    expect(m.percent).toMatchObject({ ordered: 100, delivered: 100 })
+  })
+
+  it('order changes: lowering a quantity or cancelling moves it back to Pending; raising it adds, never double-counts', () => {
+    let t = order(s.t0, [{ key: r1.key, qty: 10 }])
+    const id = t.orders![0].id, line = t.orderLines![0].id
+    const before = summary(t)
+    t = run(t, s.c, A.editPurchaseOrder(id, { quantities: [{ lineId: line, qty: 4 }] }))
+    expect(summary(t).ordered).toBe(4)
+    expect(summary(t).pending).toBe(before.pending + 6)
+    t = run(t, s.c, A.editPurchaseOrder(id, { quantities: [{ lineId: line, qty: 7 }] }))
+    expect(summary(t).ordered).toBe(7)
+    t = run(t, s.c, A.cancelPurchaseOrder(id))
+    expect(summary(t)).toMatchObject({ ordered: 0, pending: before.required })
   })
 
   it('a cancelled order goes back to pending (keeping what arrived as delivered)', () => {
@@ -40,8 +65,8 @@ describe('Procurement summary (the four gauges)', () => {
     t = run(t, s.c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: [{ key: r1.key, qty: 1 }] }, TODAY))
     t = run(t, s.c, A.cancelPurchaseOrder(t.orders![0].id))
     const m = summary(t)
-    expect(m).toMatchObject({ awaiting: 0, delivered: 1 })
-    expect(m.pending + m.delivered).toBe(m.required)
+    expect(m).toMatchObject({ ordered: 1, delivered: 1 }) // a cancelled order keeps only what arrived: no double counting
+    expect(m.pending + m.ordered).toBe(m.required)
   })
 
   it('overdue counts only what is still owed on live orders whose expected date has passed', () => {
@@ -110,9 +135,9 @@ describe('gauges follow the selected Area', () => {
   it('all areas gives the project totals; each area counts only its own requirements, orders and deliveries; the areas add up', () => {
     const all = at(), a = at(s.eh), b = at(s.pr)
     expect(a.required + b.required).toBe(all.required)
-    for (const k of ['pending', 'awaiting', 'delivered', 'overdue'] as const) expect(a[k] + b[k]).toBe(all[k])
-    expect(a).toMatchObject({ awaiting: 4, delivered: 2, overdue: 4 }) // 6 ordered, 2 received, 4 still due in E-House
-    expect(b).toMatchObject({ awaiting: 5, delivered: 0, overdue: 5 })
+    for (const k of ['pending', 'ordered', 'delivered', 'overdue'] as const) expect(a[k] + b[k]).toBe(all[k])
+    expect(a).toMatchObject({ ordered: 6, delivered: 2, overdue: 4 }) // 6 ordered (2 of them received), 4 still due in E-House
+    expect(b).toMatchObject({ ordered: 5, delivered: 0, overdue: 5 })
     expect(all.overdue).toBe(9)
     expect(a.percent.delivered).toBe(Math.round((2 / a.required) * 100))
   })
@@ -165,10 +190,24 @@ describe('the gauges on the page', () => {
     expect((html.match(/<button/g) ?? []).length).toBe(4)
     expect(html).toContain(`${m.overdue.toLocaleString('en-CA')} of ${m.required.toLocaleString('en-CA')}`)
     expect(html).toContain('Undelivered, past expected date')
+    expect(html).toContain('Ordered (delivered or not)')
     expect(html).toContain('1 order')
     expect(html).toMatch(/Filters Materials to those still to order/)
     expect(html).toMatch(/Shows orders past their expected delivery date/)
     expect(m.overdue).toBe(10)
+  })
+
+  it('the Ordered gauge lists the orders placed (delivered or not), per area, and leaves out cancelled ones with nothing received', () => {
+    const src = readFileSync('src/domains/construction/procurement/ProcurementPage.tsx', 'utf8')
+    expect(src).toContain('orderedIn(state, o.id, areaFilter) > 0')
+    let t = order(s.t0, [{ key: r1.key, qty: 3 }, { key: s.rows.find((r) => r.areaId === s.pr)!.key, qty: 2 }], null, 'A')
+    t = run(t, s.c, A.recordDelivery({ orderId: t.orders![0].id, date: TODAY, lines: [{ key: r1.key, qty: 3 }] }, TODAY))
+    expect(orderedIn(t, t.orders![0].id)).toBe(5) // fully delivered in E-House, yet still counted as ordered
+    expect(orderedIn(t, t.orders![0].id, s.eh)).toBe(3)
+    expect(orderedIn(t, t.orders![0].id, s.pr)).toBe(2)
+    const placed = order(s.t0, [{ key: r2.key, qty: 2 }])
+    const gone = run(placed, s.c, A.cancelPurchaseOrder(placed.orders![0].id))
+    expect(orderedIn(gone, gone.orders![0].id)).toBe(0) // cancelled with nothing received: not listed
   })
 
   it('the Delivered gauge filters Materials by any received quantity, partial deliveries included', () => {
