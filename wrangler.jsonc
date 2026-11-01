@@ -1,21 +1,17 @@
 {
-  // Nexus — ONE Cloudflare Worker (`nexus`), two branches, same architecture as Studio29 and LaNoir.
+  // Nexus — ONE Cloudflare Worker (`nexus`) with two environments, plus a separate public-demo Worker (wrangler.demo.jsonc).
   //
-  //   Branch    Cloudflare build command   Deploy command         Served at
-  //   main      npm run build              npx wrangler deploy    nexus.frameworktools.ca          (public demo, fictional data)
-  //   staging   npm run build              npx wrangler preview   staging.nexus.frameworktools.ca  (Worker Preview)
+  //   Branch    Build command      Deploy command         Served at                          Sign-in             Database
+  //   main      npm run build      npx wrangler deploy    nexus.frameworktools.ca            WorkOS AuthKit      nexus-production   (PRODUCTION: the settings below)
+  //   staging   npm run build      npx wrangler preview   staging.nexus.frameworktools.ca    Cloudflare Access   nexus-staging      (Worker Preview: "previews" below)
+  //   (demo)    npm run build:demo npx wrangler deploy --config wrangler.demo.jsonc   demo.nexus.frameworktools.ca   none (browser-only fictional data; Worker `nexus-demo`)
   //
-  // `wrangler preview` publishes an isolated Preview named after the git branch ("staging"). It never
-  // creates a Worker version or deployment on production, so staging cannot overwrite `nexus`.
+  // `wrangler preview` publishes an isolated Preview named after the git branch ("staging"). It never creates a Worker version or deployment on
+  // production, and a Preview does NOT inherit the top-level bindings or variables, so staging can never reach the production database or secrets.
   // Domains are managed in the Cloudflare dashboard (not in this file), so a deploy never moves them.
   //
-  // The Worker serves only /api/* (saved data); static files are served by Cloudflare's asset layer.
-  // Saved data needs three things, all supplied per environment — see docs/OPERATIONS.md:
-  //   1. a D1 database binding named DB,
-  //   2. Cloudflare Access in front of the site, and
-  //   3. ACCESS_TEAM_DOMAIN and ACCESS_AUD so the Worker can verify Access's signed token itself.
-  // Until all three exist the API refuses to serve data and the app shows demonstration data only. Production
-  // intentionally has none of them yet: production gets its OWN database, bindings and Access policy when it is promoted.
+  // The Worker serves only /api/* (saved data and sign-in); static files are served by Cloudflare's asset layer and carry no data (the application bundle
+  // compiles in no real identity). Every data route needs a verified sign-in and a membership; docs/AUTH.md and docs/DEPLOYMENT.md have the details.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nexus",
   "main": "src/worker/index.ts",
@@ -29,10 +25,21 @@
     // Only API calls reach the Worker.
     "run_worker_first": ["/api/*"]
   },
-  // The main deployment is currently the PUBLIC DEMO: NEXUS_ENV "demo" switches the API off entirely (src/worker/api.ts), and there is no
-  // database binding or Access config here. When the main domain becomes the authenticated app, set this back to "production" and
-  // move the demo to demo.nexus.frameworktools.ca (docs/DEPLOYMENT.md).
-  "vars": { "NEXUS_ENV": "demo" },
+  // PRODUCTION (deployed only from main; scripts/guard-production.mjs refuses any other branch). Public, non-secret settings only:
+  //   NEXUS_ENV production  turns on the production module locks (Coming Soon) and forces WorkOS sign-in: Cloudflare Access tokens and the local
+  //                         development bypass are never accepted here (src/worker/authRoutes.ts).
+  //   WORKOS_CLIENT_ID      the public client id of the Nexus WorkOS PRODUCTION environment (never the Staging one).
+  //   APP_BASE_URL          this site's origin; the WorkOS redirect, sign-in and sign-out URLs are built from it and must match the WorkOS dashboard exactly.
+  // Secrets live in Cloudflare, never here: WORKOS_API_KEY, SESSION_PEPPER and INITIAL_ADMIN_EMAIL (docs/RELEASE-v1.0.md).
+  "vars": {
+    "NEXUS_ENV": "production",
+    "AUTH_PROVIDER": "workos",
+    "WORKOS_CLIENT_ID": "client_01M6BZ6XSCEHJM3P69FW4C2T9S",
+    "APP_BASE_URL": "https://nexus.frameworktools.ca"
+  },
+  // The PRODUCTION database only. Staging has its own (see "previews"); never put one's id in the other's section. Migrations are applied by hand with a recovery bookmark
+  // (docs/RELEASE-v1.0.md): nothing runs on deploy.
+  "d1_databases": [{ "binding": "DB", "database_name": "nexus-production", "database_id": "d3f3ed8d-618b-4f00-82e3-52bfefae1245", "migrations_dir": "migrations" }],
   // Staging (Worker Preview) settings. Never point these at the production database.
   "previews": {
     "vars": {
@@ -42,13 +49,8 @@
       "ACCESS_AUD": "4026513ce48dab9a17746204c3dff5e2a86400a7db34632ff4f701d805318a2f",
       // First administrator (docs/MATERIALS.md): used only while no administrator exists, and only for a request Cloudflare Access has verified.
       "INITIAL_ADMIN_EMAIL": "hello@frameworkco.ca",
-      // Sign-in: "access" (Cloudflare Access, the default), "both" (accept either: Access AND WorkOS, while WorkOS is verified; Access stays on), or "workos" (WorkOS AuthKit only).
-      // "both" on staging while WorkOS is verified (docs/AUTH.md). Roll back by setting "access". WorkOS needs WORKOS_CLIENT_ID and APP_BASE_URL here, and the secrets WORKOS_API_KEY and SESSION_PEPPER
-      // (npx wrangler preview secret put ... --name staging). Never put the API key or pepper in this file.
-      "AUTH_PROVIDER": "both",
-      // WorkOS (Nexus Staging environment). Public, non-secret. WORKOS_API_KEY and SESSION_PEPPER are Cloudflare secrets, never here (docs/AUTH.md).
-      "WORKOS_CLIENT_ID": "client_01M6BZ6XE05EJFK8663JRZ14ES",
-      "APP_BASE_URL": "https://staging.nexus.frameworktools.ca"
+      // Staging signs in with Cloudflare Access only. WorkOS is for production.
+      "AUTH_PROVIDER": "access"
     },
     // The STAGING database only. Never put nexus-production here. Migrations 0001-0007 are applied to it (docs/OPERATIONS.md).
     "d1_databases": [{ "binding": "DB", "database_name": "nexus-staging", "database_id": "8efc35c6-e125-4c17-99b4-92ba89672150", "migrations_dir": "migrations" }]

@@ -3,6 +3,7 @@ import { handleApi, type Env } from '../api'
 import { resetAuthCache } from '../auth'
 import { clock, NOW } from './helpers'
 import { readdirSync, readFileSync } from 'node:fs'
+import { getDef } from '@/domains/construction/config'
 import { createTestDb, type TestDb } from './sqliteD1'
 
 const CLIENT = 'client_01TESTCLIENT0000000000'
@@ -48,9 +49,9 @@ function workos(over: Partial<Fake> = {}) {
 }
 
 const give = (db: TestDb, email: string, role: string, status = 'active') => db.raw.prepare("INSERT INTO user_roles (email, role, assigned_by, assigned_at, status) VALUES (?, ?, 'test', '2026-10-21T00:00:00Z', ?)").run(email, role, status)
-const call = async (db: TestDb, f: typeof fetch, method: string, path: string, opts: { cookie?: string; body?: unknown; e?: Partial<Env> } = {}) => {
+const call = async (db: TestDb, f: typeof fetch, method: string, path: string, opts: { cookie?: string; body?: unknown; e?: Partial<Env>; headers?: Record<string, string>; url?: string } = {}) => {
   resetAuthCache()
-  const res = await handleApi(new Request(`${ORIGIN}${path}`, { method, redirect: 'manual', headers: { ...(opts.cookie ? { cookie: opts.cookie } : {}), 'content-type': 'application/json' }, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) }), env(opts.e, db), clock(), f)
+  const res = await handleApi(new Request(`${opts.url ?? ORIGIN}${path}`, { method, redirect: 'manual', headers: { ...(opts.cookie ? { cookie: opts.cookie } : {}), 'content-type': 'application/json', ...opts.headers }, body: opts.body === undefined ? undefined : JSON.stringify(opts.body) }), env(opts.e, db), clock(), f)
   const text = await res.text()
   const body: any = (() => { try { return JSON.parse(text) } catch { return text } })() // eslint-disable-line @typescript-eslint/no-explicit-any
   return { status: res.status, body, headers: res.headers, cookies: res.headers.getSetCookie() }
@@ -294,5 +295,94 @@ describe('migration 0027', () => {
     expect(db.raw.prepare('SELECT workos_user_id, workos_invitation_id, invitation_delivery FROM user_roles').all()).toEqual([{ workos_user_id: null, workos_invitation_id: null, invitation_delivery: null }, { workos_user_id: null, workos_invitation_id: null, invitation_delivery: null }])
     expect(db.raw.prepare('SELECT COUNT(*) AS n FROM user_projects').get()).toEqual({ n: 1 })
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '27' })
+  })
+})
+
+describe('production: WorkOS only', () => {
+  const prod = { NEXUS_ENV: 'production', APP_BASE_URL: 'https://nexus.frameworktools.ca', INITIAL_ADMIN_EMAIL: 'owner@example.com' } as Partial<Env>
+  const PROD_ORIGIN = 'https://nexus.frameworktools.ca'
+  const owner = () => workos({ user: { id: 'user_01OWNERUSER0', email: 'owner@example.com', email_verified: true }, token: () => accessToken({}, 'user_01OWNERUSER0') })
+  const emptyDb = () => createTestDb({ seed: false, projectAccess: 'explicit' })
+
+  it('always uses WorkOS: a Cloudflare Access token and the development bypass are refused, whatever AUTH_PROVIDER says', async () => {
+    const db = fresh(); const { f } = workos()
+    const mis = { ...prod, AUTH_PROVIDER: 'access', DEV_BYPASS_AUTH: 'true', ACCESS_TEAM_DOMAIN: 'https://x.cloudflareaccess.com', ACCESS_AUD: 'aud' } as Partial<Env>
+    const viaAccess = await call(db, f, 'GET', '/api/session', { headers: { 'cf-access-jwt-assertion': await accessToken() }, e: mis })
+    expect(viaAccess).toMatchObject({ status: 401, body: { code: 'no-session' } })
+    const local = await call(db, f, 'GET', '/api/session', { url: 'http://localhost', e: mis })
+    expect(local).toMatchObject({ status: 401, body: { code: 'no-session' } })
+    expect((await call(db, f, 'GET', '/api/health', { e: mis })).body).toMatchObject({ auth: 'workos', access: true })
+  })
+
+  it('nothing protected is readable or writable without a session', async () => {
+    const db = fresh(); const { f } = workos()
+    for (const [method, path] of [['GET', '/api/session'], ['GET', '/api/state/construction'], ['GET', '/api/state/materials'], ['GET', '/api/state/fleet'], ['POST', '/api/commands'], ['GET', '/api/members'], ['POST', '/api/members/invite'], ['GET', '/api/roles'], ['GET', '/api/backup'], ['GET', '/api/integrity'], ['POST', '/api/migrate/apply']] as const) {
+      const r = await call(db, f, method, path, { e: prod, body: method === 'POST' ? {} : undefined })
+      expect(r.status, `${method} ${path}`).toBe(401)
+    }
+    expect(Object.keys((await call(db, f, 'GET', '/api/health', { e: prod })).body).sort()).toEqual(['access', 'auth', 'database', 'environment', 'ok'])
+  })
+
+  it('creates the first administrator at their first verified sign-in, bound to their WorkOS user, and never again', async () => {
+    const db = emptyDb(); const { f } = owner()
+    const first = await signIn(db, f, prod)
+    expect(first.cb.status).toBe(302)
+    expect(db.raw.prepare("SELECT email, role, status, workos_user_id, assigned_by FROM user_roles").all()).toEqual([{ email: 'owner@example.com', role: 'admin', status: 'active', workos_user_id: 'user_01OWNERUSER0', assigned_by: 'bootstrap:INITIAL_ADMIN_EMAIL' }])
+    expect((await call(db, f, 'GET', '/api/session', { cookie: first.session, e: prod })).body).toMatchObject({ user: 'owner@example.com', role: 'admin', via: 'workos', environment: 'production' })
+    // an administrator now exists: INITIAL_ADMIN_EMAIL grants nothing to anyone else, and an unknown verified user is still refused
+    const other = workos({ user: { id: 'user_01SOMEONEELSE', email: 'someone@example.com', email_verified: true }, token: () => accessToken({}, 'user_01SOMEONEELSE') })
+    expect((await signIn(db, other.f, { ...prod, INITIAL_ADMIN_EMAIL: 'someone@example.com' })).cb.status).toBe(403)
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM user_roles').get()).toEqual({ n: 1 })
+  })
+
+  it('without INITIAL_ADMIN_EMAIL a verified stranger cannot become administrator', async () => {
+    const db = emptyDb(); const { f } = owner()
+    expect((await signIn(db, f, { ...prod, INITIAL_ADMIN_EMAIL: undefined })).cb.status).toBe(403)
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM user_roles').get()).toEqual({ n: 0 })
+  })
+
+  it('keeps the production module locks and the role and project permissions', async () => {
+    const db = emptyDb(); const { f } = owner()
+    const admin = (await signIn(db, f, prod)).session as string
+    const run = (name: string, args: unknown[], cookie = admin, module = 'construction') => call(db, f, 'POST', '/api/commands', { cookie, e: prod, body: { module, name, args, requestId: `req-prod-${Math.random().toString(36).slice(2)}-xxxxxxxx`, clientToday: '2026-10-21' } })
+    expect((await run('createOrganization', [{ name: 'Northline' }])).status).toBe(200)
+    const ids: { pid: string; fid: string }[] = []
+    for (const name of ['Alpha', 'Beta']) {
+      const pid = (await run('createProject', [{ name }])).body.state.projects.find((p: { name: string }) => p.name === name).id
+      await run('createArea', [pid, `${name} area`, []])
+      const aid = (await call(db, f, 'GET', '/api/state/construction', { cookie: admin, e: prod })).body.state.areas.find((a: { name: string }) => a.name === `${name} area`).id
+      expect((await run('createFoundation', [aid, `${name}-1`, '', null, 1, {}])).status).toBe(200)
+      const fid = (await call(db, f, 'GET', '/api/state/construction', { cookie: admin, e: prod })).body.state.foundations.find((x: { number: string }) => x.number === `${name}-1`).id
+      ids.push({ pid, fid })
+    }
+    // an invited editor assigned to Alpha only
+    expect((await call(db, f, 'POST', '/api/members/invite', { cookie: admin, e: prod, body: { email: 'ed@example.com', role: 'editor', projectIds: [ids[0].pid] } })).status).toBe(200)
+    const edUser = workos({ user: { id: 'user_01EDITORUSER', email: 'ed@example.com', email_verified: true }, token: () => accessToken({}, 'user_01EDITORUSER') })
+    const ed = (await signIn(db, edUser.f, prod)).session as string
+    const seen = (await call(db, edUser.f, 'GET', '/api/state/construction', { cookie: ed, e: prod })).body.state
+    expect(seen.projects.map((p: { name: string }) => p.name)).toEqual(['Alpha'])
+    const acts = (await call(db, f, 'GET', '/api/state/construction', { cookie: admin, e: prod })).body.state.activities
+    const mine = acts.find((a: { foundationId: string }) => a.foundationId === ids[0].fid)
+    const theirs = acts.find((a: { foundationId: string }) => a.foundationId === ids[1].fid)
+    const category = (a: { scope: string; key: string }) => getDef(a.scope as never, a.key).category
+    const open = acts.find((a: { foundationId: string; scope: string; key: string }) => a.foundationId === ids[0].fid && category(a) === 'construction')
+    const qaqc = acts.find((a: { foundationId: string; scope: string; key: string }) => a.foundationId === ids[0].fid && category(a) === 'qaqc')
+    const upd = (id: string, cookie: string, fn = edUser.f) => call(db, fn, 'POST', '/api/commands', { cookie, e: prod, body: { module: 'construction', name: 'updateActivity', args: [id, { notes: 'x' }, '2026-10-21'], requestId: `req-prod-${Math.random().toString(36).slice(2)}-xxxxxxxx`, clientToday: '2026-10-21' } })
+    expect((await upd(open.id, ed)).status).toBe(200) // Construction, own project
+    expect(await upd(qaqc.id, ed)).toMatchObject({ status: 403, body: { code: 'coming-soon' } }) // QA/QC is Coming Soon in production
+    expect(await upd(theirs.id, ed)).toMatchObject({ status: 403, body: { code: 'project-forbidden' } }) // someone else's project
+    expect((await call(db, edUser.f, 'POST', '/api/commands', { cookie: ed, e: prod, body: { module: 'construction', name: 'createArea', args: [ids[0].pid, 'More', []], requestId: 'req-prod-setup-xxxxxxxxxx', clientToday: '2026-10-21' } })).status).toBe(403) // no project setup
+    expect((await call(db, edUser.f, 'GET', '/api/members', { cookie: ed, e: prod })).status).toBe(403) // no user management
+    void mine
+  })
+
+  it('uses this site’s WorkOS callback, sign-in and sign-out URLs', async () => {
+    const db = fresh(); const { f } = workos()
+    const login = await call(db, f, 'GET', '/api/auth/login', { e: prod, url: PROD_ORIGIN })
+    expect(new URL(login.headers.get('location') ?? '').searchParams.get('redirect_uri')).toBe(`${PROD_ORIGIN}/api/auth/callback`)
+    give(db, 'ed@example.com', 'editor', 'invited')
+    const { session } = await signIn(db, f, prod)
+    const out = await call(db, f, 'POST', '/api/auth/logout', { cookie: session, body: {}, e: prod })
+    expect(new URL(out.body.logoutUrl).searchParams.get('return_to')).toBe(PROD_ORIGIN)
   })
 })

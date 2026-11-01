@@ -202,11 +202,12 @@ describe('onboarding sequence persists in the database', () => {
 
 describe('Cloudflare configuration', () => {
   const wrangler = JSON.parse(readFileSync('wrangler.jsonc', 'utf8').replace(/^\s*\/\/.*$/gm, ''))
-  it('staging is bound to nexus-staging only; production and the public demo have no database binding', () => {
+  it('staging is bound to nexus-staging only and production to nexus-production only (more in deployConfig.test.ts)', () => {
     expect(wrangler.previews.d1_databases).toEqual([{ binding: 'DB', database_name: 'nexus-staging', database_id: '8efc35c6-e125-4c17-99b4-92ba89672150', migrations_dir: 'migrations' }])
-    expect(JSON.stringify(wrangler)).not.toContain('nexus-production')
-    expect(wrangler.d1_databases).toBeUndefined()
-    expect(wrangler.vars.NEXUS_ENV).toBe('demo')
+    expect(JSON.stringify(wrangler.previews)).not.toContain('nexus-production')
+    expect(wrangler.d1_databases).toEqual([expect.objectContaining({ binding: 'DB', database_name: 'nexus-production' })])
+    expect(JSON.stringify(wrangler.d1_databases)).not.toContain('nexus-staging')
+    expect(wrangler.vars.NEXUS_ENV).toBe('production')
     expect(wrangler.previews.vars.NEXUS_ENV).toBe('staging')
   })
 })

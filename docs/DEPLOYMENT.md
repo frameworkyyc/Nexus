@@ -1,11 +1,14 @@
 # Deployment: public demo, staging and the future production app
 
-## What is deployed where
+## What is deployed where (v1.0 strategy)
 
-| Branch | Hostname | What it is | Data | Protection |
+| Branch | Hostname | Worker / what it is | Sign-in | Data |
 | --- | --- | --- | --- | --- |
-| `main` | `nexus.frameworktools.ca` | **Public interactive demo** (bundle `demo`, Worker `NEXUS_ENV=demo`) | Fictional sample data, kept in each visitor's own browser | None needed or wanted: it holds no real or shared data |
-| `staging` | `staging.nexus.frameworktools.ca` | Real-data build (bundle `app`) for development | Real seed data in the bundle; saved data in the staging D1 database once configured | **Cloudflare Access must be created for this hostname** (see below) |
+| `main` | `nexus.frameworktools.ca` | **Production application** (`nexus`, bundle `app`, `NEXUS_ENV=production`, module locks on) | **WorkOS AuthKit only**: emailed code, invitation-only | `nexus-production` D1 |
+| `staging` | `staging.nexus.frameworktools.ca` | Worker Preview of `nexus` (bundle `app`, all modules) | **Cloudflare Access only** | `nexus-staging` D1 |
+| (main, demo build) | `demo.nexus.frameworktools.ca` | **Public interactive demo**: separate Worker `nexus-demo` (`wrangler.demo.jsonc`, bundle `demo`, API off) | none | Fictional sample data in each visitor's browser |
+
+The three are separate Workers or Previews with separate bindings: a Preview never inherits the production bindings, the demo Worker has no binding at all, and `docs/RELEASE-v1.0.md` has the release steps.
 
 ## How the public demo is kept free of real data
 
@@ -23,14 +26,10 @@
 6. **Tests** (`src/app/__tests__`, `src/worker/__tests__/demo.test.ts`) build the demo bundle, scan it, run the seed builders against
    the fictional identity, and prove the guard trips on the real-data bundle.
 
-## Moving the demo to `demo.nexus.frameworktools.ca`
+## The demo is its own Worker
 
-The hostname list lives in `src/app/demoConfig.ts`. When the main domain should become the authenticated application:
-
-1. Attach `demo.nexus.frameworktools.ca` to the demo deployment (Worker → Domains & Routes) and add it to `DEMO_HOSTNAMES`.
-2. Give the authenticated deployment its own build that is not the demo bundle, its own D1 database and Access application
-   (docs/OPERATIONS.md), and set its Worker variable `NEXUS_ENV` to `production`.
-3. Keep the demo deployment on `NEXUS_ENV=demo` with no bindings.
+`wrangler.demo.jsonc` defines Worker `nexus-demo` (`NEXUS_ENV=demo`, no database, no secrets, builds with `npm run build:demo`). Its hostname list is in `src/app/demoConfig.ts`. Production
+(`wrangler.jsonc`, deployed only from `main`) never serves the demo bundle: `scripts/bundle-mode.mjs` builds the application for `main` and `staging`, and the demo for every other branch.
 
 ## Protecting staging (required, manual)
 

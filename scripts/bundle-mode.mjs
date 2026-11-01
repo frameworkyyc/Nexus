@@ -1,15 +1,15 @@
 /**
  * Which bundle a build produces.
  *   demo — fictional data only, never calls the API. The PUBLIC bundle.
- *   app  — the real seed data and the saved-data client. For local development and the protected staging environment.
+ *   app  — the saved-data client (no real identity is compiled in). For local development, the protected staging environment and production (`main`).
  *
- * Fail-safe by design: on Cloudflare's build service (WORKERS_CI) every branch builds the public `demo` bundle UNLESS it is the
- * `staging` branch, so a misconfigured, renamed or unknown branch can never publish the real seed data. NEXUS_BUNDLE overrides
- * (tests, `npm run build:demo`). Anything else (local builds, tests) is `app`.
+ * Fail-safe by design: on Cloudflare's build service (WORKERS_CI) every branch builds the public `demo` bundle UNLESS it is
+ * `staging` or `main` (production), so a misconfigured, renamed or unknown branch can never publish the application. The public demo Worker
+ * (`nexus-demo`) always builds with NEXUS_BUNDLE=demo (`npm run build:demo`), whatever branch it builds. NEXUS_BUNDLE overrides. Anything else (local builds, tests) is `app`.
  */
 export function resolveBundle(env) {
   const explicit = env.NEXUS_BUNDLE
   if (explicit === 'demo' || explicit === 'app') return explicit
-  if (env.WORKERS_CI) return env.WORKERS_CI_BRANCH === 'staging' ? 'app' : 'demo'
+  if (env.WORKERS_CI) return env.WORKERS_CI_BRANCH === 'staging' || env.WORKERS_CI_BRANCH === 'main' ? 'app' : 'demo'
   return 'app'
 }

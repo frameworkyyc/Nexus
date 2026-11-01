@@ -1,4 +1,7 @@
-# Sign-in: WorkOS AuthKit (replacing Cloudflare Access)
+# Sign-in: WorkOS AuthKit in production, Cloudflare Access in staging
+
+**v1.0 strategy:** production uses WorkOS AuthKit only (forced by `NEXUS_ENV=production`: Access tokens and the development bypass are never accepted there); staging stays on Cloudflare Access. The `both` mode and the steps below remain
+available for a deliberate WorkOS trial in a non-production environment. Production setup and release: `docs/RELEASE-v1.0.md`.
 
 Nexus supports two sign-ins, chosen by `AUTH_PROVIDER` (a plain variable in `wrangler.jsonc`): `access` (Cloudflare Access, the default), `both` (accepts either, for
 verifying WorkOS while Access still works) and `workos` (WorkOS AuthKit only). Nothing changes until it is set. The approach is ported from the Framework client portal

@@ -1,0 +1,20 @@
+{
+  // The PUBLIC DEMO: its own Worker (`nexus-demo`), served at demo.nexus.frameworktools.ca. Fictional, browser-local data only.
+  // NEXUS_ENV "demo" switches the API off entirely (src/worker/api.ts) before authentication or any binding is considered, and this file has NO database,
+  // NO secrets and NO sign-in settings. It is built with `npm run build:demo` (the demo bundle, guarded against real data) and deployed with:
+  //   npx wrangler deploy --config wrangler.demo.jsonc
+  // In Cloudflare Workers Builds create a separate project for `nexus-demo` from this repository (branch main) with build command `npm run build:demo`
+  // and deploy command `npx wrangler deploy --config wrangler.demo.jsonc`, and turn off builds for non-production branches. docs/DEPLOYMENT.md.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nexus-demo",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-09-01",
+  // Always builds the demo bundle itself, so a deploy can never ship whatever happens to be in ./dist.
+  "build": { "command": "npm run build:demo" },
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": { "NEXUS_ENV": "demo" }
+}

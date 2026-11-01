@@ -127,10 +127,11 @@ npm run dev:full      # builds, applies migrations to a local database, serves h
 This runs the real Worker and a local D1 with an auth bypass that works **only** for `localhost`. `npm run dev` (Vite only) has no
 server, so the app shows demonstration data.
 
-## 5. Production (later, with approval)
+## 5. Production (v1.0)
 
-Production must get its own D1 database, its own Access application and its own bindings (`d1_databases` and `ACCESS_*` at the
-top level of `wrangler.jsonc`). Do that on the promotion branch, never by pointing production at the staging database.
+Production has its own D1 database (`nexus-production`), its own WorkOS Production credentials and signs in with WorkOS only; staging stays on Cloudflare Access and `nexus-staging`.
+The bindings are the top-level settings of `wrangler.jsonc`; Previews never inherit them. Everything to provide, configure and run, in order, is in `docs/RELEASE-v1.0.md`. Never run a migration or seed
+against production by hand outside that procedure, and always take a Time Travel bookmark first.
 
 ## Fresh installation (staging) — what a new customer sees
 

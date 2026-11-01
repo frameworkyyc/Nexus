@@ -7,7 +7,12 @@ import { buildAuthorizeUrl, exchangeCode, forwardableParams, identityOf, logoutU
 /** `access` keeps the Cloudflare Access sign-in (the default). `workos` is WorkOS AuthKit only. `both` accepts either, for verifying WorkOS before Access is switched off. */
 export type AuthProvider = 'access' | 'workos' | 'both'
 export interface AuthRouteEnv extends AuthEnv, WorkosEnv { AUTH_PROVIDER?: string; INITIAL_ADMIN_EMAIL?: string }
-export const providerOf = (env: AuthRouteEnv): AuthProvider => (env.AUTH_PROVIDER === 'workos' || env.AUTH_PROVIDER === 'both' ? env.AUTH_PROVIDER : 'access')
+/**
+ * Production signs in with WorkOS only, whatever AUTH_PROVIDER says: a Cloudflare Access token is never accepted there and the local-development bypass is off.
+ * Every other environment follows AUTH_PROVIDER (staging sets `access`).
+ */
+export const providerOf = (env: AuthRouteEnv & { NEXUS_ENV?: string }): AuthProvider =>
+  env.NEXUS_ENV === 'production' ? 'workos' : env.AUTH_PROVIDER === 'workos' || env.AUTH_PROVIDER === 'both' ? env.AUTH_PROVIDER : 'access'
 
 const STATE_TTL = 600
 const PURPOSE = 'auth-state'
@@ -24,11 +29,11 @@ const redirect = (location: string, cookies: string[] = []) => {
 }
 
 /** Who is making this request: the Access token, the WorkOS session cookie, or either, depending on AUTH_PROVIDER. */
-export async function identify(request: Request, env: AuthRouteEnv, db: D1 | undefined, fetcher: typeof fetch, nowMs: number): Promise<Identity> {
+export async function identify(request: Request, env: AuthRouteEnv & { NEXUS_ENV?: string }, db: D1 | undefined, fetcher: typeof fetch, nowMs: number): Promise<Identity> {
   const provider = providerOf(env)
   const url = new URL(request.url)
   if (provider === 'access' || (provider === 'both' && request.headers.get('cf-access-jwt-assertion'))) return authenticate(request, env, fetcher, nowMs)
-  if (env.DEV_BYPASS_AUTH === 'true' && isLocal(url)) return { email: 'local-dev', via: 'dev' }
+  if (env.DEV_BYPASS_AUTH === 'true' && isLocal(url) && env.NEXUS_ENV !== 'production') return { email: 'local-dev', via: 'dev' }
   const cfg = workosConfig(env)
   if (!cfg) throw new AuthError(503, 'WorkOS sign-in is not configured, so saved data is unavailable.', 'workos-not-configured')
   if (!db) throw new AuthError(503, 'The database is not connected.', 'no-database')
@@ -41,7 +46,7 @@ export async function identify(request: Request, env: AuthRouteEnv, db: D1 | und
  * /api/auth/login, /api/auth/callback, /api/auth/logout. Registration is invitation-only twice over: WorkOS sign-up is switched off, and a verified WorkOS identity
  * still gets no Nexus session unless an administrator has added its email as a member that has not been revoked.
  */
-export async function handleAuthRoute(path: string, request: Request, env: AuthRouteEnv, db: D1 | undefined, fetcher: typeof fetch, now: Date): Promise<Response | null> {
+export async function handleAuthRoute(path: string, request: Request, env: AuthRouteEnv & { NEXUS_ENV?: string }, db: D1 | undefined, fetcher: typeof fetch, now: Date): Promise<Response | null> {
   if (!path.startsWith('/api/auth/')) return null
   if (providerOf(env) === 'access') return new Response(JSON.stringify({ error: 'Not found.', code: 'not-found' }), { status: 404, headers: { 'content-type': 'application/json' } })
   const cfg = workosConfig(env)
@@ -76,7 +81,13 @@ export async function handleAuthRoute(path: string, request: Request, env: AuthR
     if (!row && !bootstrap) return page(403, 'No access to Nexus', 'This email address hasn’t been invited. Ask an administrator to invite you.', [clearCookie(STATE_COOKIE)])
     if (row?.status === 'revoked') return page(403, 'Access revoked', 'Your access to Nexus has been revoked. Contact an administrator.', [clearCookie(STATE_COOKIE)])
     if (row?.workos_user_id && row.workos_user_id !== who.workosUserId) return page(403, 'No access to Nexus', 'This sign-in does not match the account that was invited.', [clearCookie(STATE_COOKIE)])
-    if (row) await db.prepare("UPDATE user_roles SET workos_user_id = ?, status = CASE WHEN status = 'invited' THEN 'active' ELSE status END, last_seen_at = ? WHERE email = ?").bind(who.workosUserId, now.toISOString(), who.email).run()
+    const at = now.toISOString()
+    if (row) await db.prepare("UPDATE user_roles SET workos_user_id = ?, status = CASE WHEN status = 'invited' THEN 'active' ELSE status END, last_seen_at = ? WHERE email = ?").bind(who.workosUserId, at, who.email).run()
+    // The very first administrator: created here, bound to the verified WorkOS user, only while no administrator exists and only for INITIAL_ADMIN_EMAIL.
+    else await db.batch([
+      db.prepare("INSERT INTO user_roles (email, role, assigned_by, assigned_at, status, workos_user_id, last_seen_at) VALUES (?, 'admin', 'bootstrap:INITIAL_ADMIN_EMAIL', ?, 'active', ?, ?)").bind(who.email, at, who.workosUserId, at),
+      db.prepare("INSERT INTO role_audit (at, actor, target, from_role, to_role) VALUES (?, 'bootstrap:INITIAL_ADMIN_EMAIL', ?, NULL, 'admin')").bind(at, who.email),
+    ])
     const started = await startSession(db, cfg.pepper, { email: who.email, workosUserId: who.workosUserId, workosSessionId: verified.sid, method: ex.method }, now)
     return redirect('/', [started.cookie, clearCookie(STATE_COOKIE)])
   }

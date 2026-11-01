@@ -3,6 +3,7 @@ import { handleApi, type Env } from '../api'
 import { resetAuthCache } from '../auth'
 import { clock, NOW, TODAY } from './helpers'
 import { getDef } from '@/domains/construction/config'
+import { lockedCommandProblem } from '../locks'
 import { readdirSync, readFileSync as read } from 'node:fs'
 import { createTestDb, type TestDb } from './sqliteD1'
 
@@ -165,14 +166,17 @@ describe('production module locks', () => {
     const { db, alpha } = await world()
     const acts = (await state(db, 'admin@example.com')).activities.filter((a: { foundationId: string }) => a.foundationId === alpha.fid)
     const byCat = (cat: string) => acts.find((a: { scope: string; key: string }) => getDef(a.scope as never, a.key).category === cat)
-    const prod = { NEXUS_ENV: 'production' }
+    const st = await state(db, 'admin@example.com')
     for (const cat of ['qaqc', 'civil']) {
       const a = byCat(cat)
       expect(a, cat).toBeDefined()
-      expect(await cmd(db, 'admin@example.com', 'construction', 'updateActivity', [a.id, { notes: 'x' }, TODAY], prod)).toMatchObject({ status: 403, body: { code: 'coming-soon' } })
-      expect((await cmd(db, 'admin@example.com', 'construction', 'updateActivity', [a.id, { notes: 'x' }, TODAY])).status).toBe(200) // staging
+      expect(lockedCommandProblem('production', 'construction', 'updateActivity', [a.id, { notes: 'x' }, TODAY], st), cat).toMatch(/coming soon/)
+      expect(lockedCommandProblem('staging', 'construction', 'updateActivity', [a.id, { notes: 'x' }, TODAY], st), cat).toBeNull()
+      expect((await cmd(db, 'admin@example.com', 'construction', 'updateActivity', [a.id, { notes: 'x' }, TODAY])).status).toBe(200) // staging, over the API
     }
-    for (const cat of ['construction', 'survey']) expect((await cmd(db, 'admin@example.com', 'construction', 'updateActivity', [byCat(cat).id, { notes: 'y' }, TODAY], prod)).status).toBe(200)
-    expect(await cmd(db, 'admin@example.com', 'fleet', 'reassignVehicle', ['v', alpha.pid, [alpha.pid], TODAY], prod)).toMatchObject({ status: 403, body: { code: 'coming-soon' } })
+    for (const cat of ['construction', 'survey']) expect(lockedCommandProblem('production', 'construction', 'updateActivity', [byCat(cat).id, { notes: 'y' }, TODAY], st)).toBeNull()
+    expect(lockedCommandProblem('production', 'fleet', 'reassignVehicle', ['v', alpha.pid, [alpha.pid], TODAY], st)).toMatch(/Fleet on this project is coming soon/)
+    expect(lockedCommandProblem('staging', 'fleet', 'reassignVehicle', ['v', alpha.pid, [alpha.pid], TODAY], st)).toBeNull()
+    // production sign-in is WorkOS only, so the end-to-end production check (a WorkOS session) is in workos.test.ts
   })
 })
