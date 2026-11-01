@@ -217,12 +217,14 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [description, setDescription] = useState(f?.description ?? '')
   const [notes, setNotes] = useState(f?.notes ?? '')
   const [quantity, setQuantity] = useState(String(f ? foundationQuantity(f) : 1))
+  const [areaId, setAreaId] = useState(f?.areaId ?? '')
   const [draft, setDraft] = useState<ConfigDraft | null>(() => (f ? draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? []) : null))
   const original = f && draftFromFoundation(f, state.plinths, (state.anchorageGroups ?? []).filter((g) => g.foundationId === f.id), state.foundationBolts ?? [], state.foundationEmbeds ?? [])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   if (!f || !draft) return null
   const project = state.areas.find((a) => a.id === f.areaId)?.projectId
+  const areaOptions = state.areas.filter((a) => a.projectId === project && (!a.archived || a.id === f.areaId)).sort((x, y) => x.sequence - y.sequence).map((a) => ({ id: a.id, name: a.name }))
   const types = state.anchorageTypes.filter((t) => t.projectId === project)
   const go = async (steps: (() => Promise<string | null>)[], close = false) => {
     setSaving(true); setError(null)
@@ -233,13 +235,14 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const q = parseQuantity(quantity)
   const qtyChanged = q !== foundationQuantity(f)
   const configChanged = JSON.stringify(draft) !== JSON.stringify(original)
-  const changed = number.trim() !== f.number || description !== f.description || notes !== f.notes || qtyChanged || configChanged
+  const changed = number.trim() !== f.number || description !== f.description || notes !== f.notes || qtyChanged || configChanged || areaId !== f.areaId
   const preview = previewOf(draft, (cfg) => configureFoundation(id, { ...cfg, quantity: Number.isInteger(q) && q >= 1 ? q : foundationQuantity(f) })(state), (st) => st.foundations.find((x) => x.id === id))
   const save = () => {
     const cfg = configFromDraft(draft)
     if ('error' in cfg) { setError(cfg.error); return Promise.resolve() }
     return go([
       ...(number.trim() !== f.number ? [() => constructionStore.run(renameFoundation(id, number))] : []),
+      ...(areaId !== f.areaId ? [() => constructionStore.run(editFoundation(id, { areaId }))] : []), // after a rename, so the new name is the one checked in the destination
       ...(notes !== f.notes ? [() => constructionStore.run(editFoundation(id, { notes }))] : []),
       ...(description !== f.description || qtyChanged || configChanged ? [() => constructionStore.run(configureFoundation(id, { description, ...(qtyChanged ? { quantity: q } : {}), ...(configChanged ? cfg.config : {}) }))] : []),
     ], true)
@@ -249,7 +252,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
       <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default Foundations view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name shown everywhere. Materials, survey and QA/QC records are tied to the foundation itself, so none of them are affected. Changing the quantity never changes material quantities.</p>
-        <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} />
+        <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} area={{ value: areaId, onChange: setAreaId, options: areaOptions }} />
         <FoundationConfigFields draft={draft} onChange={setDraft} types={types} embedOptions={embedChoices(state, project).map((x) => ({ component: x.component, type: x.type }))} foundationName={f.number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
         <div className="border-t border-line pt-5"><Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field></div>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}

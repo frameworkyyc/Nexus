@@ -85,13 +85,16 @@ export function configFromDraft(d: ConfigDraft): { config: FoundationConfig } | 
 export const totalPlinthsOf = (d: ConfigDraft) => d.groups.reduce((t, g) => t + (Number.isInteger(Number(g.count)) && Number(g.count) > 0 ? Number(g.count) : 0), 0)
 
 /** Foundation name, quantity and description, together. */
-export function FoundationBasics({ number, onNumber, quantity, onQuantity, description, onDescription, autoFocus, required }: {
+export function FoundationBasics({ number, onNumber, quantity, onQuantity, description, onDescription, autoFocus, required, area }: {
   number: string; onNumber: (v: string) => void; quantity: string; onQuantity: (v: string) => void; description: string; onDescription: (v: string) => void; autoFocus?: boolean; required?: boolean
+  /** When given, an Area selector is shown (editing a foundation can move it to another area of the project). */
+  area?: { value: string; onChange: (id: string) => void; options: { id: string; name: string }[] }
 }) {
   return (
     <div className="grid items-end gap-x-3 gap-y-3 sm:grid-cols-[1fr_11rem]">
       <Field label={required ? 'Foundation Name *' : 'Foundation Name'}><Input autoFocus={autoFocus} value={number} onChange={(e) => onNumber(e.target.value)} placeholder="e.g. FND-101" /></Field>
       <Field label="Foundation Quantity"><Input inputMode="numeric" value={quantity} onChange={(e) => onQuantity(e.target.value)} /></Field>
+      {area && <div className="sm:col-span-2"><Field label="Area"><Select aria-label="Area" value={area.value} onChange={(e) => area.onChange(e.target.value)}>{area.options.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field></div>}
       <div className="sm:col-span-2"><Field label="Description (optional)"><Input value={description} onChange={(e) => onDescription(e.target.value)} /></Field></div>
     </div>
   )

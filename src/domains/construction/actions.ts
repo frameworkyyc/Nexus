@@ -427,19 +427,32 @@ export const renameFoundation = (id: string, number: string): Reducer => (s) => 
 
 
 /**
- * Edits a foundation designation: description, notes, quantity and plinths per foundation. Changing quantity touches nothing else (materials, activities
+ * Edits a foundation designation: area, description, notes, quantity and plinths per foundation. Moving it to another area of the same project changes only
+ * its area: the record, plinths, activities, anchorage configuration and everything pointing at it stay, and requirements, progress and the area views follow.
+ * It is refused when the name already exists in the destination, when the destination is archived, and while active materials entered by hand are assigned to it.
+ * Edits in the saved-data change log record the move with who made it. Changing quantity touches nothing else (materials, activities
  * and plinths are not affected). Changing plinths per foundation adds plinth records, or removes the highest-numbered ones only when nothing has been
  * recorded on them; otherwise it is refused.
  */
-export const editFoundation = (id: string, patch: { description?: string; notes?: string; quantity?: number; plinthsPerFoundation?: number | null }): Reducer => (s) => {
+export const editFoundation = (id: string, patch: { areaId?: string; description?: string; notes?: string; quantity?: number; plinthsPerFoundation?: number | null }): Reducer => (s, ctx) => {
   const f = s.foundations.find((x) => x.id === id)
   if (!f) return fail('Foundation not found.')
+  if (patch.areaId !== undefined && patch.areaId !== f.areaId) {
+    const from = s.areas.find((a) => a.id === f.areaId), to = s.areas.find((a) => a.id === patch.areaId)
+    if (!to || !from || to.projectId !== from.projectId) return fail('Choose an area of this project.')
+    const clash = numberProblem(s, to.id, f.number, id)
+    if (clash) return fail(clash)
+    if (!ctx?.materials) return fail('Materials could not be checked, so this foundation was not moved.')
+    const used = [...ctx.materials.lines, ...ctx.materials.manual].filter((l) => !l.archived && l.foundationId === id).length
+    if (used > 0) return fail(`${used} active material${used === 1 ? ' is' : 's are'} assigned to foundation ${f.number} in ${from.name}. Move or archive them first.`)
+  }
   const bad = (patch.quantity !== undefined ? quantityProblem(patch.quantity) : null) ?? (patch.plinthsPerFoundation !== undefined ? plinthProblem(patch.plinthsPerFoundation) : null)
   if (bad) return fail(bad)
   const qBad = patch.quantity !== undefined ? quantityBelowPours(s, id, patch.quantity) : null
   if (qBad) return fail(qBad)
   const next = {
     ...f,
+    ...(patch.areaId !== undefined ? { areaId: patch.areaId } : {}),
     ...(patch.description !== undefined ? { description: String(patch.description).trim().slice(0, 300) } : {}),
     ...(patch.notes !== undefined ? { notes: String(patch.notes).slice(0, 2000) } : {}),
     ...(patch.quantity !== undefined ? { quantity: patch.quantity } : {}),

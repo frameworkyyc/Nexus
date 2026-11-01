@@ -310,6 +310,23 @@ describe('materials reference project records on the server', () => {
     expect((await construct(db, editor, 'setFoundationNotes', ['f-mole-sieve-21-01', 'note'])).status).toBe(200)
   })
 
+  it('moving a foundation to another area is an admin change, checks materials on the server, and keeps everything else', async () => {
+    const db = setup()
+    const f = await construct(db, admin, 'createFoundation', ['mole-sieve', '21-01', '', 1])
+    const fid = f.body.state.foundations[0].id
+    const [from, to] = ['mole-sieve', 'propane-bog']
+    expect((await construct(db, editor, 'editFoundation', [fid, { areaId: to }])).status).toBe(403)
+    const m = await cmd(db, editor, 'addMaterials', [[material({ foundationId: fid })]])
+    expect((await construct(db, admin, 'editFoundation', [fid, { areaId: to }])).body.error).toMatch(/1 active material is assigned/)
+    expect(db.raw.prepare('SELECT area_id FROM foundations WHERE id = ?').get(fid)).toEqual({ area_id: from })
+    await cmd(db, admin, 'archiveMaterials', [[m.body.state.manual[0].id], true])
+    const acts = db.raw.prepare('SELECT COUNT(*) AS n FROM activities WHERE foundation_id = ?').get(fid)
+    expect((await construct(db, admin, 'editFoundation', [fid, { areaId: to }])).status).toBe(200)
+    expect(db.raw.prepare('SELECT id, area_id FROM foundations WHERE id = ?').get(fid)).toEqual({ id: fid, area_id: to })
+    expect(db.raw.prepare('SELECT COUNT(*) AS n FROM activities WHERE foundation_id = ?').get(fid)).toEqual(acts)
+    expect(db.raw.prepare("SELECT command, actor FROM change_log WHERE command = 'editFoundation'").get()).toMatchObject({ command: 'editFoundation' }) // the move is in the change log
+  })
+
   it('archiving a foundation checks materials on the server, from the database', async () => {
     const db = setup()
     const f = await construct(db, admin, 'createFoundation', ['mole-sieve', '21-01', '', 1])

@@ -98,7 +98,8 @@ export async function runCommand(db: D1, req: CommandRequest, actorIn: Actor, cl
     const refs: Record<string, unknown> = {}
     if (module === 'materials') refs.construction = (await readModule(db, 'construction')).state
     if (module === 'fleet') refs.construction = (await readModule(db, 'construction')).state
-    if (module === 'construction' && ['archiveFoundation', 'archiveArea', 'archiveAnchorageType'].includes(name)) refs.materials = (await readModule(db, 'materials')).state
+    // (moving a foundation to another area checks them too; other foundation edits do not need them)
+    if (module === 'construction' && (['archiveFoundation', 'archiveArea', 'archiveAnchorageType'].includes(name) || (name === 'editFoundation' && (req.args[1] as { areaId?: unknown } | undefined)?.areaId !== undefined))) refs.materials = (await readModule(db, 'materials')).state
     try { result = creator(...args)(snap.state, { actor, now: now.toISOString(), ...refs }) } catch (e) { throw new HttpError(400, `The change could not be applied: ${messageOf(e)}`, 'command-failed') }
     if (result.error !== undefined) throw new HttpError(422, result.error, 'rejected')
     const spec = MODULES[module]
