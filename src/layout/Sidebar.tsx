@@ -162,7 +162,7 @@ export function SidebarView({ sections, tools, pathname, search, rail, onToggle,
  * screens keep the rail and open the full sidebar over the page when asked. Phones use the bottom bar instead (see AppShell).
  */
 export function Sidebar() {
-  const { projectId } = useProjectContext()
+  const { projectId, project } = useProjectContext()
   const { state } = useConstruction()
   const { mode, environment, via } = useBackend()
   const { pathname, search } = useLocation()
@@ -170,9 +170,9 @@ export function Sidebar() {
   const [pref, setPref] = useState<boolean | null>(readPref)
   const [overlayOpen, setOverlayOpen] = useState(false)
   const collapsed = wide ? pref === true : !overlayOpen
-  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence).map((a) => ({ id: a.id, name: a.name }))
-  const sections = applyLocks(primarySections(projectId, areas), environment)
-  const tools = applyLocks(toolNodes(projectId, mode === 'server'), environment)
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived && !a.implicit).sort((a, b) => a.sequence - b.sequence).map((a) => ({ id: a.id, name: a.name }))
+  const sections = applyLocks(primarySections(projectId, areas, project), environment)
+  const tools = applyLocks(toolNodes(projectId, mode === 'server', project), environment)
   const footer = mode === 'server' ? `Saved project data${environment ? ` · ${environment}` : ''}` : IS_PUBLIC_DEMO ? 'Demo Environment · sample data only' : 'Demonstration data · fictional records'
   const overlay = !wide && overlayOpen
 

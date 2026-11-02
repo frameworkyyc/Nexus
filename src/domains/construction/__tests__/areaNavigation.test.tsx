@@ -45,7 +45,7 @@ describe('Survey and QA/QC views', () => {
   const at = (kind: 'survey' | 'qaqc' | 'both') => renderToStaticMarkup(<MemoryRouter><Quality projectId={w.c.projects[0].id} areaId={w.eh} kind={kind} /></MemoryRouter>)
   it('Survey shows only survey checks', () => {
     const out = at('survey')
-    for (const c of ['Layout', 'Pre-pour survey', 'Post-pour survey']) expect(out).toContain(`>${c}<`)
+    for (const c of ['Layout', 'Pre-pour survey', 'As-built survey']) expect(out).toContain(`>${c}<`)
     expect(out).not.toContain('(CM03)')
     expect(out).not.toContain('(CM04)')
   })
@@ -53,13 +53,13 @@ describe('Survey and QA/QC views', () => {
     const out = at('qaqc')
     expect(out).toContain('Pre-pour inspection (CM03)')
     expect(out).toContain('Post-pour inspection (CM04)')
-    for (const c of ['>Layout<', '>Pre-pour survey<', '>Post-pour survey<']) expect(out).not.toContain(c)
+    for (const c of ['>Layout<', '>Pre-pour survey<', '>As-built survey<']) expect(out).not.toContain(c)
   })
   it('both views list the same foundations, and the combined table (used by Project Management) keeps all five columns', () => {
     const rows = (h: string) => (h.match(/<tr class="border-b border-line">/g) ?? []).length
     expect(rows(at('survey'))).toBe(rows(at('qaqc')))
     expect(rows(at('survey'))).toBeGreaterThan(0)
     const both = at('both')
-    for (const c of ['Layout', 'Pre-pour survey', 'Post-pour survey', 'Pre-pour inspection (CM03)', 'Post-pour inspection (CM04)']) expect(both).toContain(c)
+    for (const c of ['Layout', 'Pre-pour survey', 'As-built survey', 'Pre-pour inspection (CM03)', 'Post-pour inspection (CM04)']) expect(both).toContain(c)
   })
 })

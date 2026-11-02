@@ -19,10 +19,10 @@ const row = 'flex min-h-[52px] items-center justify-between gap-3 border-b borde
 export function MoreSheet({ onClose }: { onClose: () => void }) {
   const tenant = useTenant()
   const { mode, environment } = useBackend()
-  const { projectId } = useProjectContext()
-  const items = moreItems(projectId, mode === 'server', environment)
+  const { projectId, project } = useProjectContext()
+  const items = moreItems(projectId, mode === 'server', environment, project)
   // Materials is in the bottom bar; the other operational pages are here.
-  const operational = projectId ? applyLocks(operationalNodes(projectId), environment).filter((n) => n.id !== 'op-materials') : []
+  const operational = projectId ? applyLocks(operationalNodes(projectId, project), environment).filter((n) => n.id !== 'op-materials') : []
   const reset = () => {
     if (!window.confirm('Reset the demo? All sample data returns to its original state and your changes are lost.')) return
     resetWholeDemo()

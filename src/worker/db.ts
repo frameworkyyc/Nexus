@@ -34,8 +34,9 @@ export interface TableDef {
  */
 export const TABLES: TableDef[] = [
   { name: 'companies', pk: 'id', columns: ['id', 'name', 'legal_name', 'location', 'contact_name', 'contact_email', 'contact_phone', 'website', 'notes'], module: 'reference' },
-  { name: 'projects', pk: 'id', columns: ['id', 'company_id', 'name', 'job_number', 'client', 'location', 'scope', 'status', 'status_note', 'description', 'start_date', 'end_date'], module: 'construction', refs: { company_id: 'companies' } },
-  { name: 'areas', pk: 'id', columns: ['id', 'project_id', 'name', 'sequence', 'identifier', 'description', 'archived'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'name']] },
+  { name: 'projects', pk: 'id', columns: ['id', 'company_id', 'name', 'job_number', 'client', 'location', 'scope', 'status', 'status_note', 'description', 'start_date', 'end_date', 'use_areas', 'archived', 'template'], module: 'construction', refs: { company_id: 'companies' } },
+  { name: 'project_settings', pk: 'id', columns: ['id', 'project_id', 'key', 'enabled'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'key']] },
+  { name: 'areas', pk: 'id', columns: ['id', 'project_id', 'name', 'sequence', 'identifier', 'description', 'archived', 'implicit'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'name']] },
   { name: 'anchorage_types', pk: 'id', columns: ['id', 'project_id', 'code', 'description', 'archived', 'seq'], module: 'construction', refs: { project_id: 'projects' }, unique: [['project_id', 'code']] },
   { name: 'anchorage_components', pk: 'id', columns: ['id', 'anchorage_type_id', 'kind', 'qty', 'label', 'spec', 'size', 'diameter', 'length', 'length_unit', 'thread', 'top_thread', 'bottom_thread', 'nuts_per_bolt', 'washers_per_bolt', 'nut_size', 'washer_size', 'seq', 'center_hole', 'stud_count', 'stud_diameter', 'stud_length', 'thickness', 'width'], module: 'construction', refs: { anchorage_type_id: 'anchorage_types' } },
   { name: 'foundations', pk: 'id', columns: ['id', 'area_id', 'number', 'description', 'notes', 'archived', 'quantity', 'plinths_per_foundation', 'footing_length', 'footing_width', 'footing_height', 'footing_unit', 'footing_shape', 'plinth_base', 'seq'], module: 'construction', refs: { area_id: 'areas' }, unique: [['area_id', 'number']] },

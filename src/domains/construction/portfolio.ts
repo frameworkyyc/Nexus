@@ -22,7 +22,7 @@ export interface CompanyIssue {
 export function companyIssues(idx: Index, today: ISODate): CompanyIssue[] {
   const s = idx.state
   const out: CompanyIssue[] = []
-  for (const p of s.projects) {
+  for (const p of s.projects.filter((x) => !x.archived)) {
     const to = paths.project(p.id)
     if ((p.status === 'at-risk' || p.status === 'delayed') && p.statusNote) {
       out.push({ id: `status:${p.id}`, projectId: p.id, project: p.name, title: p.statusNote.replace(/ \(recorded\)\.?$/, '').replace(/\.$/, ''), status: PROJECT_STATUS_LABEL[p.status], severity: p.status === 'delayed' ? 'high' : 'medium', to })

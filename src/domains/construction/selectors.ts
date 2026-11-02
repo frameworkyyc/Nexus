@@ -1,6 +1,7 @@
 import { identity } from '@/app/identity'
 import { addDays, daysBetween, type ISODate } from '@/lib/date'
 import { formatShortDate, pct, percentOf } from '@/lib/format'
+import { activityApplicable } from './projectSettings'
 import { ACTIVITY_DEFS, INSTALL_KEYS, HANDOVER_PHASES, IN_DELIVERY, PLINTH_ACTIVITIES, PROJECT_STATUS_RANK, ROTATION, getDef, isConstructionCategory, isDone, type ActivityCategory, type ActivityDef, type HandoverPhase } from './config'
 import type {
   Activity, ActivityStatus, AnchorageType, Area, BoltSpec, BulkMaterial, ConstructionState, FabricationRequest,
@@ -26,6 +27,8 @@ export interface Index {
   foundationsByArea: Map<string, Foundation[]>
   plinthsByFoundation: Map<string, Plinth[]>
   activitiesByOwner: Map<string, Activity[]>
+  /** The activities that are part of their project's scope (modules and construction scope switched on). The others keep their records but are hidden and never counted. */
+  activities: Activity[]
   ordered: Map<string, number> // `${kind}:${itemId}` on issued POs
   draft: Map<string, number>
   received: Map<string, number>
@@ -97,14 +100,17 @@ function baseIndex(state: ConstructionState): Index {
   const plinthsByFoundation = new Map<string, Plinth[]>()
   state.plinths.forEach((p) => push(plinthsByFoundation, p.foundationId, p))
   const activitiesByOwner = new Map<string, Activity[]>()
-  state.activities.forEach((a) => push(activitiesByOwner, a.plinthId ?? a.foundationId, a))
+  const projectOfArea = new Map(state.areas.map((a) => [a.id, state.projects.find((p) => p.id === a.projectId)] as const))
+  const projectOfFoundation = new Map(state.foundations.map((f) => [f.id, projectOfArea.get(f.areaId)] as const))
+  const activities = state.activities.filter((a) => activityApplicable(projectOfFoundation.get(a.foundationId), a.scope, a.key))
+  activities.forEach((a) => push(activitiesByOwner, a.plinthId ?? a.foundationId, a))
   const fabByPlinth = new Map<string, FabricationRequest[]>()
   state.fabrication.forEach((r) => r.plinthIds.forEach((id) => push(fabByPlinth, id, r)))
 
   const idx: Index = {
     state, area: by(state.areas), foundation: by(state.foundations), plinth: by(state.plinths), anchorage: by(state.anchorageTypes),
     spec: by(state.boltSpecs), bulk: by(state.bulkMaterials), supplier: by(state.suppliers), person: by(state.people), po: by(state.purchaseOrders),
-    poLine, foundationsByArea, plinthsByFoundation, activitiesByOwner, ordered, draft, received, allocated, allocatedToPlinth,
+    poLine, foundationsByArea, plinthsByFoundation, activitiesByOwner, activities, ordered, draft, received, allocated, allocatedToPlinth,
     ready: new Map(state.plinthReady.map((r) => [r.plinthId, r])), fabByPlinth,
   }
   cache.set(state, idx)
@@ -280,11 +286,22 @@ export const tallyCategory = (idx: Index, acts: Activity[], category: 'construct
  * Each element (footing or plinth) = average of equal stages: rebar (built + installed, split evenly), forming, pouring, and — only where post-installed anchor bolts or embed plates
  * exist — their installation (the bolt and embed activities split evenly, like rebar). A footing or plinth with outstanding post-installed components is therefore never complete.
  */
-/** One element's completion, 0–1: the average of its stages. `installs` holds 1 or 0 per post-install activity it has (anchor bolts, embed plates; empty = nothing post-installed, no such stage). */
-export function elementStages(done: (key: string) => number, installs: number[], poured = done('poured')): number {
-  const stages = [(done('rebarBuilt') + done('rebarInstalled')) / 2, done('formed'), poured]
-  if (installs.length) stages.push(installs.reduce((t, x) => t + x, 0) / installs.length)
-  return stages.reduce((t, x) => t + x, 0) / stages.length
+/**
+ * One element's completion, 0–1: the average of the stages that apply to it (`done` gives null for an activity that is not part of the project). `installs` holds 1 or 0 per post-install
+ * activity it has (anchor bolts, embed plates; empty = none, no such stage). Null = nothing applies, so the element is left out of the progress.
+ */
+export function elementStages(done: (key: string) => number | null, installs: number[], poured?: number): number | null {
+  const stages: number[] = []
+  const avg = (xs: number[]) => xs.reduce((t, x) => t + x, 0) / xs.length
+  const rebar = ['rebarBuilt', 'rebarInstalled'].map(done).filter((x): x is number => x !== null)
+  if (rebar.length) stages.push(avg(rebar))
+  const formed = done('formed')
+  if (formed !== null) stages.push(formed)
+  const pour = done('poured')
+  if (pour !== null) stages.push(poured ?? pour)
+  if (installs.length) stages.push(avg(installs))
+  for (const key of ['equipmentSet', 'grouted']) { const x = done(key); if (x !== null) stages.push(x) }
+  return stages.length ? avg(stages) : null
 }
 
 export function progressOf(idx: Index, acts: Activity[]): number {
@@ -292,14 +309,17 @@ export function progressOf(idx: Index, acts: Activity[]): number {
   for (const a of acts) if (isConstructionCategory(categoryOf(a))) push(owners, a.plinthId ?? a.foundationId, a)
   if (!owners.size) return 0
   let sum = 0
+  let counted = owners.size
   for (const list of owners.values()) {
     const done = (key: string) => {
       const a = list.find((x) => x.key === key)
-      return a && isDone(effectiveStatus(idx, a)) ? 1 : 0
+      return a ? (isDone(effectiveStatus(idx, a)) ? 1 : 0) : null
     }
-    sum += elementStages(done, list.filter((x) => INSTALL_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0)))
+    const v = elementStages(done, list.filter((x) => INSTALL_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0)))
+    if (v === null) { counted--; continue }
+    sum += v
   }
-  return percentOf(sum, owners.size) ?? 0
+  return percentOf(sum, counted) ?? 0
 }
 
 export const percent = (t: Tally) => pct(t.done, t.total)
@@ -621,7 +641,7 @@ export function deriveIssues(idx: Index, today: ISODate, projectId = identity.pr
   const s = idx.state
   const soon = addDays(today, 14)
 
-  for (const a of s.activities) {
+  for (const a of idx.activities) {
     const f = idx.foundation.get(a.foundationId)!
     const def = getDef(a.scope, a.key)
     const status = effectiveStatus(idx, a)
@@ -707,7 +727,7 @@ export interface UpcomingItem {
 
 export function upcomingWork(idx: Index, today: ISODate, days = 14, areaId?: string): UpcomingItem[] {
   const end = addDays(today, days)
-  return idx.state.activities
+  return idx.activities
     .filter((a) => a.plannedDate && a.plannedDate >= today && a.plannedDate <= end && !isDone(effectiveStatus(idx, a)) && !getDef(a.scope, a.key).derived)
     .map((a) => ({ activity: a, title: activityTitle(idx, a), foundation: idx.foundation.get(a.foundationId)!, status: effectiveStatus(idx, a) }))
     .filter((x) => !areaId || x.foundation.areaId === areaId)
@@ -777,7 +797,8 @@ export interface PortfolioCounts {
   delayed: number
 }
 
-export function portfolioCounts(projects: ConstructionState['projects']): PortfolioCounts {
+export function portfolioCounts(all: ConstructionState['projects']): PortfolioCounts {
+  const projects = all.filter((p) => !p.archived)
   return {
     total: projects.length,
     active: projects.filter((p) => IN_DELIVERY.includes(p.status)).length,

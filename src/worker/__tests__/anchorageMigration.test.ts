@@ -57,6 +57,7 @@ describe('migration 0028: anchorage mounts', () => {
     // The application reads the same anchorage totals it did before the migration.
     db.raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8'))
     db.raw.exec(readFileSync('migrations/0030_embed_post_install.sql', 'utf8')) // the application reads the new columns
+    db.raw.exec(readFileSync('migrations/0031_project_configuration.sql', 'utf8'))
     expect(newTotals(await state(db.raw))).toEqual(old.totals)
     expect(old.totals).toEqual({ 'f1|t1': 8, 'f1|t2': 4 })
     expect((await checkIntegrity(db.d1)).ok).toBe(true)
@@ -83,6 +84,7 @@ describe('migration 0028: anchorage mounts', () => {
     expect(db.raw.prepare('SELECT DISTINCT install_method FROM foundation_embeds').all().every((r) => (r as { install_method: string }).install_method === 'wet-set')).toBe(true)
     expect(db.raw.prepare("SELECT value FROM schema_info WHERE key = 'schema_version'").get()).toEqual({ value: '30' })
     expect(() => db.raw.exec("UPDATE foundation_embeds SET install_method = 'glued'")).toThrow()
+    db.raw.exec(readFileSync('migrations/0031_project_configuration.sql', 'utf8')) // the application reads the project configuration columns
     // Nothing is post-installed yet, so no installation activity exists until Post-Install is ticked; every record that was already there is unchanged.
     const st = await state(db.raw)
     const bolts = st.activities.filter((a) => /^(anchorBoltsPostInstalled|embedsPostInstalled)$/.test(a.key)) // not the older 'anchorBolts' materials activity
@@ -252,11 +254,15 @@ describe.skipIf(!BOLTS)('anchor bolt installation on a copy of real data', () =>
     const rowsBefore = Object.fromEntries(['foundations', 'plinths', 'foundation_bolts', 'foundation_anchorages', 'activities'].map((t) => [t, count(raw, t)]))
     // Every row of every table, as it was (new columns aside): the migrations add columns only, so nothing may be rewritten.
     const tables = (raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as { name: string }[]).map((t) => t.name)
-    const dump = () => Object.fromEntries(tables.map((t) => [t, (raw.prepare(`SELECT * FROM "${t}" ORDER BY rowid`).all() as Record<string, unknown>[]).map((r) => { const { install_method: _m, ...rest } = r; void _m; return rest })]))
+    const dump = () => Object.fromEntries(tables.map((t) => [t, (raw.prepare(`SELECT * FROM "${t}" ORDER BY rowid`).all() as Record<string, unknown>[]).map((r) => { const { install_method: _m, implicit: _i, ...rest } = r; void _m; void _i
+      if (t === 'projects') { const { use_areas: _u, archived: _a, template: _t, ...p } = rest; void _u; void _a; void _t; return p }
+      return rest
+    })]))
     const allBefore = dump()
     const requirementsBefore = JSON.stringify(allBefore.foundation_bolts)
     raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8'))
     raw.exec(readFileSync('migrations/0030_embed_post_install.sql', 'utf8'))
+    raw.exec(readFileSync('migrations/0031_project_configuration.sql', 'utf8'))
     const allAfter = dump()
     for (const t of tables) if (t !== 'schema_info' && t !== 'd1_migrations') expect(allAfter[t], `rows of ${t} unchanged`).toEqual(allBefore[t])
     expect(JSON.stringify(allAfter.foundation_bolts)).toBe(requirementsBefore)

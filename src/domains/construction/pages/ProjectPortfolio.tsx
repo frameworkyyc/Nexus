@@ -30,7 +30,7 @@ export function ProjectPortfolio({ pageSize = 10 }: { pageSize?: number }) {
 
   const hasFoundations = (id: string) => foundationsOfProject(idx, id).length > 0
   // Calculated progress uses the default completion basis (each foundation type counts once), the same figure the project dashboard opens with.
-  const all = useMemo(() => projectSummaries(idx, (id) => deriveExceptions(idx, today, id)).map((r) => (r.progressSource === 'derived' ? { ...r, progress: completionOf(idx, foundationsOfProject(idx, r.project.id), 'type').percent ?? 0 } : r)), [idx, today])
+  const all = useMemo(() => projectSummaries(idx, (id) => deriveExceptions(idx, today, id)).filter((r) => !r.project.archived).map((r) => (r.progressSource === 'derived' ? { ...r, progress: completionOf(idx, foundationsOfProject(idx, r.project.id), 'type').percent ?? 0 } : r)), [idx, today])
   const q = query.trim().toLowerCase()
   const rows = useMemo(() => {
     const value = (r: ProjectSummary) => (sort.key === 'name' ? r.project.name.toLowerCase() : sort.key === 'job' ? Number(r.project.jobNumber) : sort.key === 'completion' ? r.progress : PROJECT_STATUS_RANK[r.project.status])

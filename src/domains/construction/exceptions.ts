@@ -26,7 +26,7 @@ export function deriveExceptions(idx: Index, today: ISODate, projectId: string):
   const areaName = (id: string) => idx.area.get(id)?.name ?? 'Project'
 
   // Blocked work
-  for (const a of s.activities) {
+  for (const a of idx.activities) {
     if (effectiveStatus(idx, a) !== 'blocked') continue
     const f = idx.foundation.get(a.foundationId)!
     out.push({ id: `blocked:${a.id}`, severity: 'high', title: activityTitle(idx, a), area: areaName(f.areaId), status: 'Blocked', to: paths.foundation(projectId, f, a.plinthId ?? undefined) })
@@ -82,7 +82,7 @@ export function deriveExceptions(idx: Index, today: ISODate, projectId: string):
 
   for (const area of s.areas) {
     // Overdue survey
-    const overdue = s.activities.filter((a) => {
+    const overdue = idx.activities.filter((a) => {
       const def = getDef(a.scope, a.key)
       return def.category === 'survey' && idx.foundation.get(a.foundationId)!.areaId === area.id && !isDone(effectiveStatus(idx, a)) && !!a.plannedDate && a.plannedDate < today
     })

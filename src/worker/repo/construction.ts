@@ -25,8 +25,12 @@ const dimsFrom = (r: Row, k = ''): Dims | null => {
 export function constructionToRows(state: ConstructionState): RowSet {
   return {
     companies: state.company.id ? [{ id: state.company.id, name: state.company.name, legal_name: state.company.legalName ?? '', location: state.company.location ?? '', contact_name: state.company.contactName ?? '', contact_email: state.company.contactEmail ?? '', contact_phone: state.company.contactPhone ?? '', website: state.company.website ?? '', notes: state.company.notes ?? '' }] : [],
-    projects: state.projects.map((p): Row => ({ id: p.id, company_id: p.companyId, name: p.name, job_number: p.jobNumber, client: p.client, location: p.location, scope: p.scope, status: p.status, status_note: p.statusNote, description: p.description ?? '', start_date: p.startDate ?? null, end_date: p.endDate ?? null })),
-    areas: state.areas.map((a): Row => ({ id: a.id, project_id: a.projectId, name: a.name, sequence: a.sequence, identifier: a.identifier ?? '', description: a.description ?? '', archived: a.archived ? 1 : 0 })),
+    projects: state.projects.map((p): Row => ({ id: p.id, company_id: p.companyId, name: p.name, job_number: p.jobNumber, client: p.client, location: p.location, scope: p.scope, status: p.status, status_note: p.statusNote, description: p.description ?? '', start_date: p.startDate ?? null, end_date: p.endDate ?? null, use_areas: p.useAreas === false ? 0 : 1, archived: p.archived ? 1 : 0, template: p.template ?? 'full-concrete' })),
+    project_settings: state.projects.flatMap((p) => [
+      ...Object.entries(p.modules ?? {}).map(([k, on]): Row => ({ id: `${p.id}:module:${k}`, project_id: p.id, key: `module:${k}`, enabled: on ? 1 : 0 })),
+      ...Object.entries(p.scopeItems ?? {}).map(([k, on]): Row => ({ id: `${p.id}:scope:${k}`, project_id: p.id, key: `scope:${k}`, enabled: on ? 1 : 0 })),
+    ]),
+    areas: state.areas.map((a): Row => ({ id: a.id, project_id: a.projectId, name: a.name, sequence: a.sequence, identifier: a.identifier ?? '', description: a.description ?? '', archived: a.archived ? 1 : 0, implicit: a.implicit ? 1 : 0 })),
     anchorage_types: state.anchorageTypes.map((t, seq): Row => ({ id: t.id, project_id: t.projectId ?? '', code: t.code, description: t.description, archived: t.archived ? 1 : 0, seq })),
     anchorage_components: (state.anchorageComponents ?? []).map((c, seq): Row => ({ id: c.id, anchorage_type_id: c.anchorageTypeId, kind: c.kind, qty: c.qty, label: c.label, spec: c.spec, size: c.size, diameter: c.diameter, length: c.length, length_unit: c.lengthUnit, thread: c.thread, top_thread: c.topThread, bottom_thread: c.bottomThread, nuts_per_bolt: c.nutsPerBolt, washers_per_bolt: c.washersPerBolt, nut_size: c.nutSize, washer_size: c.washerSize, seq, center_hole: c.centerHole ?? null, stud_count: c.studCount ?? null, stud_diameter: c.studDiameter ?? null, stud_length: c.studLength ?? null, thickness: c.thickness ?? null, width: c.width ?? null })),
     library_embed_plates: (state.libraryEmbedPlates ?? []).map((p, seq): Row => ({ id: p.id, project_id: p.projectId, thickness: p.thickness, width: p.width, length: p.length, unit: p.unit, stud_count: p.studCount, stud_diameter: p.studDiameter, stud_length: p.studLength, created_at: p.createdAt, created_by: p.createdBy, seq })),
@@ -41,6 +45,21 @@ export function constructionToRows(state: ConstructionState): RowSet {
     activities: state.activities.filter((a) => !isDefaultActivity(a)).map((a): Row => ({ id: a.id, scope: a.scope, activity_key: a.key, foundation_id: a.foundationId, plinth_id: a.plinthId, status: a.status, planned_date: a.plannedDate, actual_date: a.actualDate, notes: a.notes, seq: 0 })),
     pours: (state.pours ?? []).map((p, seq): Row => ({ id: p.id, project_id: p.projectId, name: p.name, status: p.status, pour_date: p.date, waste_pct: p.wastePct, notes: p.notes, actual_m3: p.actualM3, completed_date: p.completedDate, created_at: p.createdAt, created_by: p.createdBy, seq })),
     pour_items: (state.pourItems ?? []).map((i, seq): Row => ({ id: i.id, pour_id: i.pourId, foundation_id: i.foundationId, unit_no: i.unit, component: i.component, plinth_id: i.plinthId, component_key: i.plinthId ?? 'footing', planned_m3: i.plannedM3, poured_m3: i.pouredM3, completed_date: i.completedDate, override_reason: i.overrideReason, override_by: i.overrideBy, seq })),
+  }
+}
+
+/** A project's configuration from its row and its explicit settings. Only what differs from the defaults is carried, so a project that was never configured reads exactly as before. */
+function projectConfigFrom(r: Row, settings: Row[]): Partial<Project> {
+  const mine = settings.filter((x) => String(x.project_id) === String(r.id))
+  const pick = (prefix: string) => Object.fromEntries(mine.filter((x) => String(x.key).startsWith(`${prefix}:`)).map((x) => [String(x.key).slice(prefix.length + 1), Number(x.enabled) === 1]))
+  const modules = pick('module'), scopeItems = pick('scope')
+  const template = String(r.template ?? 'full-concrete')
+  return {
+    ...(Number(r.use_areas) === 0 ? { useAreas: false } : {}),
+    ...(Number(r.archived) === 1 ? { archived: true } : {}),
+    ...(template !== 'full-concrete' ? { template: template as Project['template'] } : {}),
+    ...(Object.keys(modules).length ? { modules } : {}),
+    ...(Object.keys(scopeItems).length ? { scopeItems } : {}),
   }
 }
 
@@ -64,7 +83,7 @@ export function constructionFromRows(rows: RowSet): ConstructionState {
   const anchorageGroups = (rows.foundation_anchorage_groups ?? []).map((r): AnchorageGroup => ({ id: String(r.id), foundationId: String(r.foundation_id), anchorageTypeId: s(r.anchorage_type_id), count: Number(r.plinth_count), dims: dimsFrom(r) }))
   const pours = (rows.pours ?? []).map((r): Pour => ({ id: String(r.id), projectId: String(r.project_id), name: String(r.name), status: String(r.status) as Pour['status'], date: s(r.pour_date), wastePct: Number(r.waste_pct), notes: String(r.notes), actualM3: r.actual_m3 === null || r.actual_m3 === undefined ? null : Number(r.actual_m3), completedDate: s(r.completed_date), createdAt: String(r.created_at), createdBy: String(r.created_by) }))
   const pourItems = (rows.pour_items ?? []).map((r): PourItem => ({ id: String(r.id), pourId: String(r.pour_id), foundationId: String(r.foundation_id), unit: Number(r.unit_no), component: String(r.component) as PourItem['component'], plinthId: s(r.plinth_id), plannedM3: r.planned_m3 === null ? null : Number(r.planned_m3), pouredM3: r.poured_m3 === null ? null : Number(r.poured_m3), completedDate: s(r.completed_date), overrideReason: String(r.override_reason), overrideBy: String(r.override_by) }))
-  const areas = (rows.areas ?? []).map((r): Area => ({ id: String(r.id), projectId: String(r.project_id), name: String(r.name), sequence: Number(r.sequence), identifier: String(r.identifier ?? ''), description: String(r.description ?? ''), ...(Number(r.archived) === 1 ? { archived: true } : {}) }))
+  const areas = (rows.areas ?? []).map((r): Area => ({ id: String(r.id), projectId: String(r.project_id), name: String(r.name), sequence: Number(r.sequence), identifier: String(r.identifier ?? ''), description: String(r.description ?? ''), ...(Number(r.archived) === 1 ? { archived: true } : {}), ...(Number(r.implicit) === 1 ? { implicit: true } : {}) }))
   const anchorageTypes = (rows.anchorage_types ?? []).map((r): AnchorageType => ({ id: String(r.id), projectId: String(r.project_id), code: String(r.code), description: String(r.description), bolts: [], hardware: [], ...(Number(r.archived) === 1 ? { archived: true } : {}) }))
   const anchorageComponents = (rows.anchorage_components ?? []).map((r): AnchorageComponent => ({ id: String(r.id), anchorageTypeId: String(r.anchorage_type_id), kind: String(r.kind) as AnchorageComponent['kind'], qty: Number(r.qty), label: String(r.label), spec: String(r.spec), size: String(r.size), diameter: String(r.diameter), length: r.length === null ? null : Number(r.length), lengthUnit: String(r.length_unit) === 'in' ? 'in' : 'mm', thread: s(r.thread) as AnchorageComponent['thread'], topThread: r.top_thread === null ? null : Number(r.top_thread), bottomThread: r.bottom_thread === null ? null : Number(r.bottom_thread), nutsPerBolt: Number(r.nuts_per_bolt), washersPerBolt: Number(r.washers_per_bolt), nutSize: String(r.nut_size), washerSize: String(r.washer_size), centerHole: r.center_hole === null || r.center_hole === undefined ? null : Number(r.center_hole), studCount: r.stud_count === null || r.stud_count === undefined ? null : Number(r.stud_count), studDiameter: r.stud_diameter === null || r.stud_diameter === undefined ? null : Number(r.stud_diameter), studLength: r.stud_length === null || r.stud_length === undefined ? null : Number(r.stud_length), thickness: r.thickness === null || r.thickness === undefined ? null : Number(r.thickness), width: r.width === null || r.width === undefined ? null : Number(r.width) }))
   // Where post-installed bolts and embed plates are (ticked Post-Install), which decides which footings and plinths get installation activities.
@@ -73,7 +92,7 @@ export function constructionFromRows(rows: RowSet): ConstructionState {
   const company = (rows.companies ?? [])[0]
   return {
     company: company ? { id: String(company.id), name: String(company.name), legalName: String(company.legal_name ?? ''), location: String(company.location ?? ''), contactName: String(company.contact_name ?? ''), contactEmail: String(company.contact_email ?? ''), contactPhone: String(company.contact_phone ?? ''), website: String(company.website ?? ''), notes: String(company.notes ?? '') } : { id: '', name: '' },
-    projects: (rows.projects ?? []).map((r): Project => ({ id: String(r.id), companyId: String(r.company_id), name: String(r.name), jobNumber: String(r.job_number), client: String(r.client), location: String(r.location), scope: String(r.scope), status: String(r.status) as Project['status'], statusNote: String(r.status_note), tracking: 'detailed', reportedProgress: null, description: String(r.description ?? ''), startDate: s(r.start_date), endDate: s(r.end_date) })),
+    projects: (rows.projects ?? []).map((r): Project => ({ id: String(r.id), companyId: String(r.company_id), name: String(r.name), jobNumber: String(r.job_number), client: String(r.client), location: String(r.location), scope: String(r.scope), status: String(r.status) as Project['status'], statusNote: String(r.status_note), tracking: 'detailed', reportedProgress: null, description: String(r.description ?? ''), startDate: s(r.start_date), endDate: s(r.end_date), ...projectConfigFrom(r, rows.project_settings ?? []) })),
     projectIssues: [],
     areas,
     foundations, plinths, anchorageGroups, foundationAnchorages, foundationBolts, foundationUnits, foundationEmbeds, libraryEmbedPlates, anchorageComponents, pours, pourItems,

@@ -16,6 +16,18 @@ import { setProjectIssueStatus, addProjectIssue, setReportedProgress } from '../
 import { useState } from 'react'
 import { formatShortDate } from '@/lib/format'
 import { EditProjectButton, GettingStarted } from './Setup'
+import { useAccess } from '@/lib/access'
+import { PackageDashboard } from './PackageDashboard'
+import { FoundationRegister } from './FoundationRegister'
+import { implicitAreaOf } from '../projectActions'
+import { useProjectConfig } from '../useProjectConfig'
+
+/** Project Settings, for administrators. */
+function ProjectSettingsLink({ projectId }: { projectId: string }) {
+  const access = useAccess()
+  if (!access.can('structure.manage')) return null
+  return <Link to={paths.settings(projectId)} className="inline-flex h-9 items-center rounded-nx border border-line px-4 text-[13px] font-medium hover:border-ink">Project settings</Link>
+}
 
 function ProjectHeader({ projectId }: { projectId: string }) {
   const { state } = useConstruction()
@@ -29,7 +41,7 @@ function ProjectHeader({ projectId }: { projectId: string }) {
         {project.description && <p className="mt-2 max-w-2xl text-[13px]">{project.description}</p>}
         {(project.startDate || project.endDate) && <p className="mt-1 text-xs text-muted">{[project.startDate && `Starts ${formatShortDate(project.startDate)}`, project.endDate && `Expected completion ${formatShortDate(project.endDate)}`].filter(Boolean).join(' · ')}</p>}
       </div>
-      <EditProjectButton projectId={projectId} />
+      <div className="flex flex-wrap gap-2"><EditProjectButton projectId={projectId} /><ProjectSettingsLink projectId={projectId} /></div>
     </header>
   )
 }
@@ -40,8 +52,10 @@ export function ProjectDashboard() {
   const { state, idx, today } = useConstruction()
   const project = state.projects.find((p) => p.id === projectId)!
   const [basis] = useCompletionBasis()
+  const cfg = useProjectConfig(projectId)
+  const hidden = implicitAreaOf(state, projectId)
   const overall = completionOf(idx, foundationsOfProject(idx, projectId), basis)
-  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).map((area) => ({ area, progress: completionOf(idx, foundationsOf(idx, area.id), basis), status: areaStatus(idx, area.id) }))
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived && !a.implicit).map((area) => ({ area, progress: completionOf(idx, foundationsOf(idx, area.id), basis), status: areaStatus(idx, area.id) }))
   const exceptions = deriveExceptions(idx, today, projectId)
   const critical = exceptions.filter((e) => e.severity === 'high').length
 
@@ -83,6 +97,12 @@ export function ProjectDashboard() {
         </div>
       </dl>
 
+      {!cfg.usesAreas && hidden ? (
+        <>
+          <Section title="Project progress"><PackageDashboard idx={idx} projectId={projectId} areaId={hidden.id} /></Section>
+          <Section title="Foundations"><FoundationRegister projectId={projectId} /></Section>
+        </>
+      ) : (
       <Section title="Progress by area">
         <ul className="border-t border-line">
           {areas.map(({ area, progress, status }) => (
@@ -102,6 +122,7 @@ export function ProjectDashboard() {
           ))}
         </ul>
       </Section>
+      )}
 
       <Section title="Needs attention" actions={<Link to={paths.issues(projectId)} className="text-[13px] text-muted underline-offset-4 hover:text-ink hover:underline">All issues</Link>}>
         <ExceptionList items={exceptions} />

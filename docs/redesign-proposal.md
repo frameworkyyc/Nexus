@@ -299,7 +299,7 @@ Notes: `/` opens the last-used project's Progress (the company overview is at `/
 Every Area page now has the same five tabs, in this order: **Overview, Materials, Construction, Survey, QA/QC**.
 - **Foundations** is no longer a tab. The Foundations summary, tiles and the full register (search, filters, plinth view, add/edit actions and links) are a section of Overview. In the demo, the area's Handover section is also shown on Overview (it was a tab); saved-data mode never had it.
 - The four progress graphs read **Materials, Construction, Survey, QA/QC** ("Installation" is renamed Construction) and each opens its own tab.
-- **Survey** shows layout and the pre- and post-pour survey checks; **QA/QC** shows the pre-pour (CM03) and post-pour (CM04) inspections. Both read the same activity records as before; nothing new is tracked or calculated.
+- **Survey** shows layout and the pre-pour and as-built survey checks; **QA/QC** shows the pre-pour (CM03) and post-pour (CM04) inspections. Both read the same activity records as before; nothing new is tracked or calculated.
 - Old addresses keep working: `?tab=register` and `?tab=handover` open Overview, `?tab=quality` opens Survey.
 - Project Management is unchanged (its Survey and QA/QC entries still show the combined table).
 

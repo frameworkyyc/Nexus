@@ -14,6 +14,7 @@ import {
   FOUNDATION_STATE_LABEL, boltStageLabel, computeStats, footingActivities, footingStep, foundationState, foundationsOf, foundationsOfProject, percent, plinthActivities,
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
+import { useProjectConfig } from '../useProjectConfig'
 import { useConstruction } from '../store'
 import { foundationConcrete, volumeLabel, type FoundationConcrete } from '../concrete'
 import { foundationQuantity, foundationTotals, plinthsPerFoundationFromGroups } from '../foundationQuantity'
@@ -55,7 +56,7 @@ const concreteCell = (c: FoundationConcrete) => (c.total !== null ? volumeLabel(
 const concreteTitle = (c: FoundationConcrete) => (c.complete ? `${volumeLabel(c.perFoundation!)} per foundation` : `Incomplete: missing ${c.missing.join(' and ')}`)
 
 /** Short names for the step labels, so the column stays on one line: "Layout completed" → "Layout", "Footing poured" → "Pour". */
-const STEP_SHORT: Record<string, string> = { 'Layout completed': 'Layout', 'Rebar built': 'Rebar build', 'Rebar installed': 'Rebar install', 'Footing formed': 'Forming', 'Plinth formed': 'Forming', 'Pre-pour survey checks': 'Pre-pour survey', 'Pre-pour inspection': 'Pre-pour QA/QC', 'Footing poured': 'Pour', 'Plinth poured': 'Pour', 'Post-pour survey': 'Post-pour survey', 'Post-pour inspection': 'Post-pour QA/QC' }
+const STEP_SHORT: Record<string, string> = { 'Layout completed': 'Layout', 'Rebar built': 'Rebar build', 'Rebar installed': 'Rebar install', 'Footing formed': 'Forming', 'Plinth formed': 'Forming', 'Pre-pour survey checks': 'Pre-pour survey', 'Pre-pour inspection': 'Pre-pour QA/QC', 'Footing poured': 'Pour', 'Plinth poured': 'Pour', 'As-built survey': 'As-built survey', 'Post-pour inspection': 'Post-pour QA/QC' }
 const shortStep = (label: string) => STEP_SHORT[label] ?? label
 /** Anchorage as compact as it can be while staying exact: one code on its own, "A × 2 · B × 1" for several. */
 const anchorageShort = (state: ConstructionState, r: Row) =>
@@ -63,8 +64,11 @@ const anchorageShort = (state: ConstructionState, r: Row) =>
 
 const STATE_RANK: Record<FoundationStateId, number> = { 'not-started': 0, 'in-progress': 1, constructed: 2, 'closed-out': 3 }
 
-export function FoundationRegister({ projectId, areaId }: { projectId: string; areaId?: string }) {
+export function FoundationRegister({ projectId, areaId: areaIdProp }: { projectId: string; areaId?: string }) {
   const { state, idx } = useConstruction()
+  const cfg = useProjectConfig(projectId)
+  // A project without areas: its foundations are all in its hidden area, so the register works as one area's and shows no area controls.
+  const areaId = areaIdProp ?? (cfg.usesAreas ? undefined : state.areas.find((a) => a.projectId === projectId && a.implicit)?.id)
   const phone = useIsPhone()
   const [view, setView] = useState<'foundations' | 'plinths'>('foundations')
   const [query, setQuery] = useState('')
