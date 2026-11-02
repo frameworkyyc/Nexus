@@ -14,6 +14,7 @@ import {
   FOUNDATION_STATE_LABEL, boltStageLabel, computeStats, footingActivities, footingStep, foundationState, foundationsOf, foundationsOfProject, percent, plinthActivities,
   plinthState, plinthStep, progressOf, tallyCategory, type FoundationState, type FoundationStateId, type Stats,
 } from '../selectors'
+import { useProjectConfig } from '../useProjectConfig'
 import { useConstruction } from '../store'
 import { foundationConcrete, volumeLabel, type FoundationConcrete } from '../concrete'
 import { foundationQuantity, foundationTotals, plinthsPerFoundationFromGroups } from '../foundationQuantity'
@@ -63,8 +64,11 @@ const anchorageShort = (state: ConstructionState, r: Row) =>
 
 const STATE_RANK: Record<FoundationStateId, number> = { 'not-started': 0, 'in-progress': 1, constructed: 2, 'closed-out': 3 }
 
-export function FoundationRegister({ projectId, areaId }: { projectId: string; areaId?: string }) {
+export function FoundationRegister({ projectId, areaId: areaIdProp }: { projectId: string; areaId?: string }) {
   const { state, idx } = useConstruction()
+  const cfg = useProjectConfig(projectId)
+  // A project without areas: its foundations are all in its hidden area, so the register works as one area's and shows no area controls.
+  const areaId = areaIdProp ?? (cfg.usesAreas ? undefined : state.areas.find((a) => a.projectId === projectId && a.implicit)?.id)
   const phone = useIsPhone()
   const [view, setView] = useState<'foundations' | 'plinths'>('foundations')
   const [query, setQuery] = useState('')

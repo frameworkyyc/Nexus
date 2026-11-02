@@ -10,8 +10,11 @@ import { createOrganization, createProject, updateOrganization, updateProject } 
 import { PROJECT_STATUS_LABEL } from '../config'
 import { paths } from '../paths'
 import { constructionStore, useConstruction, useConstructionCommand } from '../store'
-import type { ProjectStatus } from '../types'
+import type { ProjectStatus, ProjectTemplate } from '../types'
+import { templateSettings, type ProjectSettingsInput } from '../projectSettings'
+import { ProjectConfigFields, TemplatePicker } from './ProjectConfigFields'
 import { useTracker } from '../tracker/store'
+import { useProjectConfig } from '../useProjectConfig'
 import { useFleet } from '@/domains/fleet/store'
 import { fleetPaths } from '@/domains/fleet/paths'
 
@@ -105,19 +108,24 @@ export function NewProjectButton({ label = 'New project', variant = 'primary' }:
 function NewProject({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const { run, saving } = useConstructionCommand()
-  const [step, setStep] = useState<1 | 2>(1)
-  const [v, setV] = useState({ name: '', jobNumber: '', client: '', location: '', description: '', startDate: '', endDate: '', status: 'planning' as ProjectStatus })
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [v, setV] = useState({ name: '', jobNumber: '', client: '', location: '', scope: '', description: '', startDate: '', endDate: '', status: 'planning' as ProjectStatus })
+  const [template, setTemplate] = useState<ProjectTemplate>('full-concrete')
+  const [config, setConfig] = useState<ProjectSettingsInput>(templateSettings('full-concrete'))
+  const [areaNames, setAreaNames] = useState('')
   const set = (p: Partial<typeof v>) => setV((x) => ({ ...x, ...p }))
-  const create = () => run(createProject({ ...v, startDate: v.startDate || null, endDate: v.endDate || null }), () => {
+  const pick = (t: ProjectTemplate) => { setTemplate(t); setConfig(templateSettings(t)) }
+  const create = () => run(createProject({ ...v, startDate: v.startDate || null, endDate: v.endDate || null, template, ...config, areas: areaNames.split('\n').map((x) => x.trim()).filter(Boolean) }), () => {
     const made = constructionStore.get().projects.find((p) => p.name.toLowerCase() === v.name.trim().toLowerCase())
     onClose()
     if (made) navigate(paths.project(made.id))
   })
+  const last = step === 3
   return (
-    <Modal title="New project" onClose={onClose}>
-      <form className="space-y-4 p-6 text-[13px]" onSubmit={(e) => { e.preventDefault(); if (step === 1) setStep(2); else create() }}>
-        <p className="t-label">{step === 1 ? 'Step 1 of 2 · Essentials' : 'Step 2 of 2 · Details (optional)'}</p>
-        {step === 1 ? (
+    <Modal title="New project" onClose={onClose} wide>
+      <form className="space-y-4 p-6 text-[13px]" onSubmit={(e) => { e.preventDefault(); if (last) create(); else setStep((step + 1) as 2 | 3) }}>
+        <p className="t-label">{step === 1 ? 'Step 1 of 3 · Essentials' : step === 2 ? 'Step 2 of 3 · What the project includes' : 'Step 3 of 3 · Details (optional)'}</p>
+        {step === 1 && (
           <>
             <Field label="Project name *"><Input autoFocus value={v.name} onChange={(e) => set({ name: e.target.value })} /></Field>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -125,8 +133,17 @@ function NewProject({ onClose }: { onClose: () => void }) {
               <Field label="Client"><Input value={v.client} onChange={(e) => set({ client: e.target.value })} /></Field>
             </div>
             <Field label="Location"><Input value={v.location} onChange={(e) => set({ location: e.target.value })} /></Field>
+            <Field label="Scope (a short summary)"><Input value={v.scope} onChange={(e) => set({ scope: e.target.value })} placeholder="e.g. Grouting of pump bases" /></Field>
           </>
-        ) : (
+        )}
+        {step === 2 && (
+          <div className="space-y-6">
+            <TemplatePicker value={template} onChange={pick} />
+            <ProjectConfigFields value={config} onChange={setConfig} areaNames={areaNames} onAreaNames={setAreaNames} />
+            <p className="text-xs text-muted">All of this can be changed later in Project Settings.</p>
+          </div>
+        )}
+        {step === 3 && (
           <>
             <Field label="Description"><Textarea rows={3} value={v.description} onChange={(e) => set({ description: e.target.value })} /></Field>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -137,9 +154,9 @@ function NewProject({ onClose }: { onClose: () => void }) {
           </>
         )}
         <div className="flex flex-wrap gap-2 pt-1">
-          {step === 2 && <Button onClick={() => setStep(1)}>Back</Button>}
-          {step === 1 ? <Button variant="primary" type="submit" disabled={v.name.trim().length < 2}>Next</Button> : <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create project'}</Button>}
-          {step === 1 && <Button disabled={saving || v.name.trim().length < 2} onClick={create}>{saving ? 'Creating…' : 'Create now'}</Button>}
+          {step > 1 && <Button onClick={() => setStep((step - 1) as 1 | 2)}>Back</Button>}
+          {last ? <Button variant="primary" type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create project'}</Button> : <Button variant="primary" type="submit" disabled={v.name.trim().length < 2}>Next</Button>}
+          {step === 1 && <Button disabled={saving || v.name.trim().length < 2} onClick={create}>{saving ? 'Creating…' : 'Create now (full concrete foundations)'}</Button>}
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
         </div>
       </form>
@@ -165,18 +182,20 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const { state: tracker } = useTracker()
   const { state: fleet } = useFleet()
   const access = useAccess()
-  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived)
-  const foundations = state.foundations.filter((f) => areas.some((a) => a.id === f.areaId) && !f.archived)
+  const cfg = useProjectConfig(projectId)
+  const allAreas = state.areas.filter((a) => a.projectId === projectId && !a.archived)
+  const areas = allAreas.filter((a) => !a.implicit)
+  const foundations = state.foundations.filter((f) => allAreas.some((a) => a.id === f.areaId) && !f.archived)
   const anchorage = state.anchorageTypes.filter((t) => (t.projectId ?? projectId) === projectId && !t.archived)
   const materials = tracker.manual.length + tracker.lines.length
   const assigned = fleet.assignments.filter((a) => a.projectId === projectId && !a.endDate).length
   const admin = access.can('structure.manage')
   const steps = [
-    { done: areas.length > 0, title: 'Add construction areas', text: 'Areas group a project’s foundations and materials.', to: paths.register(projectId), cta: 'Open Foundations', admin: true },
+    ...(cfg.usesAreas ? [{ done: areas.length > 0, title: 'Add construction areas', text: 'Areas group a project’s foundations and materials.', to: paths.register(projectId), cta: 'Open Foundations', admin: true }] : []),
     { done: foundations.length > 0, title: 'Add foundations', text: 'Add them one at a time, or a whole list at once.', to: paths.register(projectId), cta: 'Add foundations', admin: true },
-    { done: anchorage.length > 0, title: 'Set up the anchorage library', text: 'Define anchorage types once; materials and plinths select from them.', to: paths.anchorage(projectId), cta: 'Open the anchorage library', admin: true },
-    { done: materials > 0, title: 'Add materials', text: 'Add them manually, in bulk, or import an Excel tracker.', to: paths.materials(projectId), cta: 'Open Materials', admin: false },
-    { done: assigned > 0, title: 'Add vehicles and equipment', text: 'Fleet assets belong to the organization and are assigned to projects.', to: fleetPaths.project(projectId), cta: 'Open Fleet', admin: false },
+    ...(cfg.scopeOn('anchorBolts') || cfg.scopeOn('embeds') ? [{ done: anchorage.length > 0, title: 'Set up the anchorage library', text: 'Define anchorage types once; materials and plinths select from them.', to: paths.anchorage(projectId), cta: 'Open the anchorage library', admin: true }] : []),
+    ...(cfg.moduleOn('procurement') ? [{ done: materials > 0, title: 'Add materials', text: 'Add them manually, in bulk, or import an Excel tracker.', to: paths.materials(projectId), cta: 'Open Materials', admin: false }] : []),
+    ...(cfg.moduleOn('fleet') ? [{ done: assigned > 0, title: 'Add vehicles and equipment', text: 'Fleet assets belong to the organization and are assigned to projects.', to: fleetPaths.project(projectId), cta: 'Open Fleet', admin: false }] : []),
   ]
   return (
     <section className="mt-8" aria-label="Getting started">

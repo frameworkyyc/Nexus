@@ -45,6 +45,9 @@ export const FOOTING_ACTIVITIES: ActivityDef[] = [
   { key: 'poured', scope: 'footing', category: 'construction', label: 'Footing poured', statusSet: work, after: ['preInspection'] },
   { key: 'postSurvey', scope: 'footing', category: 'survey', label: 'As-built survey', statusSet: work, after: ['poured'] },
   { key: 'postInspection', scope: 'footing', category: 'qaqc', label: 'Post-pour inspection', statusSet: qaqc, after: ['poured'] },
+  // Equipment setting and grouting, for projects whose scope includes them (see projectSettings.ts: off unless a project turns them on).
+  { key: 'equipmentSet', scope: 'footing', category: 'construction', label: 'Equipment set', statusSet: work, after: ['poured'] },
+  { key: 'grouted', scope: 'footing', category: 'construction', label: 'Grouted', statusSet: work, after: ['equipmentSet'] },
   // Civil / earthworks, recorded per foundation like the rest. Added after the existing activities so the construction sequence is unchanged.
   { key: 'excavation', scope: 'footing', category: 'civil', label: 'Excavation', statusSet: work },
   { key: 'subgradePrep', scope: 'footing', category: 'civil', label: 'Subgrade preparation', statusSet: work },

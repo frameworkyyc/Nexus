@@ -4,6 +4,8 @@ import { blankActivitiesFor, syncBoltActivities } from './blankActivities'
 import { DEFAULT_HANDOVER_REQUIREMENTS, getDef, isDone } from './config'
 import { areaOfPlinth, boltsFullyAllocated, getIndex, plinthBoltRequirements, plinthHardware, qty } from './selectors'
 import { applyGroups, applyMounts, cleanShape, configProblem, groupsOf, quantityBelowPours, type FoundationConfig } from './configActions'
+import { configureNewProject, implicitAreaOf, type ProjectCreateOptions } from './projectActions'
+import { activityApplicable } from './projectSettings'
 import type { TrackerState } from './tracker/types'
 import type {
   ProjectIssue, ProjectStatus, Activity, AutoMetric, ConstructionState, Deficiency, DocumentKind, FabricationRequest, HandoverRequirement, HistoryEntry, POLine, PurchaseOrder,
@@ -28,6 +30,8 @@ export type ActivityPatch = Partial<Pick<Activity, 'status' | 'plannedDate' | 'a
 export const updateActivity = (id: string, patch: ActivityPatch, today: ISODate): Reducer => (s) => {
   const a = s.activities.find((x) => x.id === id)
   if (!a) return fail('Activity not found.')
+  const project = s.projects.find((p) => p.id === s.areas.find((ar) => ar.id === s.foundations.find((f) => f.id === a.foundationId)?.areaId)?.projectId)
+  if (project && !activityApplicable(project, a.scope, a.key)) return fail('This activity is not part of the project’s scope. Switch it on in Project Settings first.')
   if (patch.status && getDef(a.scope, a.key).derived) return fail('This status is derived from Materials or Fabrication records and cannot be set here.')
   const next: Activity = { ...a, ...patch }
   if (patch.status) {
@@ -399,7 +403,9 @@ const plinthProblem = (n: unknown) => (n === null || (typeof n === 'number' && N
  * Adds a foundation designation to an area: one row, however many physical foundations (`quantity`) it stands for, with the plinth records of
  * one foundation. Every applicable activity starts as "not started". A name that already exists in the area (archived or not) is refused.
  */
-export const createFoundation = (areaId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1, config?: FoundationConfig): Reducer => (s, ctx) => {
+export const createFoundation = (areaOrProjectId: string, number: string, description: string, plinthCount: number | null, quantity: number = 1, config?: FoundationConfig): Reducer => (s, ctx) => {
+  // A project that does not use areas: naming the project places the foundation in its hidden area.
+  const areaId = s.areas.some((a) => a.id === areaOrProjectId) ? areaOrProjectId : implicitAreaOf(s, areaOrProjectId)?.id ?? areaOrProjectId
   const num = String(number).trim()
   const bad = numberProblem(s, areaId, num) ?? quantityProblem(quantity) ?? plinthProblem(plinthCount)
   if (bad) return fail(bad)
@@ -564,7 +570,7 @@ export const updateOrganization = (patch: Partial<OrganizationInput>): Reducer =
   return typeof company === 'string' ? fail(company) : ok({ ...s, company })
 }
 
-export interface ProjectInput { name: string; jobNumber?: string; client?: string; location?: string; description?: string; scope?: string; startDate?: string | null; endDate?: string | null; status?: ProjectStatus }
+export interface ProjectInput extends ProjectCreateOptions { name: string; jobNumber?: string; client?: string; location?: string; description?: string; scope?: string; startDate?: string | null; endDate?: string | null; status?: ProjectStatus }
 const STATUSES: ProjectStatus[] = ['planning', 'active', 'at-risk', 'delayed', 'on-hold', 'complete']
 
 function projectProblem(s: ConstructionState, input: Partial<ProjectInput>, exceptId?: string): string | null {
@@ -591,7 +597,8 @@ export const createProject = (input: ProjectInput): Reducer => (s) => {
     id, companyId: s.company.id, name, jobNumber: text(input.jobNumber, 40), client: text(input.client, 100), location: text(input.location, 120), scope: text(input.scope, 120), status: input.status ?? 'planning',
     statusNote: '', tracking: 'detailed' as const, reportedProgress: null, description: text(input.description, 500), startDate: input.startDate || null, endDate: input.endDate || null,
   }
-  return ok({ ...s, projects: [...s.projects, project] })
+  const created = { ...s, projects: [...s.projects, project] }
+  return configureNewProject(created, id, input)
 }
 
 export const updateProject = (id: string, patch: Partial<ProjectInput>): Reducer => (s) => {
@@ -678,5 +685,6 @@ export const archiveAnchorageType = (id: string, archived: boolean): Reducer => 
   return ok({ ...s, anchorageTypes: s.anchorageTypes.map((x) => (x.id === id ? { ...x, archived } : x)) })
 }
 
+export { archiveProject, deleteProject, updateProjectSettings } from './projectActions'
 export { configureFoundation, setAnchorageComponents, setFoundationUnits, setPlinthDims } from './configActions'
 export { addPourItems, cancelPour, completePour, createPour, recordPour, recordPourOverride, removePourItem, setPourActual, updatePour } from './pourActions'

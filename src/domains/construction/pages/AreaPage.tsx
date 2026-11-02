@@ -16,6 +16,8 @@ import { paths } from '../paths'
 import { completionOf } from '../completionBasis'
 import { computeStats, foundationActivities, foundationState, foundationsOf, tally, upcomingWork, type Index } from '../selectors'
 import { useConstruction } from '../store'
+import { useProjectConfig } from '../useProjectConfig'
+import type { ProjectModule } from '../types'
 import { ExceptionList, fraction, TextLink } from '../ui'
 import type { Activity, Foundation } from '../types'
 import { foundationTotals } from '../foundationQuantity'
@@ -47,18 +49,30 @@ export function resolveAreaTab(value: string | null): { tab: AreaTab; legacy: bo
 /** Level 3 of 4: an area's own dashboard, with detail one tab away. */
 export function AreaPage() {
   const { projectId = '', areaId = '' } = useParams()
+  return <AreaView projectId={projectId} areaId={areaId} />
+}
+
+/** The tab that belongs to each project module: a tab of a module the project does not include is not offered. */
+const TAB_MODULE: Partial<Record<AreaTab, ProjectModule>> = { materials: 'procurement', construction: 'progress', survey: 'survey', qaqc: 'qaqc' }
+
+/** An area's dashboard. A project without areas shows its one hidden area this way, as the project's own page, under the project's name. */
+export function AreaView({ projectId, areaId }: { projectId: string; areaId: string }) {
   const [params, setParams] = useSearchParams()
   const { idx } = useConstruction()
+  const cfg = useProjectConfig(projectId)
   const area = idx.area.get(areaId)
   if (!area) return <EmptyState title="Area not found" />
-  const { tab, legacy } = resolveAreaTab(params.get('tab'))
+  const tabs = AREA_TABS.filter((t) => { const m = TAB_MODULE[t.id]; return !m || cfg.moduleOn(m) })
+  const resolved = resolveAreaTab(params.get('tab'))
+  const { legacy } = resolved
+  const tab = tabs.some((t) => t.id === resolved.tab) ? resolved.tab : 'overview'
   // Old bookmarks (?tab=register, ?tab=quality, ?tab=handover) land on the right tab, and the address is tidied.
   if (legacy) return <Navigate to={paths.area(projectId, areaId, tab === 'overview' ? undefined : tab)} replace />
   const foundations = foundationsOf(idx, areaId)
   return (
     <>
-      <PageHeader title={area.name} description={[area.identifier, `${foundations.length} foundation name${foundations.length === 1 ? '' : 's'} · ${foundationTotals(foundations, foundations.flatMap((f) => idx.plinthsByFoundation.get(f.id) ?? [])).physical.toLocaleString('en-CA')} foundations`, area.archived ? 'Archived' : '', area.description].filter(Boolean).join(' · ')} actions={<><ManageAreaButton areaId={areaId} /><AddFoundationButton projectId={projectId} areaId={areaId} /></>} />
-      <Tabs<AreaTab> items={AREA_TABS} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
+      <PageHeader title={area.implicit ? cfg.project?.name ?? area.name : area.name} description={[area.implicit ? '' : area.identifier, `${foundations.length} foundation name${foundations.length === 1 ? '' : 's'} · ${foundationTotals(foundations, foundations.flatMap((f) => idx.plinthsByFoundation.get(f.id) ?? [])).physical.toLocaleString('en-CA')} foundations`, area.archived ? 'Archived' : '', area.implicit ? '' : area.description].filter(Boolean).join(' · ')} actions={<>{!area.implicit && <ManageAreaButton areaId={areaId} />}<AddFoundationButton projectId={projectId} areaId={areaId} /></>} />
+      <Tabs<AreaTab> items={tabs} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t })} />
       <div className="pt-6">
         {tab === 'overview' && (foundations.length === 0 ? <EmptyState title="No foundations in this area yet" description="Add the foundations to start tracking construction, survey and QA/QC here. Materials can already be added to the area." action={<AddFoundationButton projectId={projectId} areaId={areaId} />} /> : <Overview projectId={projectId} areaId={areaId} />)}
         {tab === 'construction' && <Construction projectId={projectId} areaId={areaId} />}

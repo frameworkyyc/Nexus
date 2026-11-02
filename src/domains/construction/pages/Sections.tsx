@@ -10,9 +10,47 @@ import { redirectFor } from '../navigation'
 import { paths } from '../paths'
 import { foundationsOf } from '../selectors'
 import { useConstruction } from '../store'
+import { useProjectConfig } from '../useProjectConfig'
+import type { ProjectModule } from '../types'
+import { MODULES } from '../projectSettings'
 import { DISCIPLINES } from '../constructionProgress'
 import { DisciplineTracker } from './DisciplineTracker'
 import { OverviewPage } from './OverviewPage'
+
+/** Shows a project's page only while its module is switched on; otherwise says so and points to Project Settings. The records are untouched either way. */
+export function ModuleGate({ module, children }: { module: ProjectModule; children: React.ReactNode }) {
+  const { projectId = '' } = useParams()
+  const cfg = useProjectConfig(projectId)
+  const access = useAccess()
+  if (cfg.project && !cfg.moduleOn(module)) {
+    const label = MODULES.find((m) => m.id === module)?.label ?? 'This module'
+    return (
+      <EmptyState
+        title={`${label} is not enabled for this project`}
+        description={access.can('structure.manage') ? 'Switch it on in Project Settings. Nothing recorded is lost while it is off.' : 'An administrator can enable it in Project Settings.'}
+        action={access.can('structure.manage') ? <Link to={paths.settings(projectId)} className="text-[13px] underline underline-offset-4">Open Project Settings</Link> : undefined}
+      />
+    )
+  }
+  return <>{children}</>
+}
+
+/** The Areas page of a project that does not use areas: says so instead of listing areas that are not there. */
+export function AreasGate({ children }: { children: React.ReactNode }) {
+  const { projectId = '' } = useParams()
+  const cfg = useProjectConfig(projectId)
+  const access = useAccess()
+  if (cfg.project && !cfg.usesAreas) {
+    return (
+      <EmptyState
+        title="This project does not use areas"
+        description={access.can('structure.manage') ? 'Its foundations belong directly to the project. Switch on Use Project Areas in Project Settings to group them into areas.' : 'Foundations belong directly to the project.'}
+        action={access.can('structure.manage') ? <Link to={paths.settings(projectId)} className="text-[13px] underline underline-offset-4">Open Project Settings</Link> : undefined}
+      />
+    )
+  }
+  return <>{children}</>
+}
 
 /* ── Redirects ────────────────────────────────────────────────────────────── */
 
@@ -45,22 +83,23 @@ export function ManageDiscipline({ kind }: { kind: 'construction' | 'survey' | '
   const { projectId = '' } = useParams()
   const { state } = useConstruction()
   const [params, setParams] = useSearchParams()
+  const cfg = useProjectConfig(projectId)
   const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence)
-  // Every tracker offers All areas (the project-wide view) as its first choice and opens on it
-  const allAreas = areas.length > 0 && (params.get('area') === 'all' || !areas.some((a) => a.id === params.get('area')))
+  // Every tracker offers All areas (the project-wide view) as its first choice and opens on it. A project without areas is always the project-wide view.
+  const allAreas = areas.length > 0 && (!cfg.usesAreas || params.get('area') === 'all' || !areas.some((a) => a.id === params.get('area')))
   const area = allAreas ? undefined : areas.find((a) => a.id === params.get('area')) ?? areas[0]
   const title = DISCIPLINES[kind].title
   if (areas.length === 0 || (!area && !allAreas)) return <><PageHeader title={title} /><EmptyState title="No areas yet" description="Add an area in Setup to record this work." action={<Link to={paths.areas(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Areas</Link>} /></>
   return (
     <>
       <PageHeader title={title} description={DISCIPLINES[kind].description} />
-      <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
+      {cfg.usesAreas && <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
         <button type="button" aria-pressed={allAreas} onClick={() => setParams({ area: 'all' })} className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${allAreas ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>All areas</button>
         {areas.map((a) => (
           <button key={a.id} type="button" aria-pressed={a.id === area?.id} onClick={() => setParams({ area: a.id })}
             className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${a.id === area?.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>{a.name}</button>
         ))}
-      </div>
+      </div>}
       <DisciplineTracker discipline={kind} areaId={area?.id ?? 'all'} areaIds={areas.map((a) => a.id)} />
     </>
   )
@@ -74,18 +113,19 @@ export function FoundationSelector() {
   const { state, idx } = useConstruction()
   const [params, setParams] = useSearchParams()
   const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived).sort((a, b) => a.sequence - b.sequence)
+  const cfg = useProjectConfig(projectId)
   const area = areas.find((a) => a.id === params.get('area')) ?? areas[0]
   if (!area) return <><PageHeader title="Foundation Overview" /><EmptyState title="No areas yet" description="Foundations belong to an area. Add an area in Setup first." action={<Link to={paths.areas(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Areas</Link>} /></>
   const foundations = foundationsOf(idx, area.id).filter((f) => !f.archived)
   return (
     <>
-      <PageHeader title="Foundation Overview" description="Choose an area, then a foundation, to see its full status." />
-      <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
+      <PageHeader title="Foundation Overview" description={cfg.usesAreas ? 'Choose an area, then a foundation, to see its full status.' : 'Choose a foundation to see its full status.'} />
+      {cfg.usesAreas && <div role="group" aria-label="Area" className="mb-6 flex flex-wrap gap-2" data-compact>
         {areas.map((a) => (
           <button key={a.id} type="button" aria-pressed={a.id === area.id} onClick={() => setParams({ area: a.id })}
             className={`inline-flex h-9 items-center whitespace-nowrap rounded-full border px-4 text-[13px] transition-colors phone:h-11 phone:text-[15px] ${a.id === area.id ? 'border-ink bg-ink text-white' : 'border-line bg-surface hover:border-ink'}`}>{a.name}</button>
         ))}
-      </div>
+      </div>}
       {foundations.length === 0 ? <EmptyState title="No foundations in this area yet" description="Add foundations in Setup → Foundations." action={<Link to={paths.register(projectId)} className="text-[13px] underline underline-offset-4">Open Setup → Foundations</Link>} /> : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Foundations">
           {foundations.map((f) => {
@@ -116,9 +156,11 @@ export function SetupHub() {
   const { projectId = '' } = useParams()
   const server = useIsServer()
   const access = useAccess()
+  const cfg = useProjectConfig(projectId)
   const cards = [
+    ...(access.can('structure.manage') ? [{ to: paths.settings(projectId), title: 'Project settings', text: 'Project information, areas, modules and the construction scope this project includes.' }] : []),
     { to: paths.register(projectId), title: 'Foundations', text: 'Create, edit and configure foundation designations, quantities and anchorage.' },
-    { to: paths.areas(projectId), title: 'Areas', text: 'Add, rename and archive the areas of this project.' },
+    ...(cfg.usesAreas ? [{ to: paths.areas(projectId), title: 'Areas', text: 'Add, rename and archive the areas of this project.' }] : []),
     { to: paths.anchorage(projectId), title: 'Anchorage types & library', text: 'Anchorage types, their components and embed plates.' },
     { to: paths.pours(projectId), title: 'Concrete pours', text: 'Plan pours, group foundations and record what was poured.' },
     ...(server && access.can('access.manage') ? [{ to: paths.team(projectId), title: 'Team members', text: 'Invite people, set what they can do, choose their projects and revoke access.' }] : []),

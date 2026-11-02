@@ -7,13 +7,18 @@ import { paths } from '../paths'
 import { packageProgress, type PackageIndicator } from '../packageProgress'
 import type { Index } from '../selectors'
 import { useTracker } from '../tracker/store'
+import { useProjectConfig } from '../useProjectConfig'
+import type { ProjectModule } from '../types'
 
+/** The module each indicator belongs to; one that is switched off is left out of the dashboard. */
+const INDICATOR_MODULE: Record<PackageIndicator['key'], ProjectModule> = { materials: 'procurement', installation: 'progress', survey: 'survey', qaqc: 'qaqc' }
 export const PACKAGE_TAB: Record<PackageIndicator['key'], string> = { materials: 'materials', installation: 'construction', survey: 'survey', qaqc: 'qaqc' }
 
 /** Four monochrome indicators at the top of an area. Each links to its detail tab; all figures come from records. */
 export function PackageDashboard({ idx, projectId, areaId }: { idx: Index; projectId: string; areaId: string }) {
   const { state: tracker } = useTracker()
-  const items = packageProgress(idx, areaId, tracker)
+  const cfg = useProjectConfig(projectId)
+  const items = packageProgress(idx, areaId, tracker).filter((p) => cfg.moduleOn(INDICATOR_MODULE[p.key]))
   const phone = useIsPhone()
   if (phone) {
     // Phone: one card per indicator, the ring beside its key figures, every figure and the method still one tap away.

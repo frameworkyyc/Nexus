@@ -49,7 +49,7 @@ const ofOrder = (ix: Index, id: unknown) => [...(ix.orderAreas.get(String(id)) ?
 export function projectsOfRow(table: string, r: Row, ix: Index): string[] {
   switch (table) {
     case 'projects': return list(str(r.id))
-    case 'areas': case 'anchorage_types': case 'library_embed_plates': case 'pours': case 'vehicle_assignments': return list(str(r.project_id))
+    case 'project_settings': case 'areas': case 'anchorage_types': case 'library_embed_plates': case 'pours': case 'vehicle_assignments': return list(str(r.project_id))
     case 'foundations': return list(ofArea(ix, r.area_id))
     case 'foundation_embeds': case 'foundation_units': case 'foundation_bolts': case 'foundation_anchorage_groups': case 'foundation_anchorages': case 'plinths': case 'activities': case 'material_allocations': return list(ofFoundation(ix, r.foundation_id))
     case 'pour_items': return list(ix.pour.get(String(r.pour_id)) ?? null)

@@ -20,6 +20,7 @@ export const TABLES = {
   // Construction: the organization, projects and everything built on them.
   companies: m('construction', 'The organization.'),
   projects: m('construction', 'Projects.'),
+  project_settings: m('construction', 'Which modules and construction scope items each project includes.'),
   areas: m('construction', 'Project areas.'),
   anchorage_types: m('construction', 'The anchorage library.'),
   anchorage_components: m('construction', 'What each anchorage type is made of.'),

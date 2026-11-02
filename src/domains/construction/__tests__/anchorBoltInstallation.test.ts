@@ -45,7 +45,7 @@ const mark = (s: ConstructionState, id: string, status: 'complete' | 'approved' 
 /** The pre-pour inspection approved, so the only thing that could hold up the pour is the anchor bolts. */
 const inspected = (s: ConstructionState, f: Foundation) => mark(s, acts(s, f).find((a) => a.key === 'preInspection')!.id, 'approved')
 /** Everything except anchor bolt installation, finished. */
-const finishBuild = (s: ConstructionState, f: Foundation) => s.activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category) && !INSTALL_KEYS.includes(a.key)).reduce((acc, a) => mark(acc, a.id), s)
+const finishBuild = (s: ConstructionState, f: Foundation) => getIndex(s).activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category) && !INSTALL_KEYS.includes(a.key)).reduce((acc, a) => mark(acc, a.id), s)
 const percent = (s: ConstructionState, f: Foundation) => progressOf(idxOf(s), acts(s, f))
 
 describe('OP1-01-06: one footing, four post-installed anchor bolts, no plinths', () => {

@@ -37,7 +37,21 @@ export interface Project {
   startDate?: ISODate | null
   /** Expected completion. */
   endDate?: ISODate | null
+  /** False = foundations belong directly to the project (it has one hidden, implicit area). Absent = true. */
+  useAreas?: boolean
+  /** Archived projects leave the project lists and the switcher; every record is kept. */
+  archived?: boolean
+  /** The starting template the project was created from (informational; the settings below are what applies). */
+  template?: ProjectTemplate
+  /** Modules switched on or off for this project. Absent = on. Switching one off hides it and keeps its records. */
+  modules?: Partial<Record<ProjectModule, boolean>>
+  /** Construction scope items switched on or off. Absent = the item's default (see projectSettings.ts). */
+  scopeItems?: Partial<Record<ScopeItem, boolean>>
 }
+
+export type ProjectModule = 'progress' | 'survey' | 'procurement' | 'qaqc' | 'civil' | 'fleet' | 'safety'
+export type ScopeItem = 'rebarBuilt' | 'rebarInstalled' | 'formed' | 'poured' | 'anchorBolts' | 'embeds' | 'equipmentSet' | 'grouted'
+export type ProjectTemplate = 'full-concrete' | 'grouting-only' | 'custom'
 
 export interface ProjectIssue {
   id: string
@@ -57,6 +71,8 @@ export interface Area {
   description?: string
   /** Hidden from pickers and lists by default; every record keeps pointing at it. */
   archived?: boolean
+  /** The project's one hidden area while it does not use areas: foundations belong to it, and users never see it. */
+  implicit?: boolean
 }
 
 export type LengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft'

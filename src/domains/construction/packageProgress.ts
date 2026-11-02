@@ -1,4 +1,6 @@
 import { percentOf } from '@/lib/format'
+import { scopeOn } from './projectSettings'
+import type { ScopeItem } from './types'
 import { getDef, isConstructionCategory } from './config'
 import { effectiveStatus, foundationActivities, foundationsOf, type Index } from './selectors'
 import { areaMaterialsSummary } from './tracker/procurement'
@@ -52,12 +54,23 @@ export function installationIndicator(idx: Index, areaId: string): PackageIndica
     const g = acts.filter((x) => keys.includes(x.act.key))
     return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : NOT_TRACKED }
   }
+  const project = idx.state.projects.find((p) => p.id === idx.area.get(areaId)?.projectId)
+  const on = (item: ScopeItem) => scopeOn(project, item)
   const install = (label: string, key: string): Metric => { const g = acts.filter((x) => x.act.key === key); return { label, value: g.length ? `${doneOf(g)} / ${g.length}` : 'None post-installed' } }
   return {
     key: 'installation', title: 'Construction',
     basis: 'Completed activities against applicable activities across every footing and plinth.',
     percent: ratio(doneOf(acts), acts.length),
-    rows: [group('Formwork', ['formed']), group('Rebar', ['rebarBuilt', 'rebarInstalled']), group('Concrete pours', ['poured']), install('Anchor bolts installed', 'anchorBoltsPostInstalled'), install('Embed plates installed', 'embedsPostInstalled')],
+    // Only the work in the project's scope has a row: a grouting-only project shows equipment setting and grouting, not formwork and rebar.
+    rows: [
+      ...(on('formed') ? [group('Formwork', ['formed'])] : []),
+      ...(on('rebarBuilt') || on('rebarInstalled') ? [group('Rebar', ['rebarBuilt', 'rebarInstalled'])] : []),
+      ...(on('poured') ? [group('Concrete pours', ['poured'])] : []),
+      ...(on('anchorBolts') ? [install('Anchor bolts installed', 'anchorBoltsPostInstalled')] : []),
+      ...(on('embeds') ? [install('Embed plates installed', 'embedsPostInstalled')] : []),
+      ...(on('equipmentSet') ? [group('Equipment set', ['equipmentSet'])] : []),
+      ...(on('grouted') ? [group('Grouted', ['grouted'])] : []),
+    ],
     gaps: [],
   }
 }

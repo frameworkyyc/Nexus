@@ -10,6 +10,8 @@ import { addAnchorageType, addFoundations, archiveArea, archiveFoundation, confi
 import { embedChoices, type FoundationConfig } from '../configActions'
 import { configFromDraft, draftFromFoundation, FoundationBasics, FoundationConfigFields, type ConfigDraft } from './FoundationConfigFields'
 import { useConstruction, useConstructionCommand, constructionStore } from '../store'
+import { useProjectConfig } from '../useProjectConfig'
+import { usesAreas } from '../projectSettings'
 import type { ConstructionState, Foundation } from '../types'
 
 /** Quantity text → number; blank means the default of 1. */
@@ -58,8 +60,11 @@ export function AddFoundationButton({ projectId, areaId }: { projectId: string; 
 function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string; areaId?: string; onClose: () => void }) {
   const { state } = useConstruction()
   const { run, saving } = useConstructionCommand()
-  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived)
-  const [area, setArea] = useState(areaId ?? areas[0]?.id ?? '')
+  const projectCfg = useProjectConfig(projectId)
+  const hidden = state.areas.find((a) => a.projectId === projectId && a.implicit && !a.archived)
+  const areas = state.areas.filter((a) => a.projectId === projectId && !a.archived && !a.implicit)
+  // A project without areas: the foundation belongs directly to the project, in its hidden area. Nobody chooses or sees it.
+  const [area, setArea] = useState(areaId ?? (projectCfg.usesAreas ? areas[0]?.id : hidden?.id) ?? '')
   const [mode, setMode] = useState<'one' | 'many'>('one')
   const [number, setNumber] = useState('')
   const [quantity, setQuantity] = useState('1')
@@ -84,7 +89,7 @@ function AddFoundationModal({ projectId, areaId, onClose }: { projectId: string;
     <Modal title="Add foundations" onClose={onClose} form>
       <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
         <p className="text-muted">Each entry is a foundation name that may stand for several identical foundations (its quantity). Nothing is marked as started or complete. A name already used in the area (even by an archived foundation) is refused.</p>
-        {!areaId && <Field label="Area"><Select aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
+        {!areaId && projectCfg.usesAreas && <Field label="Area"><Select aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>{areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
         <div className="flex gap-1" role="group" aria-label="How many">
           {(['one', 'many'] as const).map((m) => <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className={`rounded-nx px-3 py-1.5 transition-colors phone:h-11 ${mode === m ? 'bg-ink text-white' : 'text-muted hover:bg-hover hover:text-ink'}`}>{m === 'one' ? 'One foundation name' : 'Several at once'}</button>)}
         </div>
@@ -225,7 +230,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
   const [saving, setSaving] = useState(false)
   if (!f || !draft) return null
   const project = state.areas.find((a) => a.id === f.areaId)?.projectId
-  const areaOptions = state.areas.filter((a) => a.projectId === project && (!a.archived || a.id === f.areaId)).sort((x, y) => x.sequence - y.sequence).map((a) => ({ id: a.id, name: a.name }))
+  const areaOptions = state.areas.filter((a) => a.projectId === project && !a.implicit && (!a.archived || a.id === f.areaId)).sort((x, y) => x.sequence - y.sequence).map((a) => ({ id: a.id, name: a.name }))
   const types = state.anchorageTypes.filter((t) => t.projectId === project)
   const go = async (steps: (() => Promise<string | null>)[], close = false) => {
     setSaving(true); setError(null)
@@ -253,7 +258,7 @@ function ManageFoundationModal({ id, onClose }: { id: string; onClose: () => voi
       <div className="mx-auto max-w-[840px] space-y-5 p-6 text-[13px] phone:p-4">
         {f.archived && <p role="status" className="border-l-2 border-warn pl-3">Archived: hidden from pickers and the default Foundations view. Every record keeps pointing at it.</p>}
         <p className="text-muted">Renaming changes the name everywhere; records stay attached. Changing the quantity never changes material quantities.</p>
-        <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} area={{ value: areaId, onChange: setAreaId, options: areaOptions }} />
+        <FoundationBasics number={number} onNumber={setNumber} quantity={quantity} onQuantity={setQuantity} description={description} onDescription={setDescription} area={usesAreas(state.projects.find((p) => p.id === project)) ? { value: areaId, onChange: setAreaId, options: areaOptions } : undefined} />
         <FoundationConfigFields draft={draft} onChange={setDraft} types={types} components={state.anchorageComponents ?? []} embedOptions={embedChoices(state, project).map((x) => ({ component: x.component, type: x.type }))} foundationName={f.number} quantity={Number.isInteger(q) && q >= 1 ? q : 1} preview={preview} onCreateType={project ? (code) => createAnchorageType(project, code) : undefined} />
         <div className="border-t border-line pt-5"><Field label="Notes"><Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></Field></div>
         {error && <p role="alert" className="border-l-2 border-bad pl-3">{error}</p>}

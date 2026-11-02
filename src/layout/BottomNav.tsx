@@ -1,16 +1,17 @@
 import { Link, useLocation } from 'react-router-dom'
 import { PRIMARY_NAV, activePrimary } from '@/app/primaryNav'
 import { useProjectContext } from '@/app/projectContext'
+import { moduleOn } from '@/domains/construction/projectSettings'
 
 /** Fixed phone navigation: four primary sections, always reachable, clear of the iPhone home indicator. */
 export function BottomNav() {
   const { pathname } = useLocation()
-  const { projectId } = useProjectContext()
+  const { projectId, project } = useProjectContext()
   const current = activePrimary(pathname)
   return (
     <nav aria-label="Primary" className="pb-safe pl-safe pr-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
       <ul className="mx-auto grid max-w-xl grid-cols-4">
-        {PRIMARY_NAV.map(({ id, short, icon: Icon, to }) => {
+        {PRIMARY_NAV.filter(({ id }) => !project || id === 'status' || id === 'fleet' || moduleOn(project, id === 'materials' ? 'procurement' : 'progress')).map(({ id, short, icon: Icon, to }) => {
           const active = current === id
           return (
             <li key={id}>

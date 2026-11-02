@@ -46,7 +46,7 @@ const agrees = (s: ConstructionState) => {
   const check = expectedTotals(s)
   expect([...calc].sort()).toEqual([...check].filter(([, v]) => v > 0).sort())
 }
-const finish = (s: ConstructionState, ownerId: string) => s.activities.filter((a) => (a.plinthId ?? a.foundationId) === ownerId && isConstructionCategory(getDef(a.scope, a.key).category)).reduce((acc, a) => apply(acc, K.updateActivity(a.id, { status: 'complete' }, TODAY)), s)
+const finish = (s: ConstructionState, ownerId: string) => getIndex(s).activities.filter((a) => (a.plinthId ?? a.foundationId) === ownerId && isConstructionCategory(getDef(a.scope, a.key).category)).reduce((acc, a) => apply(acc, K.updateActivity(a.id, { status: 'complete' }, TODAY)), s)
 
 describe('anchorage mounted on a footing (OP1-21-29: one pad, no plinths, two OP1-A11 anchorage groups)', () => {
   it('two groups of 12 bolts and a template give 24 bolts and 2 templates — as two rows or as one row of quantity 2', () => {
@@ -85,7 +85,7 @@ describe('anchorage mounted on a footing (OP1-21-29: one pad, no plinths, two OP
     const w = world()
     const old = add(w.s, w.areaId, 'OLD', 2, 1, { footing: d(8.5, 3.5, 0.5), groups: [{ anchorageTypeId: w.A11, count: 2 }] })
     const mounted = add(w.s, w.areaId, 'NEW', 0, 1, { footing: d(8.5, 3.5, 0.5), anchorages: [{ anchorageTypeId: w.A11, qty: 2 }] })
-    const work = (s: ConstructionState, f: Foundation) => s.activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category)).length
+    const work = (s: ConstructionState, f: Foundation) => getIndex(s).activities.filter((a) => a.foundationId === f.id && isConstructionCategory(getDef(a.scope, a.key).category)).length
     expect(work(old.s, old.f)).toBe(4 + 2 * 4) // the plain footing (4) + 2 plinths, each with rebar built/installed, formed and poured (4); bolts installed with the pour need no activity
     expect(work(mounted.s, mounted.f)).toBe(4) // the footing only
     expect(sum(old.s, 'Anchor bolt')).toBe(24) // the material need is the same either way

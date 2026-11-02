@@ -78,17 +78,14 @@ function elementsOf(idx: Index, f: Foundation): Element[] {
   if (!owners.size) return []
   const quantity = foundationQuantity(f)
   const concrete = concreteOf(idx.state, f)
-  return [...owners.values()].map(({ plinthId, acts }) => {
-    const done = (key: string) => { const a = acts.find((x) => x.key === key); return a && isDone(effectiveStatus(idx, a)) ? 1 : 0 }
+  return [...owners.values()].flatMap(({ plinthId, acts }): Element[] => {
+    const done = (key: string) => { const a = acts.find((x) => x.key === key); return a ? (isDone(effectiveStatus(idx, a)) ? 1 : 0) : null }
     const bolts = acts.filter((x) => INSTALL_KEYS.includes(x.key)).map((x) => (isDone(effectiveStatus(idx, x)) ? 1 : 0))
     const stages = (poured: number) => elementStages(done, bolts, poured)
     const perUnit = componentVolume(concrete, plinthId)
-    return {
-      foundationId: f.id,
-      plinthId,
-      credited: stages(Math.max(done('poured'), pourFraction(idx.state, f.id, plinthId, quantity, perUnit))),
-      volume: perUnit === null ? null : perUnit * quantity,
-    }
+    const credited = stages(Math.max(done('poured') ?? 0, pourFraction(idx.state, f.id, plinthId, quantity, perUnit)))
+    // Nothing of this footing or plinth is part of the project's scope: it neither adds to nor dilutes the completion.
+    return credited === null ? [] : [{ foundationId: f.id, plinthId, credited, volume: perUnit === null ? null : perUnit * quantity }]
   })
 }
 

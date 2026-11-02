@@ -26,7 +26,7 @@ const add = (s: ConstructionState, areaId: string, number: string, quantity: num
   const next = apply(s, K.createFoundation(areaId, number, '', null, quantity, config))
   return { s: next, f: next.foundations.find((x) => x.number === number) as Foundation }
 }
-const finish = (s: ConstructionState, ownerId: string, only?: string[]) => s.activities.filter((a) => (a.plinthId ?? a.foundationId) === ownerId && isConstructionCategory(getDef(a.scope, a.key).category) && (!only || only.includes(a.key))).reduce((acc, a) => apply(acc, K.updateActivity(a.id, { status: 'complete' }, TODAY)), s)
+const finish = (s: ConstructionState, ownerId: string, only?: string[]) => getIndex(s).activities.filter((a) => (a.plinthId ?? a.foundationId) === ownerId && isConstructionCategory(getDef(a.scope, a.key).category) && (!only || only.includes(a.key))).reduce((acc, a) => apply(acc, K.updateActivity(a.id, { status: 'complete' }, TODAY)), s)
 const all = (s: ConstructionState) => { const idx = getIndex(s); return { idx, foundations: foundationsOf(idx) } }
 const run = (s: ConstructionState, basis: 'type' | 'count' | 'volume') => { const { idx, foundations } = all(s); return completionOf(idx, foundations, basis) }
 

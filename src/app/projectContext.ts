@@ -11,8 +11,9 @@ const write = (id: string) => { try { localStorage.setItem(KEY, id) } catch { /*
 export function useProjectContext() {
   const { state } = useConstruction()
   const routeId = useMatch('/projects/:projectId/*')?.params.projectId
-  const projects = state.projects
-  const projectId = resolveProject(projects, routeId, read())
+  // Archived projects leave the switcher and are never chosen by default, but one opened by its address still works.
+  const projects = state.projects.filter((p) => !p.archived)
+  const projectId = routeId && state.projects.some((p) => p.id === routeId) ? routeId : resolveProject(projects, routeId, read())
   useEffect(() => { if (routeId && projects.some((p) => p.id === routeId)) write(routeId) }, [routeId, projects])
-  return { projectId, project: projects.find((p) => p.id === projectId) ?? null, projects }
+  return { projectId, project: state.projects.find((p) => p.id === projectId) ?? null, projects }
 }
