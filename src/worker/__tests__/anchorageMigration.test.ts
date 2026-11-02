@@ -260,9 +260,9 @@ describe.skipIf(!BOLTS)('anchor bolt installation on a copy of real data', () =>
     })]))
     const allBefore = dump()
     const requirementsBefore = JSON.stringify(allBefore.foundation_bolts)
-    raw.exec(readFileSync('migrations/0029_anchor_bolt_installation.sql', 'utf8'))
-    raw.exec(readFileSync('migrations/0030_embed_post_install.sql', 'utf8'))
-    raw.exec(readFileSync('migrations/0031_project_configuration.sql', 'utf8'))
+    // Whatever the copy is missing, in order: a copy at schema 28, 29 or 30 is brought to the current schema; one already there is left as it is.
+    const ledger = new Set((raw.prepare('SELECT name FROM d1_migrations').all() as { name: string }[]).map((r) => r.name))
+    for (const m of ['0029_anchor_bolt_installation.sql', '0030_embed_post_install.sql', '0031_project_configuration.sql']) if (!ledger.has(m)) raw.exec(readFileSync(`migrations/${m}`, 'utf8'))
     const allAfter = dump()
     for (const t of tables) if (t !== 'schema_info' && t !== 'd1_migrations') expect(allAfter[t], `rows of ${t} unchanged`).toEqual(allBefore[t])
     expect(JSON.stringify(allAfter.foundation_bolts)).toBe(requirementsBefore)
@@ -286,7 +286,8 @@ describe.skipIf(!BOLTS)('anchor bolt installation on a copy of real data', () =>
     }
     // OP1-01-06: built to 100%, with four bolts and no installation activity until now.
     const pad = st.foundations.find((f) => f.number === 'OP1-01-06')
-    if (pad) {
+    // OP1-01-06 is walked through only while its bolts are still installed with the pour (once Post-Install is ticked in production there is nothing to demonstrate).
+    if (pad && !(st.foundationBolts ?? []).some((b) => b.foundationId === pad.id && b.installMethod === 'post-installed')) {
       const padActs = () => foundationActivities(getIndex(st), pad)
       expect(progressOf(idx, foundationActivities(idx, pad).filter((a) => !INSTALL_KEYS.includes(a.key)))).toBe(100) // the problem
       expect(progressOf(idx, foundationActivities(idx, pad))).toBe(100) // existing bolts are installed with the pour until Post-Install is ticked: nothing changes by itself
